@@ -31,6 +31,13 @@ def test_register_stores_the_descriptor(registry: AgentRegistry):
     assert registry.get_health(descriptor.id).status == AgentStatus.AVAILABLE
 
 
+def test_list_all_returns_every_registered_descriptor(registry: AgentRegistry):
+    registry.register(make_descriptor(id="agent-a"))
+    registry.register(make_descriptor(id="agent-b"))
+
+    assert {a.id for a in registry.list_all()} == {"agent-a", "agent-b"}
+
+
 def test_find_by_capability_returns_matching_agents(registry: AgentRegistry):
     product_agent = make_descriptor(id="agent-product-1", capabilities=["market_validation"])
     legal_agent = make_descriptor(id="agent-legal-1", capabilities=["legal_validation"])

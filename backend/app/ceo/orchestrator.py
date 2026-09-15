@@ -14,6 +14,7 @@ from app.ceo.schemas import Objective as ObjectiveSchema
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.approval import Approval as ApprovalModel
+from app.db.models.audit import AuditLog as AuditLogModel
 from app.db.models.decision import Decision as DecisionModel
 from app.db.models.decision import DecisionEvidence as DecisionEvidenceModel
 from app.db.models.objective import Objective as ObjectiveModel
@@ -90,7 +91,7 @@ class CEOOrchestrator:
         project = ProjectModel(objective_id=objective.id, name=objective.title, status="VALIDATING")
         self._db.add(project)
         self._db.flush()
-        self.audit_service.record(
+        self._audit(
             actor="ceo",
             action="project.created",
             resource=f"project:{project.id}",
@@ -135,7 +136,7 @@ class CEOOrchestrator:
             self._db.flush()
             name_to_db_id[spec.name] = db_task.id
 
-        self.audit_service.record(
+        self._audit(
             actor="ceo",
             action="tasks.created",
             resource=f"project:{project.id}",
@@ -175,7 +176,7 @@ class CEOOrchestrator:
                 db_task.status = TaskStatus.COMPLETED.value
                 db_task.output = result.model_dump()
 
-                self.audit_service.record(
+                self._audit(
                     actor=agent.id,
                     action="task.completed",
                     resource=f"task:{db_task.id}",
@@ -243,7 +244,7 @@ class CEOOrchestrator:
                 )
             )
 
-        self.audit_service.record(
+        self._audit(
             actor="ceo",
             action="decision.made",
             resource=f"decision:{decision.id}",
@@ -270,7 +271,7 @@ class CEOOrchestrator:
         if not budget_decision.approved:
             decision.status = DecisionStatus.NO_GO.value
             decision.rationale = f"{decision.rationale}; budget denied: {budget_decision.reason}"
-            self.audit_service.record(
+            self._audit(
                 actor="ceo",
                 action="decision.budget_denied",
                 resource=f"decision:{decision.id}",
@@ -293,7 +294,7 @@ class CEOOrchestrator:
         self._db.add(approval)
         self._db.flush()
 
-        self.audit_service.record(
+        self._audit(
             actor="ceo",
             action="approval.requested",
             resource=f"approval:{approval.id}",
@@ -306,5 +307,27 @@ class CEOOrchestrator:
                 type="approval.requested",
                 correlation_id=correlation_id,
                 payload={"approval_id": approval.id, "decision_id": decision.id},
+            )
+        )
+
+    def _audit(
+        self,
+        *,
+        actor: str,
+        action: str,
+        resource: str,
+        before: dict | None,
+        after: dict | None,
+        correlation_id: str,
+    ) -> None:
+        """Record an audit transition both in the in-process AuditService
+        (used by callers within the same run) and in the durable
+        `audit_log` table (used by the API, across requests/processes)."""
+        self.audit_service.record(
+            actor=actor, action=action, resource=resource, before=before, after=after, correlation_id=correlation_id
+        )
+        self._db.add(
+            AuditLogModel(
+                actor=actor, action=action, resource=resource, before=before, after=after, correlation_id=correlation_id
             )
         )

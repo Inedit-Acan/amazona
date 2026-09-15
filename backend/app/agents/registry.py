@@ -29,6 +29,9 @@ class AgentRegistry:
     def get_health(self, agent_id: str) -> AgentDescriptor:
         return self._get(agent_id)
 
+    def list_all(self) -> list[AgentDescriptor]:
+        return list(self._agents.values())
+
     def _get(self, agent_id: str) -> AgentDescriptor:
         agent = self._agents.get(agent_id)
         if agent is None:
