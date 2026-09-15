@@ -139,3 +139,22 @@ def test_reject_approval_marks_it_rejected(client: TestClient):
 def test_get_project_returns_404_for_unknown_id(client: TestClient):
     response = client.get("/api/projects/does-not-exist")
     assert response.status_code == 404
+
+
+def test_list_projects_returns_all_created_projects(client: TestClient):
+    objective_id = client.post(
+        "/api/objectives",
+        json={
+            "title": "Validate wireless earbuds opportunity",
+            "created_by": "owner@amazona.local",
+            "context": ATTRACTIVE_PRODUCT_CONTEXT,
+        },
+    ).json()["id"]
+    client.post(f"/api/objectives/{objective_id}/run")
+
+    response = client.get("/api/projects")
+
+    assert response.status_code == 200
+    projects = response.json()
+    assert len(projects) == 1
+    assert projects[0]["objective_id"] == objective_id

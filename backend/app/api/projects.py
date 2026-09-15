@@ -18,6 +18,11 @@ class ProjectOut(BaseModel):
     status: str
 
 
+@router.get("", response_model=list[ProjectOut])
+def list_projects(db: Session = Depends(get_db)) -> list[ProjectModel]:
+    return db.query(ProjectModel).order_by(ProjectModel.created_at.desc()).all()
+
+
 @router.get("/{project_id}", response_model=ProjectOut)
 def get_project(project_id: str, db: Session = Depends(get_db)) -> ProjectModel:
     project = db.get(ProjectModel, project_id)
