@@ -34,3 +34,38 @@ class AgentRegistry:
         if agent is None:
             raise NotFoundError(f"agent {agent_id} not found")
         return agent
+
+
+def build_default_agent_manager() -> tuple["AgentRegistry", "AgentManager"]:
+    """Wire up and register the four Milestone 1 specialist agents."""
+    from app.agents.finance import FinanceAgent
+    from app.agents.legal import LegalAgent
+    from app.agents.manager import AgentManager
+    from app.agents.product import ProductAgent
+    from app.agents.supplier import SupplierAgent
+
+    registry = AgentRegistry()
+    manager = AgentManager(registry)
+
+    specialists = [
+        ("agent-product-1", "Product Research Agent", "product", ProductAgent()),
+        ("agent-supplier-1", "Supplier Sourcing Agent", "supplier", SupplierAgent()),
+        ("agent-finance-1", "Finance Validation Agent", "finance", FinanceAgent()),
+        ("agent-legal-1", "Legal Validation Agent", "legal", LegalAgent()),
+    ]
+
+    for agent_id, name, role, executor in specialists:
+        registry.register(
+            AgentDescriptor(
+                id=agent_id,
+                name=name,
+                role=role,
+                version="1.0.0",
+                capabilities=[executor.capability],
+                reliability_score=1.0,
+                cost_profile={"simulated_cost_per_task": 0.0},
+            )
+        )
+        manager.register_executor(agent_id, executor)
+
+    return registry, manager
