@@ -1,4 +1,4 @@
-from sqlalchemy import String, Text
+from sqlalchemy import JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,3 +12,4 @@ class Objective(IdMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(32), default="RECEIVED")
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
