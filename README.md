@@ -18,6 +18,23 @@ Sistema de e-commerce impulsado por IA con agentes especializados.
 
 Detalle completo del plan de implementación en [`docs/superpowers/plans/2026-09-15-amazona-milestone-1.md`](docs/superpowers/plans/2026-09-15-amazona-milestone-1.md).
 
+## Desarrollo local
+
+```bash
+# Infraestructura (PostgreSQL + Redis)
+docker compose -f infra/docker-compose.yml up -d
+
+# Backend
+cd backend
+python -m venv .venv
+.venv/Scripts/activate  # Windows; usar `source .venv/bin/activate` en Unix
+pip install -e ".[dev]"
+pytest
+uvicorn app.main:app --reload
+```
+
+`GET http://localhost:8000/health` debe responder `{"status": "ok", "service": "amazona-backend"}`.
+
 ## Estado
 
 Fase 1 — Fundación (semanas 1–3).
