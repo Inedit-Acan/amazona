@@ -1,6 +1,8 @@
+from pydantic import ValidationError
+
 from app.agents.base import Agent, AgentDescriptor, AgentResult, AgentStatus
 from app.agents.registry import AgentRegistry
-from app.core.errors import NoAgentAvailableError, NotFoundError
+from app.core.errors import AgentIOValidationError, NoAgentAvailableError, NotFoundError
 from app.tasks.schemas import Task
 
 
@@ -40,4 +42,23 @@ class AgentManager:
         executor = self._executors.get(agent_id)
         if executor is None:
             raise NotFoundError(f"no executor registered for agent {agent_id}")
-        return executor.run(task.input)
+
+        if executor.input_schema is not None:
+            try:
+                executor.input_schema.model_validate(task.input)
+            except ValidationError as exc:
+                raise AgentIOValidationError(
+                    f"agent {agent_id} input does not match {executor.input_schema.__name__}: {exc}"
+                ) from exc
+
+        result = executor.run(task.input)
+
+        if executor.output_schema is not None:
+            try:
+                executor.output_schema.model_validate(result.data)
+            except ValidationError as exc:
+                raise AgentIOValidationError(
+                    f"agent {agent_id} output does not match {executor.output_schema.__name__}: {exc}"
+                ) from exc
+
+        return result

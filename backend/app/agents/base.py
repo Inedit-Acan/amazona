@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -48,9 +49,17 @@ class AgentDescriptor(BaseModel):
 
 
 class Agent(ABC):
-    """Base interface every simulated or real specialist agent implements."""
+    """Base interface every simulated or real specialist agent implements.
+
+    `input_schema`/`output_schema` are optional (see ADR 0002): when
+    declared, the AgentManager validates task_input / AgentResult.data
+    against them before/after calling `run()`. Agents that don't declare
+    them (Milestone 1's four specialists) are unaffected.
+    """
 
     capability: str
+    input_schema: ClassVar[type[BaseModel] | None] = None
+    output_schema: ClassVar[type[BaseModel] | None] = None
 
     @abstractmethod
     def run(self, task_input: dict) -> AgentResult:

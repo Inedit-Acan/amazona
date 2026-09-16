@@ -8,3 +8,7 @@ class NotFoundError(AmazonaError):
 
 class NoAgentAvailableError(AmazonaError):
     """Raised when no registered agent can currently serve a capability."""
+
+
+class AgentIOValidationError(AmazonaError):
+    """Raised when an agent's input or output doesn't match its declared schema."""
