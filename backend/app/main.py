@@ -18,6 +18,7 @@ from app.api import (
     monitoring,
     objectives,
     operations,
+    pipeline,
     products,
     projects,
     research,
@@ -121,3 +122,4 @@ app.include_router(marketplace.router)
 app.include_router(marketing.router)
 app.include_router(operations.router)
 app.include_router(cfo.router)
+app.include_router(pipeline.router)

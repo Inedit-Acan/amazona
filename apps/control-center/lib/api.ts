@@ -460,6 +460,24 @@ export interface CFOReport {
   } | null;
 }
 
+export interface PipelineStep {
+  correlation_id: string;
+  entity_id?: string;
+  status?: string;
+  recommendation?: string;
+  candidate_count?: number;
+}
+
+export interface PipelineRun {
+  correlation_id: string;
+  product_id: string | null;
+  category: string;
+  market: string;
+  status: "COMPLETED" | "PARTIAL";
+  failed_step: string | null;
+  steps: Record<string, PipelineStep>;
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -533,4 +551,17 @@ export const api = {
   createCFORun: () => request<CFOReport>("/api/cfo/runs", { method: "POST" }),
   getCFORun: (correlationId: string) => request<CFOReport>(`/api/cfo/runs/${correlationId}`),
   listCFORuns: () => request<CFOReport[]>("/api/cfo/runs"),
+  createPipelineRun: (payload: {
+    category: string;
+    sale_price: number;
+    destination_region: string;
+    market?: string;
+    marketplace_platform?: string;
+    marketing_platform?: string;
+    daily_budget?: number;
+    monthly_fixed_costs?: number;
+    certification_available?: boolean;
+    max_results?: number;
+  }) => request<PipelineRun>("/api/pipeline/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listPipelineRuns: () => request<PipelineRun[]>("/api/pipeline/runs"),
 };
