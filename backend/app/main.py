@@ -10,6 +10,7 @@ from app.api import (
     audit,
     decisions,
     economics,
+    legal,
     monitoring,
     objectives,
     products,
@@ -109,3 +110,4 @@ app.include_router(research.router)
 app.include_router(products.router)
 app.include_router(sourcing.router)
 app.include_router(economics.router)
+app.include_router(legal.router)
