@@ -14,10 +14,13 @@ class PermissionEngine:
     def check(
         self,
         *,
-        actor_role: str,
+        actor_role: str | None,
         action: ActionType,
         is_self_target: bool = False,
     ) -> PermissionResult:
+        if actor_role is None:
+            return PermissionResult.DENIED
+
         if action == ActionType.PERMISSION_GRANT and is_self_target:
             return PermissionResult.DENIED
 

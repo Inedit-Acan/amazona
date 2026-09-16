@@ -11,8 +11,10 @@ from app.db.models.policy import Policy
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.project import Project
+from app.db.models.role import Role
 from app.db.models.supplier import Supplier
 from app.db.models.task import Task, TaskDependency
+from app.db.models.user import User
 
 __all__ = [
     "Agent",
@@ -32,7 +34,9 @@ __all__ = [
     "Product",
     "ProductAnalysis",
     "Project",
+    "Role",
     "Supplier",
     "Task",
     "TaskDependency",
+    "User",
 ]

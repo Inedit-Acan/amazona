@@ -64,3 +64,11 @@ def test_granting_permissions_to_another_actor_is_not_blocked_by_self_escalation
     result = engine.check(actor_role="owner", action=ActionType.PERMISSION_GRANT, is_self_target=False)
 
     assert result == PermissionResult.ALLOWED
+
+
+def test_an_unrecognized_role_is_denied_by_default_even_for_normally_allowed_actions():
+    engine = PermissionEngine()
+
+    result = engine.check(actor_role=None, action=ActionType.RESEARCH_READ)
+
+    assert result == PermissionResult.DENIED
