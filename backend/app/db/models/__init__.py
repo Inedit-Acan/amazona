@@ -7,7 +7,10 @@ from app.db.models.event import Event
 from app.db.models.incident import Incident
 from app.db.models.objective import Objective
 from app.db.models.policy import Policy
+from app.db.models.product import Product
+from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.project import Project
+from app.db.models.supplier import Supplier
 from app.db.models.task import Task, TaskDependency
 
 __all__ = [
@@ -24,7 +27,10 @@ __all__ = [
     "Incident",
     "Objective",
     "Policy",
+    "Product",
+    "ProductAnalysis",
     "Project",
+    "Supplier",
     "Task",
     "TaskDependency",
 ]
