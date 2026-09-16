@@ -8,6 +8,7 @@ from app.db.models.economic_analysis import EconomicAnalysis
 from app.db.models.event import Event
 from app.db.models.incident import Incident
 from app.db.models.legal_analysis import LegalAnalysis
+from app.db.models.marketing_campaign import MarketingCampaign
 from app.db.models.marketplace_listing import MarketplaceListing
 from app.db.models.memory_record import MemoryRecord
 from app.db.models.objective import Objective
@@ -37,6 +38,7 @@ __all__ = [
     "Event",
     "Incident",
     "LegalAnalysis",
+    "MarketingCampaign",
     "MarketplaceListing",
     "MemoryRecord",
     "Objective",
