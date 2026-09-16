@@ -12,7 +12,9 @@ _session_factory: sessionmaker | None = None
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        _engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+        database_url = get_settings().database_url
+        connect_args = {"connect_timeout": 5} if database_url.startswith("postgresql") else {}
+        _engine = create_engine(database_url, pool_pre_ping=True, connect_args=connect_args)
     return _engine
 
 

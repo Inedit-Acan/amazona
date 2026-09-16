@@ -1,6 +1,8 @@
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.api import agents, approvals, audit, decisions, objectives, projects, tasks
 from app.approvals.service import ApprovalNotPendingError
@@ -8,6 +10,7 @@ from app.core.config import get_settings
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.core.logging import configure_logging, set_correlation_id
+from app.db.session import get_db
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -48,6 +51,29 @@ async def correlation_id_middleware(request: Request, call_next):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "amazona-backend"}
+
+
+@app.get("/health/detailed")
+def health_detailed(db: Session = Depends(get_db)) -> JSONResponse:
+    """Operational status: DB connectivity, applied migration, whether
+    Supabase is configured. Never includes credentials."""
+    settings = get_settings()
+    try:
+        db.execute(text("SELECT 1"))
+        migration = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    except Exception:  # noqa: BLE001 - any DB failure means "database unreachable" here
+        return JSONResponse(
+            status_code=503,
+            content={"database": "error", "migration": None, "supabase_configured": settings.is_supabase_configured},
+        )
+
+    return JSONResponse(
+        content={
+            "database": "ok",
+            "migration": migration,
+            "supabase_configured": settings.is_supabase_configured,
+        }
+    )
 
 
 app.include_router(objectives.router)
