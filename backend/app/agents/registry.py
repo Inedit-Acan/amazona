@@ -55,6 +55,7 @@ def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:
     from app.agents.legal import LegalAgent
     from app.agents.legal_compliance import LegalComplianceAgent
     from app.agents.manager import AgentManager
+    from app.agents.marketplace_listing import MarketplaceListingAgent
     from app.agents.product import ProductAgent
     from app.agents.product_research import ProductResearchAgent
     from app.agents.supplier import SupplierAgent
@@ -92,6 +93,12 @@ def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:
             "Ecommerce Storefront Generation Agent",
             "ecommerce",
             EcommerceStorefrontAgent(),
+        ),
+        (
+            "agent-marketplace-listing-1",
+            "Marketplace Listing Optimization Agent",
+            "marketplace",
+            MarketplaceListingAgent(),
         ),
     ]
 
