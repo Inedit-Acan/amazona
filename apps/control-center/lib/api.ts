@@ -252,6 +252,49 @@ export interface LegalAnalysis {
   } | null;
 }
 
+export interface LandingPageCopy {
+  headline: string;
+  subheadline: string;
+  price_display: string;
+  bullets: string[];
+  cta: string;
+}
+
+export interface PaymentGatewayPlan {
+  gateway: string;
+  mode: string;
+  checklist: string[];
+  requires_human_approval: boolean;
+}
+
+export interface CatalogEntry {
+  sku: string;
+  price: number | null;
+  category: string;
+  market: string;
+  restricted: boolean | null;
+  lead_time_days: number | null;
+}
+
+export interface Storefront {
+  correlation_id: string;
+  product_id: string;
+  market: string;
+  store_slug: string;
+  launch_status: "READY" | "NEEDS_REVIEW" | "BLOCKED";
+  recommendation: "GO" | "REVIEW" | "NO_GO";
+  confidence: number;
+  data: {
+    landing_page_copy?: LandingPageCopy;
+    payment_gateway_plan?: PaymentGatewayPlan;
+    catalog_entry?: CatalogEntry;
+    conversion_tips?: string[];
+    risks?: string[];
+    evidence?: string[];
+    [key: string]: unknown;
+  } | null;
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -302,4 +345,8 @@ export const api = {
     certification_available?: boolean;
   }) => request<LegalAnalysis>("/api/legal/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductLegal: (productId: string) => request<LegalAnalysis[]>(`/api/products/${productId}/legal`),
+  createStorefrontRun: (payload: { product_id: string; market: string }) =>
+    request<Storefront>("/api/ecommerce/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listProductStorefronts: (productId: string) =>
+    request<Storefront[]>(`/api/products/${productId}/storefronts`),
 };

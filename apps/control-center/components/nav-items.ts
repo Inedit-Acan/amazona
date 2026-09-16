@@ -5,6 +5,7 @@ export const NAV_ITEMS = [
   { href: "/sourcing", label: "Sourcing" },
   { href: "/economics", label: "Economics" },
   { href: "/legal", label: "Legal" },
+  { href: "/ecommerce", label: "Ecommerce" },
   { href: "/projects", label: "Projects" },
   { href: "/agents", label: "Agents" },
   { href: "/approvals", label: "Approvals" },

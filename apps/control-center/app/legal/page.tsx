@@ -57,6 +57,12 @@ function LegalForm() {
     router.push(`/ceo?${params.toString()}`);
   }
 
+  function generateStorefront() {
+    if (!analysis) return;
+    const params = new URLSearchParams({ product_id: analysis.product_id });
+    router.push(`/ecommerce?${params.toString()}`);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -185,9 +191,14 @@ function LegalForm() {
               </div>
             ) : null}
 
-            <Button size="sm" variant="outline" onClick={validateThisAnalysis}>
-              Validate this analysis
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={generateStorefront}>
+                Generate storefront
+              </Button>
+              <Button size="sm" variant="outline" onClick={validateThisAnalysis}>
+                Validate this analysis
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}
