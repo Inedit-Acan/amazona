@@ -145,6 +145,22 @@ export interface AuditEntry {
   created_at: string;
 }
 
+export interface AgentExecution {
+  id: string;
+  agent_id: string;
+  capability: string;
+  duration_ms: number;
+  success: boolean;
+  correlation_id: string;
+  created_at: string;
+}
+
+export interface DetailedHealth {
+  database: "ok" | "error";
+  migration: string | null;
+  supabase_configured: boolean;
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -169,4 +185,6 @@ export const api = {
     }),
   listAudit: (correlationId?: string) =>
     request<AuditEntry[]>(`/api/audit${correlationId ? `?correlation_id=${correlationId}` : ""}`),
+  listAgentExecutions: () => request<AgentExecution[]>("/api/agent-executions"),
+  getHealth: () => request<DetailedHealth>("/health/detailed"),
 };
