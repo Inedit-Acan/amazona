@@ -6,6 +6,7 @@ from app.ceo.orchestrator import CEOOrchestrator
 from app.ceo.schemas import DecisionStatus
 from app.core.ids import new_id
 from app.db.base import Base
+from app.db.models.agent_execution_log import AgentExecutionLog
 from app.db.models.approval import Approval
 from app.db.models.decision import DecisionEvidence
 from app.db.models.objective import Objective
@@ -94,6 +95,11 @@ def test_run_objective_produces_a_full_audited_workflow_requiring_human_approval
     assert all("recommendation" in e.data for e in evidence)
     finance_evidence = next(e for e in evidence if e.source == "finance_validation")
     assert finance_evidence.data["risks"] == []
+
+    execution_logs = db_session.query(AgentExecutionLog).filter_by(correlation_id=decision.correlation_id).all()
+    assert len(execution_logs) == 4
+    assert all(log.success for log in execution_logs)
+    assert all(log.duration_ms >= 0 for log in execution_logs)
 
     approval = db_session.query(Approval).filter_by(decision_id=decision.id).one()
     assert approval.status == "PENDING"

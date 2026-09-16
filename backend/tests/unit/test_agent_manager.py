@@ -107,3 +107,38 @@ def test_execute_runs_the_registered_executor_and_returns_agent_result(
     result = manager.execute("agent-1", task)
 
     assert result == expected
+
+
+def test_execute_records_a_successful_execution_with_measured_duration(
+    manager: AgentManager, registry: AgentRegistry
+):
+    registry.register(make_descriptor(id="agent-1"))
+    manager.register_executor("agent-1", StubAgent(make_result()))
+    task = Task(project_id="proj-1", name="t", capability="market_validation")
+
+    manager.execute("agent-1", task)
+
+    assert len(manager.execution_log) == 1
+    entry = manager.execution_log[-1]
+    assert entry["agent_id"] == "agent-1"
+    assert entry["capability"] == "market_validation"
+    assert entry["success"] is True
+    assert entry["duration_ms"] >= 0
+
+
+def test_execute_records_a_failed_execution_before_reraising(manager: AgentManager, registry: AgentRegistry):
+    class FailingAgent(Agent):
+        capability = "market_validation"
+
+        def run(self, task_input: dict) -> AgentResult:
+            raise RuntimeError("boom")
+
+    registry.register(make_descriptor(id="agent-fail"))
+    manager.register_executor("agent-fail", FailingAgent())
+    task = Task(project_id="proj-1", name="t", capability="market_validation")
+
+    with pytest.raises(RuntimeError):
+        manager.execute("agent-fail", task)
+
+    assert len(manager.execution_log) == 1
+    assert manager.execution_log[-1]["success"] is False

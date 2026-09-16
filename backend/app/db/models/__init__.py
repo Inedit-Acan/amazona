@@ -1,4 +1,5 @@
 from app.db.models.agent import Agent, AgentCapability
+from app.db.models.agent_execution_log import AgentExecutionLog
 from app.db.models.approval import Approval
 from app.db.models.audit import AuditLog
 from app.db.models.budget import Budget, BudgetAllocation, FinancialEvent
@@ -19,6 +20,7 @@ from app.db.models.user import User
 __all__ = [
     "Agent",
     "AgentCapability",
+    "AgentExecutionLog",
     "Approval",
     "AuditLog",
     "Budget",

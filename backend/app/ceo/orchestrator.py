@@ -13,6 +13,7 @@ from app.ceo.schemas import DecisionStatus
 from app.ceo.schemas import Objective as ObjectiveSchema
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
+from app.db.models.agent_execution_log import AgentExecutionLog as AgentExecutionLogModel
 from app.db.models.approval import Approval as ApprovalModel
 from app.db.models.audit import AuditLog as AuditLogModel
 from app.db.models.decision import Decision as DecisionModel
@@ -192,6 +193,7 @@ class CEOOrchestrator:
                 try:
                     result = self._agent_manager.execute(agent.id, domain_task)
                 except Exception as exc:  # noqa: BLE001 - any agent failure is retried/audited, never silent
+                    self._record_execution_log(correlation_id)
                     retried_task = task_service.mark_failed(
                         domain_task.id, error=str(exc), max_retries=self._max_task_retries
                     )
@@ -207,6 +209,7 @@ class CEOOrchestrator:
                     )
                     continue
 
+                self._record_execution_log(correlation_id)
                 task_service.mark_completed(domain_task.id, output=result.model_dump())
                 db_task.status = TaskStatus.COMPLETED.value
                 db_task.output = result.model_dump()
@@ -380,5 +383,22 @@ class CEOOrchestrator:
         self._db.add(
             AuditLogModel(
                 actor=actor, action=action, resource=resource, before=before, after=after, correlation_id=correlation_id
+            )
+        )
+
+    def _record_execution_log(self, correlation_id: str) -> None:
+        """Persist the most recent AgentManager.execute() call's measured
+        duration/outcome, turning the descriptive latency_profile/
+        cost_profile fields on AgentDescriptor into real measurements."""
+        if not self._agent_manager.execution_log:
+            return
+        entry = self._agent_manager.execution_log[-1]
+        self._db.add(
+            AgentExecutionLogModel(
+                agent_id=entry["agent_id"],
+                capability=entry["capability"],
+                duration_ms=entry["duration_ms"],
+                success=entry["success"],
+                correlation_id=correlation_id,
             )
         )

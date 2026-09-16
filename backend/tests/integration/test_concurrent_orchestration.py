@@ -12,7 +12,7 @@ architecturally plausible.
 import threading
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -51,6 +51,17 @@ def session_factory():
     engine = create_engine(
         "sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
+
+    @event.listens_for(engine, "connect")
+    def _set_busy_timeout(dbapi_connection, connection_record):
+        # SQLite allows only one writer at a time; without this, a second
+        # thread's concurrent COMMIT can raise "database is locked"
+        # immediately instead of waiting briefly for the first to finish -
+        # a SQLite-only artifact this test's two-thread setup runs into,
+        # not a real race in the orchestrator (real Postgres has proper
+        # MVCC and doesn't need this).
+        dbapi_connection.execute("PRAGMA busy_timeout=5000")
+
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     try:

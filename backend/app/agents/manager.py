@@ -1,3 +1,5 @@
+import time
+
 from pydantic import ValidationError
 
 from app.agents.base import Agent, AgentDescriptor, AgentResult, AgentStatus
@@ -21,6 +23,7 @@ class AgentManager:
     def __init__(self, registry: AgentRegistry) -> None:
         self._registry = registry
         self._executors: dict[str, Agent] = {}
+        self.execution_log: list[dict] = []
 
     def register_executor(self, agent_id: str, executor: Agent) -> None:
         self._executors[agent_id] = executor
@@ -43,22 +46,35 @@ class AgentManager:
         if executor is None:
             raise NotFoundError(f"no executor registered for agent {agent_id}")
 
-        if executor.input_schema is not None:
-            try:
-                executor.input_schema.model_validate(task.input)
-            except ValidationError as exc:
-                raise AgentIOValidationError(
-                    f"agent {agent_id} input does not match {executor.input_schema.__name__}: {exc}"
-                ) from exc
+        start = time.perf_counter()
+        success = False
+        try:
+            if executor.input_schema is not None:
+                try:
+                    executor.input_schema.model_validate(task.input)
+                except ValidationError as exc:
+                    raise AgentIOValidationError(
+                        f"agent {agent_id} input does not match {executor.input_schema.__name__}: {exc}"
+                    ) from exc
 
-        result = executor.run(task.input)
+            result = executor.run(task.input)
 
-        if executor.output_schema is not None:
-            try:
-                executor.output_schema.model_validate(result.data)
-            except ValidationError as exc:
-                raise AgentIOValidationError(
-                    f"agent {agent_id} output does not match {executor.output_schema.__name__}: {exc}"
-                ) from exc
+            if executor.output_schema is not None:
+                try:
+                    executor.output_schema.model_validate(result.data)
+                except ValidationError as exc:
+                    raise AgentIOValidationError(
+                        f"agent {agent_id} output does not match {executor.output_schema.__name__}: {exc}"
+                    ) from exc
 
-        return result
+            success = True
+            return result
+        finally:
+            self.execution_log.append(
+                {
+                    "agent_id": agent_id,
+                    "capability": task.capability,
+                    "duration_ms": (time.perf_counter() - start) * 1000,
+                    "success": success,
+                }
+            )
