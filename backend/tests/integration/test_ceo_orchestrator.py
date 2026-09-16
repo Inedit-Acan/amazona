@@ -78,6 +78,10 @@ def test_run_objective_produces_a_full_audited_workflow_requiring_human_approval
 
     evidence = db_session.query(DecisionEvidence).filter_by(decision_id=decision.id).all()
     assert len(evidence) == 4
+    assert all("risks" in e.data for e in evidence)
+    assert all("recommendation" in e.data for e in evidence)
+    finance_evidence = next(e for e in evidence if e.source == "finance_validation")
+    assert finance_evidence.data["risks"] == []
 
     approval = db_session.query(Approval).filter_by(decision_id=decision.id).one()
     assert approval.status == "PENDING"

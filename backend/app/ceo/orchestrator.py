@@ -240,7 +240,11 @@ class CEOOrchestrator:
                     decision_id=decision.id,
                     source=name,
                     summary="; ".join(output.get("evidence", [])) or output.get("recommendation", ""),
-                    data=output.get("data", {}),
+                    data={
+                        **output.get("data", {}),
+                        "recommendation": output.get("recommendation"),
+                        "risks": output.get("risks", []),
+                    },
                 )
             )
 
