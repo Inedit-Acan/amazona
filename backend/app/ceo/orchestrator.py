@@ -22,6 +22,7 @@ from app.db.models.project import Project as ProjectModel
 from app.db.models.task import Task as TaskModel
 from app.events.bus import EventBus, InProcessEventBus
 from app.events.schemas import Event
+from app.memory.service import MemoryService
 from app.permissions.engine import PermissionEngine
 from app.permissions.policies import ActionType, PermissionResult
 from app.tasks.schemas import TaskStatus
@@ -66,6 +67,7 @@ class CEOOrchestrator:
         self._permissions = permission_engine or PermissionEngine()
         self._budget_engine = budget_engine or BudgetEngine()
         self._budget_state = budget_state or BudgetState(hard_limit=100_000.0)
+        self._memory = MemoryService(db)
 
     def run_objective(self, objective_id: str) -> DecisionModel:
         correlation_id = new_correlation_id()
@@ -185,6 +187,13 @@ class CEOOrchestrator:
                     resource=f"task:{db_task.id}",
                     before=None,
                     after={"recommendation": result.recommendation, "confidence": result.confidence},
+                    correlation_id=correlation_id,
+                )
+                self._memory.remember(
+                    scope="objective",
+                    scope_id=project.objective_id,
+                    key=domain_task.capability,
+                    value=result.model_dump(),
                     correlation_id=correlation_id,
                 )
                 self._event_bus.publish(

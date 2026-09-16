@@ -5,6 +5,7 @@ from app.db.models.budget import Budget, BudgetAllocation, FinancialEvent
 from app.db.models.decision import Decision, DecisionEvidence
 from app.db.models.event import Event
 from app.db.models.incident import Incident
+from app.db.models.memory_record import MemoryRecord
 from app.db.models.objective import Objective
 from app.db.models.policy import Policy
 from app.db.models.product import Product
@@ -25,6 +26,7 @@ __all__ = [
     "DecisionEvidence",
     "Event",
     "Incident",
+    "MemoryRecord",
     "Objective",
     "Policy",
     "Product",
