@@ -44,17 +44,20 @@ proyecto Supabase real usado para este milestone
 
 ## Seguridad: Row Level Security
 
-**Resuelto.** Las 24 tablas del esquema `public` tienen RLS activado con
-una política explícita deny-all para `anon`/`authenticated` — ver
-[ADR 0003](../architecture/adr-0003-rls-deny-by-default.md). El linter
-de seguridad de Supabase ya no reporta ningún hallazgo. El backend
-(rol `postgres`, vía `DATABASE_URL`) no se ve afectado — sigue siendo
-dueño de las tablas y bypasea RLS.
+El proyecto Supabase tiene **RLS habilitado en todas las tablas, con
+política deny-by-default** (migración
+`10de07bea94d_enable_rls_deny_by_default`, verificada vía el conector MCP
+de Supabase — 0 advisors de seguridad pendientes). El backend no usa la
+API REST de Supabase (PostgREST) para acceder a datos — conecta directo a
+Postgres vía `DATABASE_URL` con el rol `postgres`, que no está sujeto a
+RLS — por lo que esto no afecta al funcionamiento actual de la app. El
+deny-by-default cubre el escenario en que se use la `anon key`
+directamente contra la API REST de Supabase: sin políticas explícitas,
+nadie puede leer ni escribir filas por ahí.
 
-**Sigue pendiente:** definir un modelo de acceso real (qué fila
-pertenece a qué usuario) es un prerrequisito antes de que cualquier
-cliente use la `anon key`/JWT directamente contra la API REST de
-Supabase — no relajar el deny-all sin ese modelo.
+**Pendiente:** definir políticas granulares por rol (`authenticated`,
+etc.) si en el futuro se accede a datos vía PostgREST o Supabase Auth en
+lugar de `DATABASE_URL` directo.
 
 ## Autenticación (opcional, 🔒)
 
