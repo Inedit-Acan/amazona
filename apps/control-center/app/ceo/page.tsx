@@ -20,12 +20,16 @@ const DEFAULT_CONTEXT = {
 };
 
 /** Builds the initial form state from a Research page handoff
- * (?title=&product_name=&category=&demand_signal=&competition_level=), or
- * the default example context when none of that is present. */
+ * (?title=&product_name=&category=&demand_signal=&competition_level=), a
+ * Sourcing page handoff (?title=&unit_cost=&lead_time_days=&supplier_verified=),
+ * or the default example context when none of that is present. */
 function buildInitialState(params: URLSearchParams) {
   const title = params.get("title");
   const demandSignal = params.get("demand_signal");
   const competitionLevel = params.get("competition_level");
+  const unitCost = params.get("unit_cost");
+  const leadTimeDays = params.get("lead_time_days");
+  const supplierVerified = params.get("supplier_verified");
 
   if (!title) {
     return { title: "Validate wireless earbuds opportunity", context: DEFAULT_CONTEXT };
@@ -39,6 +43,15 @@ function buildInitialState(params: URLSearchParams) {
       product_validation: {
         estimated_monthly_searches: estimatedMonthlySearches,
         competition_level: competitionLevel || "medium",
+      },
+      supplier_sourcing: {
+        unit_cost: unitCost ? Number(unitCost) : DEFAULT_CONTEXT.supplier_sourcing.unit_cost,
+        lead_time_days: leadTimeDays
+          ? Number(leadTimeDays)
+          : DEFAULT_CONTEXT.supplier_sourcing.lead_time_days,
+        supplier_verified: supplierVerified
+          ? supplierVerified === "true"
+          : DEFAULT_CONTEXT.supplier_sourcing.supplier_verified,
       },
     },
   };

@@ -50,6 +50,14 @@ export default function ResearchPage() {
     router.push(`/ceo?${params.toString()}`);
   }
 
+  function findSuppliers(candidate: ResearchCandidate) {
+    const params = new URLSearchParams({
+      product_id: candidate.product_id,
+      category: candidate.category,
+    });
+    router.push(`/sourcing?${params.toString()}`);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -141,9 +149,14 @@ export default function ResearchPage() {
                     {candidate.data.demand_signal?.toFixed(2)} · Competition {candidate.data.competition_level}
                   </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => validateCandidate(candidate)}>
-                  Validate this product
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => findSuppliers(candidate)}>
+                    Find suppliers
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => validateCandidate(candidate)}>
+                    Validate this product
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}

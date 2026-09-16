@@ -180,6 +180,29 @@ export interface ResearchRun {
   candidates: ResearchCandidate[];
 }
 
+export interface SupplierQuote {
+  product_id: string;
+  supplier_id: string;
+  unit_price: number;
+  moq: number;
+  lead_time_days: number;
+  verified: boolean;
+  reliability_score: number;
+  logistics_cost_per_unit: number;
+  total_landed_cost_per_unit: number;
+  data: {
+    name?: string;
+    region?: string;
+    notes?: string;
+    [key: string]: unknown;
+  } | null;
+}
+
+export interface SourcingRun {
+  correlation_id: string;
+  quotes: SupplierQuote[];
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -208,4 +231,12 @@ export const api = {
   getHealth: () => request<DetailedHealth>("/health/detailed"),
   createResearchRun: (payload: { category: string; keywords?: string[]; max_results?: number }) =>
     request<ResearchRun>("/api/research/runs", { method: "POST", body: JSON.stringify(payload) }),
+  createSourcingRun: (payload: {
+    product_id: string;
+    category: string;
+    destination_region: string;
+    max_results?: number;
+  }) => request<SourcingRun>("/api/sourcing/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listProductSuppliers: (productId: string) =>
+    request<SupplierQuote[]>(`/api/products/${productId}/suppliers`),
 };
