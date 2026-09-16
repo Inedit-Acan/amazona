@@ -383,6 +383,58 @@ export interface MarketingCampaign {
   } | null;
 }
 
+export interface TrackingStage {
+  stage: string;
+  day_offset: number;
+}
+
+export interface OrderTracking {
+  stages: TrackingStage[];
+  lead_time_days_used: number;
+}
+
+export interface SimulatedOrder {
+  order_id: string;
+  quantity: number;
+  tracking: OrderTracking;
+}
+
+export interface SupplierCoordination {
+  lead_time_days: number | null;
+  supplier_verified: boolean | null;
+}
+
+export interface ReturnPolicy {
+  eligibility_window_days: number;
+  restocking_fee_percent: number;
+  refund_estimate: number | null;
+}
+
+export interface SupportTicketExample {
+  ticket_type: string;
+  ai_resolvable: boolean;
+  escalation_reason: string | null;
+}
+
+export interface OperationsRecord {
+  correlation_id: string;
+  product_id: string;
+  marketing_campaign_id: string | null;
+  market: string;
+  operations_status: "READY" | "NEEDS_REVIEW" | "BLOCKED";
+  recommendation: "GO" | "REVIEW" | "NO_GO";
+  confidence: number;
+  data: {
+    order?: SimulatedOrder;
+    supplier_coordination?: SupplierCoordination;
+    return_policy?: ReturnPolicy;
+    support_ticket_example?: SupportTicketExample;
+    risks?: string[];
+    evidence?: string[];
+    [key: string]: unknown;
+  } | null;
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -449,4 +501,8 @@ export const api = {
   }) => request<MarketingCampaign>("/api/marketing/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductCampaigns: (productId: string) =>
     request<MarketingCampaign[]>(`/api/products/${productId}/campaigns`),
+  createOperationsRun: (payload: { product_id: string; market: string }) =>
+    request<OperationsRecord>("/api/operations/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listProductOperations: (productId: string) =>
+    request<OperationsRecord[]>(`/api/products/${productId}/operations`),
 };

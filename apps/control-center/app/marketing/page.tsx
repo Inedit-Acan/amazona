@@ -57,6 +57,12 @@ function MarketingForm() {
     router.push(`/ceo?${params.toString()}`);
   }
 
+  function simulateOperations() {
+    if (!campaign) return;
+    const params = new URLSearchParams({ product_id: campaign.product_id, market: campaign.market });
+    router.push(`/operations?${params.toString()}`);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -225,9 +231,14 @@ function MarketingForm() {
               </div>
             ) : null}
 
-            <Button size="sm" variant="outline" onClick={validateThisCampaign}>
-              Validate this campaign
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={simulateOperations}>
+                Simulate operations
+              </Button>
+              <Button size="sm" variant="outline" onClick={validateThisCampaign}>
+                Validate this campaign
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}
