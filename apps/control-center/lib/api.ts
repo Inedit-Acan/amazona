@@ -435,6 +435,31 @@ export interface OperationsRecord {
   } | null;
 }
 
+export interface CFOReport {
+  correlation_id: string;
+  financial_health_status: "HEALTHY" | "AT_RISK" | "CRITICAL" | "NEEDS_REVIEW";
+  recommendation: "GO" | "REVIEW" | "NO_GO";
+  confidence: number;
+  data: {
+    no_go_ratio: number | null;
+    budget_utilization: number | null;
+    total_products_analyzed: number;
+    go_count: number;
+    review_count: number;
+    no_go_count: number;
+    total_campaigns: number;
+    active_campaigns: number;
+    total_daily_budget: number;
+    total_budget_hard_limit: number;
+    total_reserved: number;
+    total_committed: number;
+    total_spent: number;
+    risks?: string[];
+    evidence?: string[];
+    [key: string]: unknown;
+  } | null;
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -505,4 +530,7 @@ export const api = {
     request<OperationsRecord>("/api/operations/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductOperations: (productId: string) =>
     request<OperationsRecord[]>(`/api/products/${productId}/operations`),
+  createCFORun: () => request<CFOReport>("/api/cfo/runs", { method: "POST" }),
+  getCFORun: (correlationId: string) => request<CFOReport>(`/api/cfo/runs/${correlationId}`),
+  listCFORuns: () => request<CFOReport[]>("/api/cfo/runs"),
 };

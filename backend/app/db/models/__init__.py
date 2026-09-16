@@ -3,6 +3,7 @@ from app.db.models.agent_execution_log import AgentExecutionLog
 from app.db.models.approval import Approval
 from app.db.models.audit import AuditLog
 from app.db.models.budget import Budget, BudgetAllocation, FinancialEvent
+from app.db.models.cfo_report import CFOReport
 from app.db.models.decision import Decision, DecisionEvidence
 from app.db.models.economic_analysis import EconomicAnalysis
 from app.db.models.event import Event
@@ -33,6 +34,7 @@ __all__ = [
     "Budget",
     "BudgetAllocation",
     "FinancialEvent",
+    "CFOReport",
     "Decision",
     "DecisionEvidence",
     "EconomicAnalysis",

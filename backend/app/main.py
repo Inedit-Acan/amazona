@@ -8,6 +8,7 @@ from app.api import (
     agents,
     approvals,
     audit,
+    cfo,
     decisions,
     ecommerce,
     economics,
@@ -119,3 +120,4 @@ app.include_router(ecommerce.router)
 app.include_router(marketplace.router)
 app.include_router(marketing.router)
 app.include_router(operations.router)
+app.include_router(cfo.router)

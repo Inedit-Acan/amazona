@@ -49,6 +49,7 @@ class AgentRegistry:
 def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:
     """Wire up and register the Milestone 1 specialist agents plus Fase 3's
     first agent (Product Research/discovery)."""
+    from app.agents.cfo import CFOAgent
     from app.agents.ecommerce_storefront import EcommerceStorefrontAgent
     from app.agents.economic_analysis import EconomicAnalysisAgent
     from app.agents.finance import FinanceAgent
@@ -113,6 +114,12 @@ def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:
             "Operations and Customer Service Agent",
             "operations",
             OperationsAgent(),
+        ),
+        (
+            "agent-cfo-1",
+            "CFO Financial Health Agent",
+            "cfo",
+            CFOAgent(),
         ),
     ]
 

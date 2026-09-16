@@ -9,6 +9,7 @@ export const NAV_ITEMS = [
   { href: "/marketplace", label: "Marketplace" },
   { href: "/marketing", label: "Marketing" },
   { href: "/operations", label: "Operations" },
+  { href: "/cfo", label: "CFO" },
   { href: "/projects", label: "Projects" },
   { href: "/agents", label: "Agents" },
   { href: "/approvals", label: "Approvals" },
