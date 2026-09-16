@@ -14,6 +14,7 @@ from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.project import Project
 from app.db.models.role import Role
 from app.db.models.supplier import Supplier
+from app.db.models.supplier_quote import SupplierQuote
 from app.db.models.task import Task, TaskDependency
 from app.db.models.user import User
 
@@ -38,6 +39,7 @@ __all__ = [
     "Project",
     "Role",
     "Supplier",
+    "SupplierQuote",
     "Task",
     "TaskDependency",
     "User",
