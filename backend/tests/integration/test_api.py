@@ -76,6 +76,9 @@ def test_full_objective_lifecycle_through_the_api(client: TestClient):
     tasks = tasks_response.json()
     assert len(tasks) == 5
     assert all(t["status"] == "COMPLETED" for t in tasks)
+    tasks_by_name = {t["name"]: t for t in tasks}
+    assert tasks_by_name["decision_synthesis"]["depends_on"]
+    assert tasks_by_name["product_validation"]["depends_on"] == []
 
     agents_response = client.get("/api/agents")
     assert agents_response.status_code == 200

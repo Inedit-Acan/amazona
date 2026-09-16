@@ -20,6 +20,7 @@ from app.db.models.decision import DecisionEvidence as DecisionEvidenceModel
 from app.db.models.objective import Objective as ObjectiveModel
 from app.db.models.project import Project as ProjectModel
 from app.db.models.task import Task as TaskModel
+from app.db.models.task import TaskDependency as TaskDependencyModel
 from app.events.bus import EventBus, InProcessEventBus
 from app.events.schemas import Event
 from app.memory.service import MemoryService
@@ -139,6 +140,15 @@ class CEOOrchestrator:
             self._db.add(db_task)
             self._db.flush()
             name_to_db_id[spec.name] = db_task.id
+
+        for spec in plan.tasks:
+            for dep_name in spec.depends_on:
+                self._db.add(
+                    TaskDependencyModel(
+                        parent_task_id=name_to_db_id[dep_name],
+                        child_task_id=name_to_db_id[spec.name],
+                    )
+                )
 
         self._audit(
             actor="ceo",

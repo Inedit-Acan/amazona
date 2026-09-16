@@ -10,7 +10,7 @@ from app.db.models.approval import Approval
 from app.db.models.decision import DecisionEvidence
 from app.db.models.objective import Objective
 from app.db.models.project import Project
-from app.db.models.task import Task
+from app.db.models.task import Task, TaskDependency
 
 ATTRACTIVE_PRODUCT_CONTEXT = {
     "product_validation": {"estimated_monthly_searches": 12000, "competition_level": "low"},
@@ -75,6 +75,18 @@ def test_run_objective_produces_a_full_audited_workflow_requiring_human_approval
         "decision_synthesis",
     }
     assert all(t.status == "COMPLETED" for t in tasks)
+
+    tasks_by_name = {t.name: t for t in tasks}
+    dependencies = db_session.query(TaskDependency).all()
+    dependency_pairs = {(d.parent_task_id, d.child_task_id) for d in dependencies}
+    assert (
+        tasks_by_name["product_validation"].id,
+        tasks_by_name["supplier_sourcing"].id,
+    ) in dependency_pairs
+    assert (
+        tasks_by_name["finance_validation"].id,
+        tasks_by_name["decision_synthesis"].id,
+    ) in dependency_pairs
 
     evidence = db_session.query(DecisionEvidence).filter_by(decision_id=decision.id).all()
     assert len(evidence) == 4
