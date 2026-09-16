@@ -31,13 +31,8 @@ class DecisionDetailOut(BaseModel):
     evidence: list[DecisionEvidenceOut]
 
 
-@router.get("/{decision_id}", response_model=DecisionDetailOut)
-def get_decision(decision_id: str, db: Session = Depends(get_db)) -> DecisionDetailOut:
-    decision = db.get(DecisionModel, decision_id)
-    if decision is None:
-        raise NotFoundError(f"decision {decision_id} not found")
-
-    evidence = db.query(DecisionEvidenceModel).filter(DecisionEvidenceModel.decision_id == decision_id).all()
+def _to_detail(decision: DecisionModel, db: Session) -> DecisionDetailOut:
+    evidence = db.query(DecisionEvidenceModel).filter(DecisionEvidenceModel.decision_id == decision.id).all()
     return DecisionDetailOut(
         id=decision.id,
         project_id=decision.project_id,
@@ -48,3 +43,17 @@ def get_decision(decision_id: str, db: Session = Depends(get_db)) -> DecisionDet
         correlation_id=decision.correlation_id,
         evidence=[DecisionEvidenceOut.model_validate(e) for e in evidence],
     )
+
+
+@router.get("", response_model=list[DecisionDetailOut])
+def list_decisions(project_id: str, db: Session = Depends(get_db)) -> list[DecisionDetailOut]:
+    decisions = db.query(DecisionModel).filter(DecisionModel.project_id == project_id).all()
+    return [_to_detail(d, db) for d in decisions]
+
+
+@router.get("/{decision_id}", response_model=DecisionDetailOut)
+def get_decision(decision_id: str, db: Session = Depends(get_db)) -> DecisionDetailOut:
+    decision = db.get(DecisionModel, decision_id)
+    if decision is None:
+        raise NotFoundError(f"decision {decision_id} not found")
+    return _to_detail(decision, db)

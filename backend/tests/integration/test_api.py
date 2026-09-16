@@ -158,3 +158,23 @@ def test_list_projects_returns_all_created_projects(client: TestClient):
     projects = response.json()
     assert len(projects) == 1
     assert projects[0]["objective_id"] == objective_id
+
+
+def test_list_decisions_filters_by_project_id(client: TestClient):
+    objective_id = client.post(
+        "/api/objectives",
+        json={
+            "title": "Validate wireless earbuds opportunity",
+            "created_by": "owner@amazona.local",
+            "context": ATTRACTIVE_PRODUCT_CONTEXT,
+        },
+    ).json()["id"]
+    run_result = client.post(f"/api/objectives/{objective_id}/run").json()
+
+    response = client.get("/api/decisions", params={"project_id": run_result["project_id"]})
+
+    assert response.status_code == 200
+    decisions = response.json()
+    assert len(decisions) == 1
+    assert decisions[0]["id"] == run_result["id"]
+    assert len(decisions[0]["evidence"]) == 4
