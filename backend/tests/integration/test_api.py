@@ -83,7 +83,7 @@ def test_full_objective_lifecycle_through_the_api(client: TestClient):
     agents_response = client.get("/api/agents")
     assert agents_response.status_code == 200
     agents = agents_response.json()
-    assert len(agents) == 11
+    assert len(agents) == 12
     assert {a["role"] for a in agents} == {
         "product",
         "supplier",
@@ -96,6 +96,7 @@ def test_full_objective_lifecycle_through_the_api(client: TestClient):
         "ecommerce",
         "marketplace",
         "marketing",
+        "operations",
     }
 
     decision_response = client.get(f"/api/decisions/{decision['id']}")
