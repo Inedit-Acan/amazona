@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api import agents, approvals, audit, decisions, objectives, projects, tasks
+from app.api import agents, approvals, audit, decisions, monitoring, objectives, projects, tasks
 from app.approvals.service import ApprovalNotPendingError
 from app.core.config import get_settings
 from app.core.errors import NotFoundError
@@ -60,12 +60,20 @@ def health_detailed(db: Session = Depends(get_db)) -> JSONResponse:
     settings = get_settings()
     try:
         db.execute(text("SELECT 1"))
-        migration = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
-    except Exception:  # noqa: BLE001 - any DB failure means "database unreachable" here
+    except Exception:  # noqa: BLE001 - only a failure to reach the DB at all means "database unreachable"
         return JSONResponse(
             status_code=503,
             content={"database": "error", "migration": None, "supabase_configured": settings.is_supabase_configured},
         )
+
+    try:
+        # Absent in ad-hoc test/dev databases created via Base.metadata
+        # rather than `alembic upgrade head` — that's a missing migration
+        # record, not a reason to report the database itself as down.
+        migration = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    except Exception:  # noqa: BLE001
+        db.rollback()  # reset any aborted transaction state (Postgres) before the session is reused/closed
+        migration = None
 
     return JSONResponse(
         content={
@@ -83,3 +91,4 @@ app.include_router(agents.router)
 app.include_router(decisions.router)
 app.include_router(approvals.router)
 app.include_router(audit.router)
+app.include_router(monitoring.router)

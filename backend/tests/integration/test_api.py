@@ -116,6 +116,16 @@ def test_full_objective_lifecycle_through_the_api(client: TestClient):
     assert len(audit_entries) > 0
     assert any(e["action"] == "approval.approve" for e in audit_entries)
 
+    executions_response = client.get("/api/agent-executions", params={"correlation_id": correlation_id})
+    assert executions_response.status_code == 200
+    executions = executions_response.json()
+    assert len(executions) == 4
+    assert all(e["success"] for e in executions)
+
+    health_response = client.get("/health/detailed")
+    assert health_response.status_code == 200
+    assert health_response.json()["database"] == "ok"
+
 
 def test_reject_approval_marks_it_rejected(client: TestClient):
     create_response = client.post(
