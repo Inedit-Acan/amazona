@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     api_port: int = 8000
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
+
+    @property
+    def is_supabase_configured(self) -> bool:
+        return bool(self.supabase_url and self.supabase_anon_key)
+
 
 @lru_cache
 def get_settings() -> Settings:
