@@ -22,6 +22,7 @@ const DEFAULT_CONTEXT = {
 /** Builds the initial form state from a Research page handoff
  * (?title=&product_name=&category=&demand_signal=&competition_level=), a
  * Sourcing page handoff (?title=&unit_cost=&lead_time_days=&supplier_verified=),
+ * an Economics page handoff (?title=&unit_cost=&sale_price=&monthly_fixed_costs=&monthly_unit_sales=),
  * or the default example context when none of that is present. */
 function buildInitialState(params: URLSearchParams) {
   const title = params.get("title");
@@ -30,6 +31,9 @@ function buildInitialState(params: URLSearchParams) {
   const unitCost = params.get("unit_cost");
   const leadTimeDays = params.get("lead_time_days");
   const supplierVerified = params.get("supplier_verified");
+  const salePrice = params.get("sale_price");
+  const monthlyFixedCosts = params.get("monthly_fixed_costs");
+  const monthlyUnitSales = params.get("monthly_unit_sales");
 
   if (!title) {
     return { title: "Validate wireless earbuds opportunity", context: DEFAULT_CONTEXT };
@@ -52,6 +56,16 @@ function buildInitialState(params: URLSearchParams) {
         supplier_verified: supplierVerified
           ? supplierVerified === "true"
           : DEFAULT_CONTEXT.supplier_sourcing.supplier_verified,
+      },
+      finance_validation: {
+        unit_cost: unitCost ? Number(unitCost) : DEFAULT_CONTEXT.finance_validation.unit_cost,
+        sale_price: salePrice ? Number(salePrice) : DEFAULT_CONTEXT.finance_validation.sale_price,
+        monthly_unit_sales: monthlyUnitSales
+          ? Number(monthlyUnitSales)
+          : DEFAULT_CONTEXT.finance_validation.monthly_unit_sales,
+        monthly_fixed_costs: monthlyFixedCosts
+          ? Number(monthlyFixedCosts)
+          : DEFAULT_CONTEXT.finance_validation.monthly_fixed_costs,
       },
     },
   };

@@ -181,6 +181,7 @@ export interface ResearchRun {
 }
 
 export interface SupplierQuote {
+  id: string;
   product_id: string;
   supplier_id: string;
   unit_price: number;
@@ -201,6 +202,30 @@ export interface SupplierQuote {
 export interface SourcingRun {
   correlation_id: string;
   quotes: SupplierQuote[];
+}
+
+export interface EconomicScenario {
+  monthly_unit_sales: number;
+  margin_percent: number;
+  monthly_revenue: number;
+  monthly_profit: number;
+}
+
+export interface EconomicAnalysis {
+  correlation_id: string;
+  product_id: string;
+  supplier_quote_id: string;
+  sale_price: number;
+  monthly_fixed_costs: number;
+  margin_percent: number;
+  recommendation: "GO" | "REVIEW" | "NO_GO";
+  confidence: number;
+  data: {
+    scenarios?: Record<"conservative" | "base" | "optimistic", EconomicScenario>;
+    risks?: string[];
+    evidence?: string[];
+    [key: string]: unknown;
+  } | null;
 }
 
 export const api = {
@@ -239,4 +264,12 @@ export const api = {
   }) => request<SourcingRun>("/api/sourcing/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductSuppliers: (productId: string) =>
     request<SupplierQuote[]>(`/api/products/${productId}/suppliers`),
+  createEconomicAnalysisRun: (payload: {
+    product_id: string;
+    supplier_quote_id: string;
+    sale_price: number;
+    monthly_fixed_costs?: number;
+  }) => request<EconomicAnalysis>("/api/economics/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listProductEconomics: (productId: string) =>
+    request<EconomicAnalysis[]>(`/api/products/${productId}/economics`),
 };

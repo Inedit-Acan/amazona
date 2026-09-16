@@ -53,6 +53,14 @@ function SourcingForm() {
     router.push(`/ceo?${params.toString()}`);
   }
 
+  function analyzeEconomics(quote: SupplierQuote) {
+    const params = new URLSearchParams({
+      product_id: productId,
+      supplier_quote_id: quote.id,
+    });
+    router.push(`/economics?${params.toString()}`);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -151,7 +159,7 @@ function SourcingForm() {
               : `${quotes.length} supplier${quotes.length === 1 ? "" : "s"}, ranked by total landed cost`}
           </h2>
           {quotes.map((quote) => (
-            <Card key={quote.supplier_id}>
+            <Card key={quote.id}>
               <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <p className="font-medium">
@@ -169,9 +177,14 @@ function SourcingForm() {
                     = total landed {quote.total_landed_cost_per_unit.toFixed(2)}/unit
                   </p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => validateWithSupplier(quote)}>
-                  Validate with this supplier
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => analyzeEconomics(quote)}>
+                    Analyze economics
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => validateWithSupplier(quote)}>
+                    Validate with this supplier
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}
