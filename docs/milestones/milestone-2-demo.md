@@ -1,7 +1,11 @@
 # Milestone 2 Demo
 
-> Se completa progresivamente a medida que se implementan las tareas del
-> plan ([`docs/superpowers/plans/2026-09-16-amazona-milestone-2.md`](../superpowers/plans/2026-09-16-amazona-milestone-2.md)).
+Plan completo:
+[`docs/superpowers/plans/2026-09-16-amazona-milestone-2.md`](../superpowers/plans/2026-09-16-amazona-milestone-2.md).
+Arquitectura: [ADR 0001](../architecture/adr-0001-orchestrator-vs-ceo.md)
+(Orquestador vs. CEO) y
+[ADR 0002](../architecture/adr-0002-agent-messaging-protocol.md)
+(protocolo de mensajería entre agentes).
 
 ## Conectar el backend a un proyecto Supabase real
 
@@ -45,3 +49,81 @@ directo a Postgres vía `DATABASE_URL` — por lo que esto no es explotable a
 través de la app actual, pero **si en algún momento se usa la `anon key`
 directamente contra la API REST de Supabase, cualquiera podría leer o
 escribir todas las filas.** No se ha aplicado ninguna política todavía.
+
+## Autenticación (opcional, 🔒)
+
+Por defecto (`REQUIRE_AUTH` sin definir o `false`) todo funciona exactamente
+igual que Milestone 1, sin login. Para exigir JWT de Supabase Auth en los
+endpoints que mutan estado (`POST /api/objectives`, `POST
+/api/objectives/{id}/run`, `POST /api/approvals/{id}/approve|reject`):
+
+```bash
+# backend/.env
+REQUIRE_AUTH=true
+```
+
+Y en el Control Center, para habilitar la pantalla de login:
+
+```bash
+# apps/control-center/.env.local
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+```
+
+**Verificación manual pendiente:** con `REQUIRE_AUTH=true` y credenciales
+reales, crear un usuario en Supabase Auth (dashboard → Authentication →
+Users), iniciar sesión en `/login`, y confirmar que crear/ejecutar un
+objetivo funciona con el JWT real y que el `actor` auditado es el `sub`
+del token, no un texto libre.
+
+## Sistema de memoria y monitorización
+
+- `GET /health/detailed` — conectividad de BD, revisión de migración
+  aplicada, si Supabase está configurado.
+- `GET /api/agent-executions?correlation_id=` — latencia real medida por
+  ejecución de agente. Visible en `/status` del Control Center.
+- La memoria compartida (`memory_records`) se alimenta automáticamente en
+  cada ejecución del CEO — no requiere ninguna llamada manual.
+
+## Flujo completo: Investigación → Validación (Fase 3, Agente 1)
+
+```bash
+# 1. Investigar una categoría
+curl -s -X POST http://localhost:8000/api/research/runs \
+  -H "Content-Type: application/json" \
+  -d '{"category": "electronics", "max_results": 5}'
+# -> {"correlation_id": "...", "candidates": [{"product_id": ..., "name": ...,
+#     "opportunity_score": ..., "data": {"demand_signal": ..., "competition_level": ...}}]}
+
+# 2. Validar el candidato mejor puntuado (usando sus señales de demanda/competencia)
+curl -s -X POST http://localhost:8000/api/objectives \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Validate <candidate> opportunity",
+    "created_by": "owner@amazona.local",
+    "context": {
+      "product_validation": {"estimated_monthly_searches": <demand_signal*15000>, "competition_level": "<competition_level>"},
+      "supplier_sourcing": {"unit_cost": 5.0, "lead_time_days": 20, "supplier_verified": true},
+      "finance_validation": {"unit_cost": 5.0, "sale_price": 20.0, "monthly_unit_sales": 300, "monthly_fixed_costs": 500.0},
+      "legal_validation": {"restricted_category": false}
+    }
+  }'
+
+curl -s -X POST http://localhost:8000/api/objectives/<objective_id>/run
+```
+
+O desde el Control Center: página **Research** → *Run research* → *Validate
+this product* en el candidato deseado → salta a **CEO** con el título y
+`product_validation` ya rellenados → *Create & run objective*.
+
+Los dos runs (investigación y validación) tienen `correlation_id`
+distintos y son ambos 100% reconstruibles vía `GET /api/audit?correlation_id=`
+— cubierto por
+`backend/tests/e2e/test_product_research_flow.py`.
+
+## Verificar todo en local
+
+```bash
+cd backend && ruff check . && mypy app && pytest       # 180+ tests, ~24s
+cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit && npm test && npm run build
+```
