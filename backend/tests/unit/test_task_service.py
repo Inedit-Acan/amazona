@@ -56,6 +56,37 @@ def test_mark_failed_records_error_and_status(service: TaskService):
     assert failed.id not in {t.id for t in service.get_runnable_tasks("proj-1")}
 
 
+def test_mark_failed_with_no_max_retries_fails_immediately(service: TaskService):
+    task = service.create_task(project_id="proj-1", name="Legal validation", capability="legal_validation")
+    service.mark_running(task.id)
+
+    result = service.mark_failed(task.id, error="boom")
+
+    assert result.status == TaskStatus.FAILED
+    assert result.retry_count == 0
+
+
+def test_mark_failed_retries_up_to_the_bound_then_fails(service: TaskService):
+    task = service.create_task(project_id="proj-1", name="Legal validation", capability="legal_validation")
+
+    service.mark_running(task.id)
+    first = service.mark_failed(task.id, error="boom-1", max_retries=2)
+    assert first.status == TaskStatus.PENDING
+    assert first.retry_count == 1
+    assert task.id in {t.id for t in service.get_runnable_tasks("proj-1")}
+
+    service.mark_running(task.id)
+    second = service.mark_failed(task.id, error="boom-2", max_retries=2)
+    assert second.status == TaskStatus.PENDING
+    assert second.retry_count == 2
+
+    service.mark_running(task.id)
+    third = service.mark_failed(task.id, error="boom-3", max_retries=2)
+    assert third.status == TaskStatus.FAILED
+    assert third.retry_count == 2
+    assert task.id not in {t.id for t in service.get_runnable_tasks("proj-1")}
+
+
 def test_a_task_with_multiple_dependencies_requires_all_to_complete(service: TaskService):
     supplier = service.create_task(project_id="proj-1", name="Supplier sourcing", capability="supplier_sourcing")
     legal = service.create_task(project_id="proj-1", name="Legal validation", capability="legal_validation")

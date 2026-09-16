@@ -28,3 +28,4 @@ class Task(BaseModel):
     output: dict | None = None
     error: str | None = None
     assigned_agent_id: str | None = None
+    retry_count: int = 0

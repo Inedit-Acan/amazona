@@ -30,6 +30,7 @@ from app.tasks.schemas import TaskStatus
 from app.tasks.service import TaskService
 
 SPECIALIST_TASK_NAMES = ["product_validation", "supplier_sourcing", "finance_validation", "legal_validation"]
+DEFAULT_MAX_TASK_RETRIES = 2
 
 _PROJECT_STATUS_BY_DECISION = {
     DecisionStatus.GO: "APPROVED",
@@ -57,8 +58,10 @@ class CEOOrchestrator:
         permission_engine: PermissionEngine | None = None,
         budget_engine: BudgetEngine | None = None,
         budget_state: BudgetState | None = None,
+        max_task_retries: int = DEFAULT_MAX_TASK_RETRIES,
     ) -> None:
         self._db = db
+        self._max_task_retries = max_task_retries
         if agent_manager is None:
             _, agent_manager = build_default_agent_manager()
         self._agent_manager = agent_manager
@@ -186,7 +189,24 @@ class CEOOrchestrator:
                     continue
 
                 agent = self._agent_manager.select_agent(domain_task.capability)
-                result = self._agent_manager.execute(agent.id, domain_task)
+                try:
+                    result = self._agent_manager.execute(agent.id, domain_task)
+                except Exception as exc:  # noqa: BLE001 - any agent failure is retried/audited, never silent
+                    retried_task = task_service.mark_failed(
+                        domain_task.id, error=str(exc), max_retries=self._max_task_retries
+                    )
+                    db_task.status = retried_task.status.value
+                    db_task.error = retried_task.error
+                    self._audit(
+                        actor=agent.id,
+                        action="task.retried" if retried_task.status == TaskStatus.PENDING else "task.failed",
+                        resource=f"task:{db_task.id}",
+                        before=None,
+                        after={"error": str(exc), "retry_count": retried_task.retry_count},
+                        correlation_id=correlation_id,
+                    )
+                    continue
+
                 task_service.mark_completed(domain_task.id, output=result.model_dump())
                 db_task.status = TaskStatus.COMPLETED.value
                 db_task.output = result.model_dump()
@@ -217,14 +237,19 @@ class CEOOrchestrator:
     def _synthesize_decision(
         self, project: ProjectModel, context: dict, outputs: dict[str, dict], correlation_id: str
     ) -> DecisionModel:
+        # `.get(...)` throughout: a task that permanently failed after
+        # exhausting its retries never produced output, so its entry in
+        # `outputs` is `{}` rather than a real AgentResult dump. That reads
+        # as "no data" (confidence 0.0, no veto data) and naturally routes
+        # to REVIEW via the confidence threshold below, instead of crashing.
         product_output = outputs["product_validation"]
         finance_output = outputs["finance_validation"]
         legal_output = outputs["legal_validation"]
 
-        opportunity_score = product_output["data"].get("opportunity_score", 0.0)
-        confidence = min(o["confidence"] for o in outputs.values())
-        legal_status = legal_output["data"].get("legal_status", "CLEAR")
-        finance_veto = bool(finance_output["data"].get("finance_veto", False))
+        opportunity_score = product_output.get("data", {}).get("opportunity_score", 0.0)
+        confidence = min(o.get("confidence", 0.0) for o in outputs.values())
+        legal_status = legal_output.get("data", {}).get("legal_status", "CLEAR")
+        finance_veto = bool(finance_output.get("data", {}).get("finance_veto", False))
 
         requests_spend = bool(context.get("requests_simulated_spend", False))
         human_stop = bool(context.get("human_stop", False))

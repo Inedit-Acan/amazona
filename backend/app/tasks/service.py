@@ -57,10 +57,14 @@ class TaskService:
         task.output = output
         return task
 
-    def mark_failed(self, task_id: str, error: str) -> Task:
+    def mark_failed(self, task_id: str, error: str, max_retries: int = 0) -> Task:
         task = self.get_task(task_id)
-        task.status = TaskStatus.FAILED
         task.error = error
+        if task.retry_count < max_retries:
+            task.retry_count += 1
+            task.status = TaskStatus.PENDING
+        else:
+            task.status = TaskStatus.FAILED
         return task
 
     def get_runnable_tasks(self, project_id: str) -> list[Task]:
