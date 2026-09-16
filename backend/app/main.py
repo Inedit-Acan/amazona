@@ -9,6 +9,7 @@ from app.api import (
     approvals,
     audit,
     decisions,
+    economics,
     monitoring,
     objectives,
     products,
@@ -107,3 +108,4 @@ app.include_router(monitoring.router)
 app.include_router(research.router)
 app.include_router(products.router)
 app.include_router(sourcing.router)
+app.include_router(economics.router)

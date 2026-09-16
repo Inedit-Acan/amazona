@@ -21,6 +21,7 @@ class SourcingRunCreate(BaseModel):
 class SupplierQuoteOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: str
     product_id: str
     supplier_id: str
     unit_price: float
