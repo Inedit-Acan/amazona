@@ -295,6 +295,51 @@ export interface Storefront {
   } | null;
 }
 
+export interface ListingContent {
+  title: string;
+  bullet_points: string[];
+  backend_keywords: string[];
+}
+
+export interface CompetitionAnalysis {
+  competitor_count: number;
+  avg_price: number;
+  avg_rating: number;
+  buy_box_difficulty: string;
+  data_origin: string;
+}
+
+export interface CommissionBreakdown {
+  referral_fee_percent: number;
+  fulfillment_fee_per_unit: number;
+  net_margin_per_unit: number | null;
+}
+
+export interface InventoryPolicy {
+  tracking_enabled: boolean;
+  fulfillment_method: string;
+}
+
+export interface MarketplaceListing {
+  correlation_id: string;
+  product_id: string;
+  storefront_id: string | null;
+  market: string;
+  platform: string;
+  listing_status: "READY" | "NEEDS_REVIEW" | "BLOCKED";
+  recommendation: "GO" | "REVIEW" | "NO_GO";
+  confidence: number;
+  data: {
+    listing_content?: ListingContent;
+    competition_analysis?: CompetitionAnalysis;
+    commission_breakdown?: CommissionBreakdown;
+    inventory_policy?: InventoryPolicy;
+    risks?: string[];
+    evidence?: string[];
+    [key: string]: unknown;
+  } | null;
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -349,4 +394,8 @@ export const api = {
     request<Storefront>("/api/ecommerce/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductStorefronts: (productId: string) =>
     request<Storefront[]>(`/api/products/${productId}/storefronts`),
+  createMarketplaceListingRun: (payload: { product_id: string; market: string; platform?: string }) =>
+    request<MarketplaceListing>("/api/marketplace/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listProductMarketplaceListings: (productId: string) =>
+    request<MarketplaceListing[]>(`/api/products/${productId}/marketplace-listings`),
 };

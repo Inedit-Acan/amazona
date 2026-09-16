@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ApiError, api, type Storefront } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
@@ -16,6 +16,7 @@ const LAUNCH_STATUS_STYLES: Record<string, string> = {
 };
 
 function EcommerceForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialProductId = searchParams.get("product_id") ?? "";
 
@@ -37,6 +38,12 @@ function EcommerceForm() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function optimizeMarketplaceListing() {
+    if (!storefront) return;
+    const params = new URLSearchParams({ product_id: storefront.product_id, market: storefront.market });
+    router.push(`/marketplace?${params.toString()}`);
   }
 
   return (
@@ -176,6 +183,10 @@ function EcommerceForm() {
                 </ul>
               </div>
             ) : null}
+
+            <Button size="sm" variant="outline" onClick={optimizeMarketplaceListing}>
+              Optimize marketplace listing
+            </Button>
           </CardContent>
         </Card>
       ) : null}
