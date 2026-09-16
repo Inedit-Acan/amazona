@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Menu, LayoutDashboard } from "lucide-react";
 import { NAV_ITEMS } from "@/components/nav-items";
+import { SessionBadge } from "@/components/session-badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <span className="text-sm font-semibold tracking-tight">AMAZONA</span>
         </div>
         <NavLinks />
+        <div className="mt-auto px-2 pt-4">
+          <SessionBadge />
+        </div>
       </aside>
 
       <header className="flex items-center justify-between border-b bg-card px-4 py-3 md:hidden">
@@ -53,15 +57,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <LayoutDashboard className="size-5 text-primary" />
           <span className="text-sm font-semibold tracking-tight">AMAZONA</span>
         </div>
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger render={<Button variant="ghost" size="icon" aria-label="Open navigation" />}>
-            <Menu className="size-5" />
-          </SheetTrigger>
-          <SheetContent side="left" className="w-64 px-3 py-6">
-            <SheetTitle className="mb-6 px-2 text-sm font-semibold tracking-tight">AMAZONA</SheetTitle>
-            <NavLinks onNavigate={() => setOpen(false)} />
-          </SheetContent>
-        </Sheet>
+        <div className="flex items-center gap-3">
+          <SessionBadge />
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger render={<Button variant="ghost" size="icon" aria-label="Open navigation" />}>
+              <Menu className="size-5" />
+            </SheetTrigger>
+            <SheetContent side="left" className="w-64 px-3 py-6">
+              <SheetTitle className="mb-6 px-2 text-sm font-semibold tracking-tight">AMAZONA</SheetTitle>
+              <NavLinks onNavigate={() => setOpen(false)} />
+            </SheetContent>
+          </Sheet>
+        </div>
       </header>
 
       <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>

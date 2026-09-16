@@ -10,10 +10,19 @@ export class ApiError extends Error {
   }
 }
 
+async function authHeader(): Promise<Record<string, string>> {
+  // Only relevant in the browser (client components) — server components
+  // only ever issue GETs, which the backend never gates on auth.
+  if (typeof window === "undefined") return {};
+  const { getAccessToken } = await import("@/lib/auth");
+  const token = await getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...(await authHeader()), ...(init?.headers ?? {}) },
     cache: "no-store",
   });
 
