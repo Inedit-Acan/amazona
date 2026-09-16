@@ -12,6 +12,7 @@ from app.api import (
     ecommerce,
     economics,
     legal,
+    marketplace,
     monitoring,
     objectives,
     products,
@@ -113,3 +114,4 @@ app.include_router(sourcing.router)
 app.include_router(economics.router)
 app.include_router(legal.router)
 app.include_router(ecommerce.router)
+app.include_router(marketplace.router)
