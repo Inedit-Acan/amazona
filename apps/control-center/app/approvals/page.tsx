@@ -1,16 +1,33 @@
-import { api, type Approval } from "@/lib/api";
+import { api, type Approval, type Decision, type Project } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
-import { StatusBadge } from "@/components/status-badge";
+import { ApprovalCard } from "@/components/approval-card";
 import { Card, CardContent } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+interface EnrichedApproval {
+  approval: Approval;
+  decision: Decision | null;
+  project: Project | null;
+}
+
+async function enrich(approval: Approval): Promise<EnrichedApproval> {
+  try {
+    const decision = await api.getDecision(approval.decision_id);
+    const project = await api.getProject(decision.project_id).catch(() => null);
+    return { approval, decision, project };
+  } catch {
+    return { approval, decision: null, project: null };
+  }
+}
 
 export default async function ApprovalsPage() {
-  let approvals: Approval[] = [];
+  let items: EnrichedApproval[] = [];
   let error: string | null = null;
 
   try {
-    approvals = await api.listApprovals();
+    const approvals = await api.listApprovals();
+    items = await Promise.all(approvals.map(enrich));
+    items.sort((a, b) => (a.approval.status === "PENDING" ? -1 : 1) - (b.approval.status === "PENDING" ? -1 : 1));
   } catch (err) {
     error = err instanceof Error ? err.message : "Unknown error";
   }
@@ -24,43 +41,18 @@ export default async function ApprovalsPage() {
 
       {error ? (
         <ApiErrorAlert message={error} />
-      ) : approvals.length === 0 ? (
+      ) : items.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
             No approvals requested yet.
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardContent className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Expires</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {approvals.map((approval) => (
-                  <TableRow key={approval.id}>
-                    <TableCell className="text-sm font-medium">{approval.action}</TableCell>
-                    <TableCell className="text-sm">
-                      {approval.amount != null ? `$${approval.amount.toFixed(2)}` : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={approval.status} />
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      {approval.expires_at ? new Date(approval.expires_at).toLocaleString() : "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {items.map(({ approval, decision, project }) => (
+            <ApprovalCard key={approval.id} approval={approval} decision={decision} project={project} />
+          ))}
+        </div>
       )}
     </div>
   );
