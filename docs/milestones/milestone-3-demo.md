@@ -103,19 +103,40 @@ retroactiva para activar RLS, ver ADR 0003), `supplier_quotes` nace con
 RLS activado en su propia migración
 (`60efd4316cac_add_supplier_quotes_table.py`).
 
-**Verificación pendiente contra Postgres real:** este entorno de
-desarrollo no tiene Postgres local disponible (sin Docker), así que la
-migración se verificó por compilación/sintaxis (`alembic heads`,
-`py_compile`) y por su reutilización literal del patrón `DO $$ ...
-ENABLE ROW LEVEL SECURITY ... $$` ya probado en vivo por ADR 0003 — no
-se ha podido ejecutar `alembic upgrade head` localmente en este
-milestone. Queda verificada por el job de CI (Postgres efímero) en el
-pull request, y pendiente de confirmación manual con
-`get_advisors`/dashboard contra el proyecto Supabase real.
+**Verificado contra Supabase real.** `alembic upgrade head` se ejecutó
+contra el proyecto `amazona` (`10de07bea94d` → `60efd4316cac`), y
+`SELECT relrowsecurity FROM pg_class WHERE relname = 'supplier_quotes'`
+confirma `true` — RLS activo desde su propia migración, sin necesitar
+una limpieza retroactiva como ADR 0003. `get_advisors` (linter de
+seguridad de Supabase) reporta **0 hallazgos** tras la migración.
+`backend/tests/integration/test_supabase_connectivity.py` (antes
+saltados por falta de credenciales) ahora pasan contra la conexión real.
+
+**Nota de conectividad — Session Pooler, no conexión directa:** este
+entorno de desarrollo es IPv4-only y el host de conexión directa de
+Supabase (`db.<ref>.supabase.co`) solo resuelve por IPv6 sin el add-on
+de IPv4 — la conexión falla por DNS (`getaddrinfo failed`), no por
+credenciales. La solución es usar el **Session Pooler**
+(`aws-0-<region>.pooler.supabase.com:5432`, usuario
+`postgres.<project-ref>`), que sí resuelve por IPv4. `backend/.env` usa
+esa cadena.
+
+**Bug de configuración encontrado y corregido en esta verificación:**
+`Settings.model_config` en `backend/app/core/config.py` usaba
+`env_file=".env"` — una ruta **relativa al cwd del proceso**, no al
+proyecto. Si `alembic`/`uvicorn`/`pytest` se invocan desde un
+directorio distinto a `backend/` (p. ej. `alembic -c backend/alembic.ini
+upgrade head` desde la raíz del repo), `pydantic-settings` no encuentra
+`.env` y cae en silencio al valor por defecto hardcodeado
+(`postgresql+psycopg://amazona:amazona@localhost:5432/amazona`) en vez
+de fallar con un error claro — esto es lo que originalmente parecía un
+problema de credenciales pero era la variable ni siquiera cargándose.
+Corregido anclando la ruta a `backend/.env` de forma absoluta
+(`Path(__file__).resolve().parents[2] / ".env"`), independiente del cwd.
 
 ## Verificar todo en local
 
 ```bash
-cd backend && ruff check . && mypy app && pytest       # 210 tests, ~14s
+cd backend && ruff check . && mypy app && pytest       # 212 tests, ~4-14s según DATABASE_URL
 cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit && npm test && npm run build
 ```

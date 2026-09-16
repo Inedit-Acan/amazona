@@ -1,10 +1,19 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Anchored to backend/.env regardless of the process's current working
+# directory. A relative "env_file" is resolved against cwd, and
+# pydantic-settings silently skips a missing .env instead of erroring —
+# so invoking alembic/uvicorn/pytest from anywhere other than backend/
+# (e.g. the repo root) used to silently fall back to the hardcoded
+# localhost default below instead of failing loudly.
+_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     environment: str = "development"
     log_level: str = "INFO"
