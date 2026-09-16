@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_actor
 from app.ceo.orchestrator import CEOOrchestrator
 from app.db.models.objective import Objective as ObjectiveModel
 from app.db.session import get_db
@@ -38,11 +39,15 @@ class DecisionOut(BaseModel):
 
 
 @router.post("", response_model=ObjectiveOut, status_code=201)
-def create_objective(payload: ObjectiveCreate, db: Session = Depends(get_db)) -> ObjectiveModel:
+def create_objective(
+    payload: ObjectiveCreate,
+    db: Session = Depends(get_db),
+    authenticated_actor: str | None = Depends(get_current_actor),
+) -> ObjectiveModel:
     objective = ObjectiveModel(
         title=payload.title,
         description=payload.description,
-        created_by=payload.created_by,
+        created_by=authenticated_actor or payload.created_by,
         context=payload.context,
         status="RECEIVED",
     )
@@ -53,7 +58,11 @@ def create_objective(payload: ObjectiveCreate, db: Session = Depends(get_db)) ->
 
 
 @router.post("/{objective_id}/run", response_model=DecisionOut)
-def run_objective(objective_id: str, db: Session = Depends(get_db)) -> DecisionOut:
+def run_objective(
+    objective_id: str,
+    db: Session = Depends(get_db),
+    authenticated_actor: str | None = Depends(get_current_actor),
+) -> DecisionOut:
     orchestrator = CEOOrchestrator(db)
     decision = orchestrator.run_objective(objective_id)
     return DecisionOut(

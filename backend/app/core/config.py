@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
 
+    # Explicit opt-in, deliberately separate from is_supabase_configured:
+    # merely having Supabase credentials in .env (to reach its Postgres or
+    # its REST API) must never silently start requiring auth on every
+    # mutating endpoint. Only set REQUIRE_AUTH=true once you actually want
+    # that enforced.
+    require_auth: bool = False
+
     @property
     def is_supabase_configured(self) -> bool:
         return bool(self.supabase_url and self.supabase_anon_key)

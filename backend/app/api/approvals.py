@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.approvals.service import ApprovalNotPendingError
+from app.auth.dependencies import get_current_actor
 from app.core.errors import NotFoundError
 from app.db.models.approval import Approval as ApprovalModel
 from app.db.models.audit import AuditLog as AuditLogModel
@@ -36,13 +37,23 @@ def list_approvals(db: Session = Depends(get_db)) -> list[ApprovalModel]:
 
 
 @router.post("/{approval_id}/approve", response_model=ApprovalOut)
-def approve_approval(approval_id: str, payload: ApprovalActionIn, db: Session = Depends(get_db)) -> ApprovalModel:
-    return _resolve(approval_id, payload.actor, "APPROVED", db)
+def approve_approval(
+    approval_id: str,
+    payload: ApprovalActionIn,
+    db: Session = Depends(get_db),
+    authenticated_actor: str | None = Depends(get_current_actor),
+) -> ApprovalModel:
+    return _resolve(approval_id, authenticated_actor or payload.actor, "APPROVED", db)
 
 
 @router.post("/{approval_id}/reject", response_model=ApprovalOut)
-def reject_approval(approval_id: str, payload: ApprovalActionIn, db: Session = Depends(get_db)) -> ApprovalModel:
-    return _resolve(approval_id, payload.actor, "REJECTED", db)
+def reject_approval(
+    approval_id: str,
+    payload: ApprovalActionIn,
+    db: Session = Depends(get_db),
+    authenticated_actor: str | None = Depends(get_current_actor),
+) -> ApprovalModel:
+    return _resolve(approval_id, authenticated_actor or payload.actor, "REJECTED", db)
 
 
 def _as_aware_utc(value: datetime.datetime) -> datetime.datetime:
