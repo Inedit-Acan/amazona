@@ -72,7 +72,7 @@ class EconomicAnalysisService:
             margin_percent=base_scenario.get("margin_percent", 0.0),
             recommendation=result.recommendation,
             confidence=result.confidence,
-            data=result.data,
+            data={**result.data, "risks": result.risks, "evidence": result.evidence},
             correlation_id=correlation_id,
         )
         self._db.add(analysis)

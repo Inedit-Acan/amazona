@@ -91,6 +91,41 @@ def test_run_analysis_uses_real_research_and_sourcing_data(db_session: Session):
     assert analysis.data["scenarios"]["base"]["monthly_unit_sales"] > 0
 
 
+def test_run_analysis_persists_risks_and_evidence_alongside_scenarios(db_session: Session):
+    product = _make_product(db_session)
+    _make_research_analysis(db_session, product, demand_signal=0.65)
+    supplier = Supplier(name="Unverified Co", verified=False, region="china", reliability_score=0.4)
+    db_session.add(supplier)
+    db_session.commit()
+    quote = SupplierQuote(
+        product_id=product.id,
+        supplier_id=supplier.id,
+        unit_price=4.2,
+        moq=500,
+        lead_time_days=60,
+        verified=False,
+        reliability_score=0.4,
+        logistics_cost_per_unit=1.02,
+        total_landed_cost_per_unit=5.22,
+        correlation_id="corr-sourcing-2",
+    )
+    db_session.add(quote)
+    db_session.commit()
+    service = EconomicAnalysisService(db_session)
+
+    analysis = service.run_analysis(
+        product_id=product.id,
+        supplier_quote_id=quote.id,
+        sale_price=20.0,
+        correlation_id="corr-econ-risks",
+    )
+
+    assert analysis.data["risks"]
+    assert any("not verified" in risk for risk in analysis.data["risks"])
+    assert any("lead time" in risk for risk in analysis.data["risks"])
+    assert analysis.data["evidence"]
+
+
 def test_run_analysis_raises_not_found_for_an_unknown_product(db_session: Session):
     quote_owner = _make_product(db_session)
     quote = _make_supplier_quote(db_session, quote_owner)
