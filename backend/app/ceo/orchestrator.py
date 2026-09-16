@@ -7,6 +7,7 @@ from app.agents.registry import build_default_agent_manager
 from app.approvals.service import ApprovalService
 from app.audit.service import AuditService
 from app.budgets.engine import BudgetEngine, BudgetState
+from app.budgets.service import DEFAULT_BUDGET_HARD_LIMIT, BudgetLedgerService
 from app.ceo.decision_engine import DecisionInput, evaluate_decision
 from app.ceo.planner import plan_product_validation
 from app.ceo.schemas import DecisionStatus
@@ -59,6 +60,7 @@ class CEOOrchestrator:
         permission_engine: PermissionEngine | None = None,
         budget_engine: BudgetEngine | None = None,
         budget_state: BudgetState | None = None,
+        budget_ledger: BudgetLedgerService | None = None,
         max_task_retries: int = DEFAULT_MAX_TASK_RETRIES,
     ) -> None:
         self._db = db
@@ -71,7 +73,8 @@ class CEOOrchestrator:
         self.approval_service = approval_service or ApprovalService()
         self._permissions = permission_engine or PermissionEngine()
         self._budget_engine = budget_engine or BudgetEngine()
-        self._budget_state = budget_state or BudgetState(hard_limit=100_000.0)
+        self._budget_state = budget_state or BudgetState(hard_limit=DEFAULT_BUDGET_HARD_LIMIT)
+        self._budget_ledger = budget_ledger or BudgetLedgerService(db, hard_limit=DEFAULT_BUDGET_HARD_LIMIT)
         self._memory = MemoryService(db)
 
     def run_objective(self, objective_id: str) -> DecisionModel:
@@ -347,6 +350,8 @@ class CEOOrchestrator:
         )
         self._db.add(approval)
         self._db.flush()
+
+        self._budget_ledger.record_reserve(amount=spend_amount, reference=f"approval:{approval.id}")
 
         self._audit(
             actor="ceo",

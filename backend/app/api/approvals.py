@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.approvals.service import ApprovalNotPendingError
 from app.auth.dependencies import get_current_actor
+from app.budgets.service import BudgetLedgerService
 from app.core.errors import NotFoundError
 from app.db.models.approval import Approval as ApprovalModel
 from app.db.models.audit import AuditLog as AuditLogModel
@@ -67,9 +68,12 @@ def _resolve(approval_id: str, actor: str, new_status: str, db: Session) -> Appr
         raise NotFoundError(f"approval {approval_id} not found")
 
     now = datetime.datetime.now(datetime.UTC)
+    budget_ledger = BudgetLedgerService(db)
     if approval.status == "PENDING" and approval.expires_at and _as_aware_utc(approval.expires_at) <= now:
         approval.status = "EXPIRED"
         approval.resolved_at = now
+        if approval.amount:
+            budget_ledger.record_release(amount=approval.amount, reference=f"approval:{approval.id}")
         db.add(
             AuditLogModel(
                 actor="system",
@@ -89,6 +93,11 @@ def _resolve(approval_id: str, actor: str, new_status: str, db: Session) -> Appr
     approval.status = new_status
     approval.resolved_at = now
     approval.resolved_by = actor
+    if approval.amount:
+        if new_status == "APPROVED":
+            budget_ledger.record_commit(amount=approval.amount, reference=f"approval:{approval.id}")
+        else:
+            budget_ledger.record_release(amount=approval.amount, reference=f"approval:{approval.id}")
     action_verb = "approve" if new_status == "APPROVED" else "reject"
     db.add(
         AuditLogModel(

@@ -8,6 +8,7 @@ from app.core.ids import new_id
 from app.db.base import Base
 from app.db.models.agent_execution_log import AgentExecutionLog
 from app.db.models.approval import Approval
+from app.db.models.budget import BudgetAllocation, FinancialEvent
 from app.db.models.decision import DecisionEvidence
 from app.db.models.objective import Objective
 from app.db.models.project import Project
@@ -111,6 +112,13 @@ def test_run_objective_produces_a_full_audited_workflow_requiring_human_approval
     assert "project.created" in audit_actions
     assert "decision.made" in audit_actions
     assert "approval.requested" in audit_actions
+
+    allocation = db_session.query(BudgetAllocation).one()
+    assert allocation.reserved == 150.0
+    assert allocation.committed == 0.0
+    reserve_event = db_session.query(FinancialEvent).filter_by(type="RESERVE").one()
+    assert reserve_event.amount == 150.0
+    assert reserve_event.reference == f"approval:{approval.id}"
 
 
 def test_run_objective_with_legal_veto_results_in_no_go_and_no_approval(db_session: Session):

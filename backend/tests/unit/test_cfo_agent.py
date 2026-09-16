@@ -76,4 +76,4 @@ def test_no_budget_recorded_flags_the_assumption():
     result = agent.run(_base_input(total_budget_hard_limit=0, total_reserved=0, total_committed=0, total_spent=0))
 
     assert result.data["budget_utilization"] is None
-    assert any("no budget reservations recorded" in risk for risk in result.risks)
+    assert any("no budget allocations recorded" in risk for risk in result.risks)

@@ -46,8 +46,9 @@ class CFOAgent(Agent):
         else:
             budget_utilization = None
             risks.append(
-                "no budget reservations recorded yet: BudgetEngine currently authorizes/reserves budget "
-                "in-memory per approval and is not yet persisted to budget_allocations/financial_events"
+                "no budget allocations recorded yet: no objective has requested a spend approval yet "
+                "(BudgetEngine's reserve/commit/release decisions are persisted to "
+                "budget_allocations/financial_events as they happen, via BudgetLedgerService)"
             )
 
         if params.total_products_analyzed == 0:
@@ -95,9 +96,9 @@ class CFOAgent(Agent):
             assumptions=[
                 "aggregate reporting only — this agent never emits invoices; real billing must go "
                 "through a certified Verifactu-compliant third-party system",
-                "budget reservation totals reflect budget_allocations/financial_events rows only, "
-                "which nothing currently writes to (BudgetEngine's authorize/reserve flow is in-memory "
-                "per orchestrator objective)",
+                "budget reservation totals reflect budget_allocations/financial_events rows written by "
+                "BudgetLedgerService as the orchestrator reserves and the approvals API commits/releases "
+                "spend — not the orchestrator's in-memory BudgetState, which authorizes but never persists",
             ],
             data={
                 "financial_health_status": financial_health_status,
