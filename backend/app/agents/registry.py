@@ -55,6 +55,7 @@ def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:
     from app.agents.product import ProductAgent
     from app.agents.product_research import ProductResearchAgent
     from app.agents.supplier import SupplierAgent
+    from app.agents.supplier_sourcing import SupplierSourcingAgent
 
     registry = AgentRegistry()
     manager = AgentManager(registry)
@@ -65,6 +66,12 @@ def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:
         ("agent-finance-1", "Finance Validation Agent", "finance", FinanceAgent()),
         ("agent-legal-1", "Legal Validation Agent", "legal", LegalAgent()),
         ("agent-product-research-1", "Product Research Agent", "research", ProductResearchAgent()),
+        (
+            "agent-supplier-sourcing-1",
+            "Supplier Sourcing Research Agent",
+            "sourcing",
+            SupplierSourcingAgent(),
+        ),
     ]
 
     for agent_id, name, role, executor in specialists:
