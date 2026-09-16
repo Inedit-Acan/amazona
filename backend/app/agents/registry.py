@@ -47,21 +47,24 @@ class AgentRegistry:
 
 
 def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:
-    """Wire up and register the four Milestone 1 specialist agents."""
+    """Wire up and register the Milestone 1 specialist agents plus Fase 3's
+    first agent (Product Research/discovery)."""
     from app.agents.finance import FinanceAgent
     from app.agents.legal import LegalAgent
     from app.agents.manager import AgentManager
     from app.agents.product import ProductAgent
+    from app.agents.product_research import ProductResearchAgent
     from app.agents.supplier import SupplierAgent
 
     registry = AgentRegistry()
     manager = AgentManager(registry)
 
     specialists = [
-        ("agent-product-1", "Product Research Agent", "product", ProductAgent()),
+        ("agent-product-1", "Product Validation Agent", "product", ProductAgent()),
         ("agent-supplier-1", "Supplier Sourcing Agent", "supplier", SupplierAgent()),
         ("agent-finance-1", "Finance Validation Agent", "finance", FinanceAgent()),
         ("agent-legal-1", "Legal Validation Agent", "legal", LegalAgent()),
+        ("agent-product-research-1", "Product Research Agent", "research", ProductResearchAgent()),
     ]
 
     for agent_id, name, role, executor in specialists:
