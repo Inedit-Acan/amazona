@@ -3,18 +3,28 @@ don't interfere with each other.
 
 Each call gets its own TaskService instance (an orchestrator-local, in
 memory DAG — see app/tasks/service.py) and, here, its own SQLAlchemy
-Session bound to a shared StaticPool SQLite engine so both threads see
-the same database. That isolation (own TaskService + own Session per
-call) is what this test exists to prove is actually race-free, not just
-architecturally plausible.
+Session bound to its own real connection to a shared file-based SQLite
+DB, so both threads see the same database. That isolation (own
+TaskService + own connection per call) is what this test exists to prove
+is actually race-free, not just architecturally plausible.
+
+Deliberately *not* an in-memory DB behind StaticPool: StaticPool hands
+every Session the exact same underlying sqlite3 connection object, and
+concurrently executing statements through one shared connection object
+from two threads is itself unsafe (observed as sqlite3.InterfaceError /
+StaleDataError under real thread scheduling, e.g. in CI) — that would be
+testing StaticPool's single-connection hazard, not the orchestrator's
+own isolation. A real file gives each thread its own connection, same as
+two real Postgres clients would have.
 """
 
+import tempfile
 import threading
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.ceo.orchestrator import CEOOrchestrator
 from app.ceo.schemas import DecisionStatus
@@ -48,18 +58,17 @@ LEGAL_VETO_CONTEXT = {
 
 @pytest.fixture()
 def session_factory():
-    engine = create_engine(
-        "sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    db_path = Path(tempfile.mkstemp(suffix=".sqlite3")[1])
+    engine = create_engine(f"sqlite+pysqlite:///{db_path}", connect_args={"check_same_thread": False})
 
     @event.listens_for(engine, "connect")
     def _set_busy_timeout(dbapi_connection, connection_record):
         # SQLite allows only one writer at a time; without this, a second
         # thread's concurrent COMMIT can raise "database is locked"
         # immediately instead of waiting briefly for the first to finish -
-        # a SQLite-only artifact this test's two-thread setup runs into,
-        # not a real race in the orchestrator (real Postgres has proper
-        # MVCC and doesn't need this).
+        # a SQLite-only artifact of two real connections to one file, not
+        # a real race in the orchestrator (real Postgres has proper MVCC
+        # and doesn't need this).
         dbapi_connection.execute("PRAGMA busy_timeout=5000")
 
     Base.metadata.create_all(engine)
@@ -68,6 +77,10 @@ def session_factory():
         yield factory
     finally:
         engine.dispose()
+        try:
+            db_path.unlink(missing_ok=True)
+        except PermissionError:
+            pass  # Windows can hold the file handle briefly after dispose(); harmless leftover temp file
 
 
 def test_two_concurrent_objective_runs_do_not_interfere(session_factory):

@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -39,10 +40,22 @@ def test_control_center_origin_is_allowed_by_cors():
 
 
 def test_health_detailed_returns_503_when_database_is_unreachable():
-    # Uses the module-level client with no get_db override, so it hits
-    # whatever DATABASE_URL resolves to locally — unreachable in this
-    # sandbox/CI by default, which is exactly the case this asserts on.
-    response = client.get("/health/detailed")
+    # Forces the failure deterministically instead of relying on ambient
+    # DATABASE_URL: that's unreachable in a sandbox with no Postgres
+    # running, but CI's own workflow points it at a live service
+    # container, so the two environments would otherwise disagree here.
+    class _BrokenSession:
+        def execute(self, *args, **kwargs):
+            raise OperationalError("SELECT 1", {}, Exception("simulated unreachable database"))
+
+    def override_get_db():
+        yield _BrokenSession()
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        response = client.get("/health/detailed")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
     assert response.status_code == 503
     body = response.json()
