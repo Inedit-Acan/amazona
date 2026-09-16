@@ -55,6 +55,7 @@ def test_product_analysis_requires_a_valid_product_id(db_session: Session):
         opportunity_score=0.8,
         confidence=0.7,
         data={"demand_signal": 0.6},
+        correlation_id="corr-1",
     )
     db_session.add(analysis)
 
@@ -73,6 +74,7 @@ def test_product_analysis_links_to_an_existing_product(db_session: Session):
         opportunity_score=0.65,
         confidence=0.8,
         data={"demand_signal": 0.7},
+        correlation_id="corr-1",
     )
     db_session.add(analysis)
     db_session.commit()

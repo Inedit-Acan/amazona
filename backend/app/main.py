@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api import agents, approvals, audit, decisions, monitoring, objectives, projects, tasks
+from app.api import agents, approvals, audit, decisions, monitoring, objectives, products, projects, research, tasks
 from app.approvals.service import ApprovalNotPendingError
 from app.core.config import get_settings
 from app.core.errors import NotFoundError
@@ -92,3 +92,5 @@ app.include_router(decisions.router)
 app.include_router(approvals.router)
 app.include_router(audit.router)
 app.include_router(monitoring.router)
+app.include_router(research.router)
+app.include_router(products.router)

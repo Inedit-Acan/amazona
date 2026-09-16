@@ -14,3 +14,4 @@ class ProductAnalysis(IdMixin, TimestampMixin, Base):
     opportunity_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    correlation_id: Mapped[str] = mapped_column(String(36))
