@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import DateTime, JSON, String
+from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -19,5 +19,5 @@ class AuditLog(IdMixin, Base):
     after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     correlation_id: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.UTC)
     )

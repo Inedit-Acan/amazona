@@ -12,10 +12,10 @@ class IdMixin:
 
 class TimestampMixin:
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.UTC)
     )
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.datetime.now(datetime.timezone.utc),
-        onupdate=lambda: datetime.datetime.now(datetime.timezone.utc),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
     )

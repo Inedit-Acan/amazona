@@ -7,7 +7,7 @@ from app.ceo.schemas import ApprovalStatus
 
 
 def now() -> datetime.datetime:
-    return datetime.datetime.now(datetime.timezone.utc)
+    return datetime.datetime.now(datetime.UTC)
 
 
 @pytest.fixture()
@@ -17,7 +17,10 @@ def service() -> ApprovalService:
 
 def test_create_approval_is_contextual_and_pending(service: ApprovalService):
     approval = service.create_approval(
-        decision_id="dec-1", action="launch_marketing_campaign", amount=150.0, expiry=now() + datetime.timedelta(hours=24)
+        decision_id="dec-1",
+        action="launch_marketing_campaign",
+        amount=150.0,
+        expiry=now() + datetime.timedelta(hours=24),
     )
 
     assert approval.decision_id == "dec-1"

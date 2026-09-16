@@ -7,7 +7,7 @@ from app.ceo.schemas import DecisionStatus
 from app.core.ids import new_id
 from app.db.base import Base
 from app.db.models.approval import Approval
-from app.db.models.decision import Decision, DecisionEvidence
+from app.db.models.decision import DecisionEvidence
 from app.db.models.objective import Objective
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -96,7 +96,14 @@ def test_run_objective_produces_a_full_audited_workflow_requiring_human_approval
 
 
 def test_run_objective_with_legal_veto_results_in_no_go_and_no_approval(db_session: Session):
-    context = {**ATTRACTIVE_PRODUCT_CONTEXT, "legal_validation": {"restricted_category": True, "requires_certification": True, "certification_available": False}}
+    context = {
+        **ATTRACTIVE_PRODUCT_CONTEXT,
+        "legal_validation": {
+            "restricted_category": True,
+            "requires_certification": True,
+            "certification_available": False,
+        },
+    }
     objective = create_objective(db_session, context)
     orchestrator = CEOOrchestrator(db_session)
 

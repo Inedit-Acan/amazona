@@ -79,7 +79,9 @@ class CEOOrchestrator:
         task_service, name_to_domain_id, name_to_db_id = self._create_tasks(project, context, correlation_id)
         self._execute_tasks(task_service, project, name_to_domain_id, name_to_db_id, correlation_id)
 
-        outputs = {name: task_service.get_task(name_to_domain_id[name]).output for name in SPECIALIST_TASK_NAMES}
+        outputs = {
+            name: task_service.get_task(name_to_domain_id[name]).output or {} for name in SPECIALIST_TASK_NAMES
+        }
         decision = self._synthesize_decision(project, context, outputs, correlation_id)
         self._maybe_create_approval(decision, context, correlation_id)
 
@@ -161,6 +163,7 @@ class CEOOrchestrator:
 
             for domain_task in runnable:
                 db_task = self._db.get(TaskModel, name_to_db_id[domain_task.name])
+                assert db_task is not None, f"task row for {domain_task.name!r} was not created"
                 task_service.mark_running(domain_task.id)
                 db_task.status = TaskStatus.RUNNING.value
 
@@ -292,7 +295,7 @@ class CEOOrchestrator:
             action=context.get("spend_action", "simulated_external_spend"),
             amount=spend_amount,
             status="PENDING",
-            expires_at=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24),
+            expires_at=datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=24),
             correlation_id=correlation_id,
         )
         self._db.add(approval)

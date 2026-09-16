@@ -11,5 +11,5 @@ class Event(BaseModel):
     correlation_id: str
     payload: dict = Field(default_factory=dict)
     created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
     )

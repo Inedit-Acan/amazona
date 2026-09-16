@@ -1,4 +1,4 @@
-from app.agents.base import Agent, AgentResult
+from app.agents.base import Agent, AgentResult, AgentResultStatus
 
 _MAX_ACCEPTABLE_LEAD_TIME_DAYS = 45
 
@@ -16,7 +16,7 @@ class SupplierAgent(Agent):
 
         if unit_cost is None or lead_time_days is None:
             return AgentResult(
-                status="COMPLETED",
+                status=AgentResultStatus.COMPLETED,
                 recommendation="REVIEW",
                 confidence=0.3,
                 evidence=[],
@@ -39,7 +39,7 @@ class SupplierAgent(Agent):
             recommendation = "NO_GO"
 
         return AgentResult(
-            status="COMPLETED",
+            status=AgentResultStatus.COMPLETED,
             recommendation=recommendation,
             confidence=0.85 if verified else 0.4,
             evidence=[f"unit cost {unit_cost}", f"lead time {lead_time_days} days"],

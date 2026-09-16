@@ -1,4 +1,4 @@
-from app.agents.base import Agent, AgentResult
+from app.agents.base import Agent, AgentResult, AgentResultStatus
 
 _COMPETITION_FACTOR = {"low": 1.0, "medium": 0.6, "high": 0.3}
 
@@ -15,7 +15,7 @@ class ProductAgent(Agent):
 
         if not monthly_searches or competition not in _COMPETITION_FACTOR:
             return AgentResult(
-                status="COMPLETED",
+                status=AgentResultStatus.COMPLETED,
                 recommendation="REVIEW",
                 confidence=0.3,
                 evidence=[],
@@ -36,7 +36,7 @@ class ProductAgent(Agent):
             recommendation = "NO_GO"
 
         return AgentResult(
-            status="COMPLETED",
+            status=AgentResultStatus.COMPLETED,
             recommendation=recommendation,
             confidence=confidence,
             evidence=[

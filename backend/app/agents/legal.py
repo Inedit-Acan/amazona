@@ -1,4 +1,4 @@
-from app.agents.base import Agent, AgentResult
+from app.agents.base import Agent, AgentResult, AgentResultStatus
 
 
 class LegalAgent(Agent):
@@ -15,7 +15,7 @@ class LegalAgent(Agent):
         blocked = restricted and not certification_available
         if blocked:
             return AgentResult(
-                status="BLOCKED",
+                status=AgentResultStatus.BLOCKED,
                 recommendation="NO_GO",
                 confidence=0.95,
                 evidence=["category requires certification not currently held"],
@@ -27,7 +27,7 @@ class LegalAgent(Agent):
         recommendation = "REVIEW" if requires_certification and not certification_available else "GO"
 
         return AgentResult(
-            status="COMPLETED",
+            status=AgentResultStatus.COMPLETED,
             recommendation=recommendation,
             confidence=0.85,
             evidence=["no blocking regulatory restrictions found"],

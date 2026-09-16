@@ -47,7 +47,7 @@ def reject_approval(approval_id: str, payload: ApprovalActionIn, db: Session = D
 
 def _as_aware_utc(value: datetime.datetime) -> datetime.datetime:
     """SQLite drops tzinfo on round-trip; every stored datetime here is UTC."""
-    return value if value.tzinfo is not None else value.replace(tzinfo=datetime.timezone.utc)
+    return value if value.tzinfo is not None else value.replace(tzinfo=datetime.UTC)
 
 
 def _resolve(approval_id: str, actor: str, new_status: str, db: Session) -> ApprovalModel:
@@ -55,7 +55,7 @@ def _resolve(approval_id: str, actor: str, new_status: str, db: Session) -> Appr
     if approval is None:
         raise NotFoundError(f"approval {approval_id} not found")
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     if approval.status == "PENDING" and approval.expires_at and _as_aware_utc(approval.expires_at) <= now:
         approval.status = "EXPIRED"
         approval.resolved_at = now

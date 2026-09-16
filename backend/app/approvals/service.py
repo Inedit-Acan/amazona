@@ -12,7 +12,7 @@ class ApprovalNotPendingError(AmazonaError):
 
 
 def _utcnow() -> datetime.datetime:
-    return datetime.datetime.now(datetime.timezone.utc)
+    return datetime.datetime.now(datetime.UTC)
 
 
 class Approval(BaseModel):

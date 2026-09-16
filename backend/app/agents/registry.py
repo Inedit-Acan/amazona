@@ -1,5 +1,12 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from app.agents.base import AgentDescriptor, AgentStatus
 from app.core.errors import NotFoundError
+
+if TYPE_CHECKING:
+    from app.agents.manager import AgentManager
 
 _EXCLUDED_FROM_ROUTING = {AgentStatus.DISABLED, AgentStatus.FAILED}
 
@@ -39,7 +46,7 @@ class AgentRegistry:
         return agent
 
 
-def build_default_agent_manager() -> tuple["AgentRegistry", "AgentManager"]:
+def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:
     """Wire up and register the four Milestone 1 specialist agents."""
     from app.agents.finance import FinanceAgent
     from app.agents.legal import LegalAgent

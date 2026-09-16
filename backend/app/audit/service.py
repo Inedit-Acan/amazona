@@ -16,7 +16,7 @@ class AuditEntry(BaseModel):
     after: dict | None = None
     correlation_id: str
     timestamp: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc)
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
     )
 
 

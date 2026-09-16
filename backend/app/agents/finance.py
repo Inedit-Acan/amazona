@@ -1,4 +1,4 @@
-from app.agents.base import Agent, AgentResult
+from app.agents.base import Agent, AgentResult, AgentResultStatus
 
 
 class FinanceAgent(Agent):
@@ -13,7 +13,7 @@ class FinanceAgent(Agent):
 
         if unit_cost is None or not sale_price:
             return AgentResult(
-                status="COMPLETED",
+                status=AgentResultStatus.COMPLETED,
                 recommendation="REVIEW",
                 confidence=0.3,
                 evidence=[],
@@ -37,7 +37,7 @@ class FinanceAgent(Agent):
             recommendation = "REVIEW"
 
         return AgentResult(
-            status="COMPLETED",
+            status=AgentResultStatus.COMPLETED,
             recommendation=recommendation,
             confidence=0.9 if monthly_unit_sales > 0 else 0.4,
             evidence=[
