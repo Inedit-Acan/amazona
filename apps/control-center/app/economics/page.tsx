@@ -68,6 +68,12 @@ function EconomicsForm() {
     router.push(`/ceo?${params.toString()}`);
   }
 
+  function checkLegalCompliance() {
+    if (!analysis) return;
+    const params = new URLSearchParams({ product_id: analysis.product_id });
+    router.push(`/legal?${params.toString()}`);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -198,9 +204,14 @@ function EconomicsForm() {
               </div>
             ) : null}
 
-            <Button size="sm" variant="outline" onClick={validateThisAnalysis}>
-              Validate this analysis
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={checkLegalCompliance}>
+                Check legal compliance
+              </Button>
+              <Button size="sm" variant="outline" onClick={validateThisAnalysis}>
+                Validate this analysis
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}

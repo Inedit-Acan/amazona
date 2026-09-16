@@ -13,7 +13,7 @@ const DEFAULT_CONTEXT = {
   product_validation: { estimated_monthly_searches: 12000, competition_level: "low" },
   supplier_sourcing: { unit_cost: 5.0, lead_time_days: 20, supplier_verified: true },
   finance_validation: { unit_cost: 5.0, sale_price: 20.0, monthly_unit_sales: 300, monthly_fixed_costs: 500.0 },
-  legal_validation: { restricted_category: false },
+  legal_validation: { restricted_category: false, requires_certification: false, certification_available: true },
   requests_simulated_spend: true,
   spend_action: "launch_marketing_campaign",
   spend_amount: 150.0,
@@ -23,7 +23,12 @@ const DEFAULT_CONTEXT = {
  * (?title=&product_name=&category=&demand_signal=&competition_level=), a
  * Sourcing page handoff (?title=&unit_cost=&lead_time_days=&supplier_verified=),
  * an Economics page handoff (?title=&unit_cost=&sale_price=&monthly_fixed_costs=&monthly_unit_sales=),
- * or the default example context when none of that is present. */
+ * a Legal page handoff (?title=&restricted_category=&requires_certification=&certification_available=),
+ * or the default example context when none of that is present.
+ *
+ * The Legal handoff is what replaces legal_validation.restricted_category —
+ * a value typed by hand since Milestone 1 — with the Legal Compliance
+ * agent's real analysis of the product's category and target market. */
 function buildInitialState(params: URLSearchParams) {
   const title = params.get("title");
   const demandSignal = params.get("demand_signal");
@@ -34,6 +39,9 @@ function buildInitialState(params: URLSearchParams) {
   const salePrice = params.get("sale_price");
   const monthlyFixedCosts = params.get("monthly_fixed_costs");
   const monthlyUnitSales = params.get("monthly_unit_sales");
+  const restrictedCategory = params.get("restricted_category");
+  const requiresCertification = params.get("requires_certification");
+  const certificationAvailable = params.get("certification_available");
 
   if (!title) {
     return { title: "Validate wireless earbuds opportunity", context: DEFAULT_CONTEXT };
@@ -66,6 +74,17 @@ function buildInitialState(params: URLSearchParams) {
         monthly_fixed_costs: monthlyFixedCosts
           ? Number(monthlyFixedCosts)
           : DEFAULT_CONTEXT.finance_validation.monthly_fixed_costs,
+      },
+      legal_validation: {
+        restricted_category: restrictedCategory
+          ? restrictedCategory === "true"
+          : DEFAULT_CONTEXT.legal_validation.restricted_category,
+        requires_certification: requiresCertification
+          ? requiresCertification === "true"
+          : DEFAULT_CONTEXT.legal_validation.requires_certification,
+        certification_available: certificationAvailable
+          ? certificationAvailable === "true"
+          : DEFAULT_CONTEXT.legal_validation.certification_available,
       },
     },
   };

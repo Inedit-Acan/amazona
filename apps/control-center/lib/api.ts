@@ -228,6 +228,30 @@ export interface EconomicAnalysis {
   } | null;
 }
 
+export interface RegulatoryChange {
+  date: string;
+  description: string;
+}
+
+export interface LegalAnalysis {
+  correlation_id: string;
+  product_id: string;
+  supplier_quote_id: string | null;
+  market: string;
+  restricted: boolean | null;
+  recommendation: "GO" | "REVIEW" | "NO_GO";
+  confidence: number;
+  data: {
+    required_certifications?: string[];
+    known_risks?: string[];
+    recent_changes?: RegulatoryChange[];
+    terms_and_conditions?: string;
+    risks?: string[];
+    evidence?: string[];
+    [key: string]: unknown;
+  } | null;
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -272,4 +296,10 @@ export const api = {
   }) => request<EconomicAnalysis>("/api/economics/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductEconomics: (productId: string) =>
     request<EconomicAnalysis[]>(`/api/products/${productId}/economics`),
+  createLegalAnalysisRun: (payload: {
+    product_id: string;
+    market: string;
+    certification_available?: boolean;
+  }) => request<LegalAnalysis>("/api/legal/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listProductLegal: (productId: string) => request<LegalAnalysis[]>(`/api/products/${productId}/legal`),
 };
