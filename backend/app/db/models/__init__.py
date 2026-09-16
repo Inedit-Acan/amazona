@@ -7,6 +7,7 @@ from app.db.models.decision import Decision, DecisionEvidence
 from app.db.models.economic_analysis import EconomicAnalysis
 from app.db.models.event import Event
 from app.db.models.incident import Incident
+from app.db.models.legal_analysis import LegalAnalysis
 from app.db.models.memory_record import MemoryRecord
 from app.db.models.objective import Objective
 from app.db.models.policy import Policy
@@ -33,6 +34,7 @@ __all__ = [
     "EconomicAnalysis",
     "Event",
     "Incident",
+    "LegalAnalysis",
     "MemoryRecord",
     "Objective",
     "Policy",
