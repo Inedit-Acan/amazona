@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
-const EXAMPLE_CONTEXT = {
+const DEFAULT_CONTEXT = {
   product_validation: { estimated_monthly_searches: 12000, competition_level: "low" },
   supplier_sourcing: { unit_cost: 5.0, lead_time_days: 20, supplier_verified: true },
   finance_validation: { unit_cost: 5.0, sale_price: 20.0, monthly_unit_sales: 300, monthly_fixed_costs: 500.0 },
@@ -19,11 +19,39 @@ const EXAMPLE_CONTEXT = {
   spend_amount: 150.0,
 };
 
-export default function CeoPage() {
+/** Builds the initial form state from a Research page handoff
+ * (?title=&product_name=&category=&demand_signal=&competition_level=), or
+ * the default example context when none of that is present. */
+function buildInitialState(params: URLSearchParams) {
+  const title = params.get("title");
+  const demandSignal = params.get("demand_signal");
+  const competitionLevel = params.get("competition_level");
+
+  if (!title) {
+    return { title: "Validate wireless earbuds opportunity", context: DEFAULT_CONTEXT };
+  }
+
+  const estimatedMonthlySearches = demandSignal ? Math.round(Number(demandSignal) * 15000) : 12000;
+  return {
+    title,
+    context: {
+      ...DEFAULT_CONTEXT,
+      product_validation: {
+        estimated_monthly_searches: estimatedMonthlySearches,
+        competition_level: competitionLevel || "medium",
+      },
+    },
+  };
+}
+
+function CeoForm() {
   const router = useRouter();
-  const [title, setTitle] = useState("Validate wireless earbuds opportunity");
+  const searchParams = useSearchParams();
+  const initial = buildInitialState(searchParams);
+
+  const [title, setTitle] = useState(initial.title);
   const [createdBy, setCreatedBy] = useState("owner@amazona.local");
-  const [context, setContext] = useState(JSON.stringify(EXAMPLE_CONTEXT, null, 2));
+  const [context, setContext] = useState(JSON.stringify(initial.context, null, 2));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -121,5 +149,13 @@ export default function CeoPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function CeoPage() {
+  return (
+    <Suspense fallback={null}>
+      <CeoForm />
+    </Suspense>
   );
 }

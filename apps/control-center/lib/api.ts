@@ -161,6 +161,25 @@ export interface DetailedHealth {
   supabase_configured: boolean;
 }
 
+export interface ResearchCandidate {
+  product_id: string;
+  name: string;
+  category: string;
+  opportunity_score: number | null;
+  confidence: number | null;
+  data: {
+    demand_signal?: number;
+    competition_level?: string;
+    niche_rationale?: string;
+    [key: string]: unknown;
+  };
+}
+
+export interface ResearchRun {
+  correlation_id: string;
+  candidates: ResearchCandidate[];
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -187,4 +206,6 @@ export const api = {
     request<AuditEntry[]>(`/api/audit${correlationId ? `?correlation_id=${correlationId}` : ""}`),
   listAgentExecutions: () => request<AgentExecution[]>("/api/agent-executions"),
   getHealth: () => request<DetailedHealth>("/health/detailed"),
+  createResearchRun: (payload: { category: string; keywords?: string[]; max_results?: number }) =>
+    request<ResearchRun>("/api/research/runs", { method: "POST", body: JSON.stringify(payload) }),
 };
