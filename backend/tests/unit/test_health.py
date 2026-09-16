@@ -25,3 +25,9 @@ def test_incoming_correlation_id_is_echoed_back():
     response = client.get("/health", headers={"X-Correlation-ID": "test-correlation-id"})
 
     assert response.headers["X-Correlation-ID"] == "test-correlation-id"
+
+
+def test_control_center_origin_is_allowed_by_cors():
+    response = client.get("/health", headers={"Origin": "http://localhost:3000"})
+
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"

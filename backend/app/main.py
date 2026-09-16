@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import agents, approvals, audit, decisions, objectives, projects, tasks
@@ -12,6 +13,14 @@ settings = get_settings()
 configure_logging(settings.log_level)
 
 app = FastAPI(title="AMAZONA Backend")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
 
