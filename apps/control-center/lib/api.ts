@@ -340,6 +340,49 @@ export interface MarketplaceListing {
   } | null;
 }
 
+export interface AudienceSegment {
+  name: string;
+  age_range: string;
+  interests: string[];
+  estimated_reach: number;
+}
+
+export interface AdCreative {
+  headline: string;
+  primary_text: string;
+  cta: string;
+  image_brief: string;
+}
+
+export interface PerformanceEstimate {
+  avg_cpc: number;
+  avg_ctr: number;
+  conversion_rate: number;
+  data_origin: string;
+  projected_roas: number | null;
+}
+
+export interface MarketingCampaign {
+  correlation_id: string;
+  product_id: string;
+  marketplace_listing_id: string | null;
+  market: string;
+  platform: string;
+  daily_budget: number;
+  campaign_status: "READY" | "NEEDS_REVIEW" | "BLOCKED";
+  recommendation: "GO" | "REVIEW" | "NO_GO";
+  confidence: number;
+  data: {
+    audience_segments?: AudienceSegment[];
+    ad_creative?: AdCreative;
+    performance_estimate?: PerformanceEstimate;
+    budget_recommendation?: string;
+    risks?: string[];
+    evidence?: string[];
+    [key: string]: unknown;
+  } | null;
+}
+
 export const api = {
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
@@ -398,4 +441,12 @@ export const api = {
     request<MarketplaceListing>("/api/marketplace/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductMarketplaceListings: (productId: string) =>
     request<MarketplaceListing[]>(`/api/products/${productId}/marketplace-listings`),
+  createMarketingCampaignRun: (payload: {
+    product_id: string;
+    market: string;
+    platform?: string;
+    daily_budget?: number;
+  }) => request<MarketingCampaign>("/api/marketing/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listProductCampaigns: (productId: string) =>
+    request<MarketingCampaign[]>(`/api/products/${productId}/campaigns`),
 };

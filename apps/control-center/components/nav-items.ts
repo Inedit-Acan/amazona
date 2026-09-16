@@ -7,6 +7,7 @@ export const NAV_ITEMS = [
   { href: "/legal", label: "Legal" },
   { href: "/ecommerce", label: "Ecommerce" },
   { href: "/marketplace", label: "Marketplace" },
+  { href: "/marketing", label: "Marketing" },
   { href: "/projects", label: "Projects" },
   { href: "/agents", label: "Agents" },
   { href: "/approvals", label: "Approvals" },

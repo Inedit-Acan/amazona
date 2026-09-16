@@ -24,11 +24,17 @@ const DEFAULT_CONTEXT = {
  * Sourcing page handoff (?title=&unit_cost=&lead_time_days=&supplier_verified=),
  * an Economics page handoff (?title=&unit_cost=&sale_price=&monthly_fixed_costs=&monthly_unit_sales=),
  * a Legal page handoff (?title=&restricted_category=&requires_certification=&certification_available=),
+ * a Marketing page handoff (?title=&spend_amount=),
  * or the default example context when none of that is present.
  *
  * The Legal handoff is what replaces legal_validation.restricted_category —
  * a value typed by hand since Milestone 1 — with the Legal Compliance
- * agent's real analysis of the product's category and target market. */
+ * agent's real analysis of the product's category and target market. The
+ * Marketing handoff similarly replaces spend_amount=150.0 — an example
+ * value hardcoded since Milestone 1, when spend_action was already
+ * "launch_marketing_campaign" but no marketing agent existed yet to
+ * recommend a real number — with the Marketing Campaign agent's real
+ * recommended daily budget. */
 function buildInitialState(params: URLSearchParams) {
   const title = params.get("title");
   const demandSignal = params.get("demand_signal");
@@ -42,6 +48,7 @@ function buildInitialState(params: URLSearchParams) {
   const restrictedCategory = params.get("restricted_category");
   const requiresCertification = params.get("requires_certification");
   const certificationAvailable = params.get("certification_available");
+  const spendAmount = params.get("spend_amount");
 
   if (!title) {
     return { title: "Validate wireless earbuds opportunity", context: DEFAULT_CONTEXT };
@@ -86,6 +93,7 @@ function buildInitialState(params: URLSearchParams) {
           ? certificationAvailable === "true"
           : DEFAULT_CONTEXT.legal_validation.certification_available,
       },
+      spend_amount: spendAmount ? Number(spendAmount) : DEFAULT_CONTEXT.spend_amount,
     },
   };
 }

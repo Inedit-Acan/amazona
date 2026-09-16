@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ApiError, api, type MarketplaceListing } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
@@ -16,6 +16,7 @@ const LISTING_STATUS_STYLES: Record<string, string> = {
 };
 
 function MarketplaceForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialProductId = searchParams.get("product_id") ?? "";
   const initialMarket = searchParams.get("market") ?? "us";
@@ -39,6 +40,12 @@ function MarketplaceForm() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function planMarketingCampaign() {
+    if (!listing) return;
+    const params = new URLSearchParams({ product_id: listing.product_id, market: listing.market });
+    router.push(`/marketing?${params.toString()}`);
   }
 
   return (
@@ -188,6 +195,10 @@ function MarketplaceForm() {
                 </ul>
               </div>
             ) : null}
+
+            <Button size="sm" variant="outline" onClick={planMarketingCampaign}>
+              Plan marketing campaign
+            </Button>
           </CardContent>
         </Card>
       ) : null}
