@@ -3,9 +3,11 @@
 Plan completo:
 [`docs/superpowers/plans/2026-09-16-amazona-milestone-2.md`](../superpowers/plans/2026-09-16-amazona-milestone-2.md).
 Arquitectura: [ADR 0001](../architecture/adr-0001-orchestrator-vs-ceo.md)
-(Orquestador vs. CEO) y
+(Orquestador vs. CEO),
 [ADR 0002](../architecture/adr-0002-agent-messaging-protocol.md)
-(protocolo de mensajería entre agentes).
+(protocolo de mensajería entre agentes), y
+[ADR 0003](../architecture/adr-0003-rls-deny-by-default.md)
+(RLS deny-by-default).
 
 ## Conectar el backend a un proyecto Supabase real
 
@@ -42,13 +44,17 @@ proyecto Supabase real usado para este milestone
 
 ## Seguridad: Row Level Security
 
-El proyecto Supabase tiene **RLS deshabilitado** en todas las tablas —
-pendiente de decisión y política (ver sección 2.5 del plan). El backend no
-usa la API REST de Supabase (PostgREST) para acceder a datos — conecta
-directo a Postgres vía `DATABASE_URL` — por lo que esto no es explotable a
-través de la app actual, pero **si en algún momento se usa la `anon key`
-directamente contra la API REST de Supabase, cualquiera podría leer o
-escribir todas las filas.** No se ha aplicado ninguna política todavía.
+**Resuelto.** Las 24 tablas del esquema `public` tienen RLS activado con
+una política explícita deny-all para `anon`/`authenticated` — ver
+[ADR 0003](../architecture/adr-0003-rls-deny-by-default.md). El linter
+de seguridad de Supabase ya no reporta ningún hallazgo. El backend
+(rol `postgres`, vía `DATABASE_URL`) no se ve afectado — sigue siendo
+dueño de las tablas y bypasea RLS.
+
+**Sigue pendiente:** definir un modelo de acceso real (qué fila
+pertenece a qué usuario) es un prerrequisito antes de que cualquier
+cliente use la `anon key`/JWT directamente contra la API REST de
+Supabase — no relajar el deny-all sin ese modelo.
 
 ## Autenticación (opcional, 🔒)
 
