@@ -2,6 +2,7 @@ from pydantic import BaseModel
 
 from app.agents.base import Agent, AgentResult, AgentResultStatus
 from app.ai.mock_marketplace_directory import MockMarketplaceDirectory
+from app.economics.channel_commission import compute_channel_net_margin
 from app.marketplace.listing_content import generate_listing_content
 
 
@@ -63,15 +64,12 @@ class MarketplaceListingAgent(Agent):
         competition = marketplace_data["competition"]
         policy = marketplace_data["policy"]
 
-        net_margin_per_unit = None
-        if params.sale_price is not None and params.unit_landed_cost is not None:
-            referral_fee = params.sale_price * commission["referral_fee_percent"]
-            net_margin_per_unit = (
-                params.sale_price
-                - params.unit_landed_cost
-                - referral_fee
-                - commission["fulfillment_fee_per_unit"]
-            )
+        net_margin_per_unit = compute_channel_net_margin(
+            sale_price=params.sale_price,
+            unit_landed_cost=params.unit_landed_cost,
+            referral_fee_percent=commission["referral_fee_percent"],
+            fulfillment_fee_per_unit=commission["fulfillment_fee_per_unit"],
+        )
 
         risks: list[str] = list(policy["notes"])
         if params.economic_recommendation == "NO_GO":

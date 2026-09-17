@@ -9,6 +9,7 @@ from app.db.models.marketplace_listing import MarketplaceListing
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.storefront import Storefront
+from app.db.models.supplier_quote import SupplierQuote
 
 MARKETPLACE_AGENT_ACTOR = "agent-marketplace-listing-1"
 
@@ -65,7 +66,13 @@ class MarketplaceListingService:
 
         unit_landed_cost = None
         if economic_analysis is not None:
-            unit_landed_cost = economic_analysis.sale_price * (1 - economic_analysis.margin_percent)
+            # Read the real landed cost from its source (SupplierQuote) rather
+            # than re-deriving it algebraically from a persisted, already-
+            # rounded margin_percent — one economic source of truth (see
+            # docs/design/AMAZONA_cambio_arquitectura_eliminacion_modulo_mercado.md).
+            quote = self._db.get(SupplierQuote, economic_analysis.supplier_quote_id)
+            if quote is not None:
+                unit_landed_cost = quote.total_landed_cost_per_unit
 
         result = self._agent.run(
             {
