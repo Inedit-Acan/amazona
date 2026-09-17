@@ -94,6 +94,8 @@ export interface Agent {
   capabilities: string[];
   status: string;
   reliability_score: number;
+  version: string;
+  cost_profile: Record<string, unknown>;
 }
 
 export interface DecisionEvidence {

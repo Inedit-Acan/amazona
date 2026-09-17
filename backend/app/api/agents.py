@@ -15,6 +15,8 @@ class AgentOut(BaseModel):
     capabilities: list[str]
     status: str
     reliability_score: float
+    version: str
+    cost_profile: dict
 
 
 @router.get("", response_model=list[AgentOut])
@@ -27,6 +29,8 @@ def list_agents() -> list[AgentOut]:
             capabilities=agent.capabilities,
             status=agent.status.value,
             reliability_score=agent.reliability_score,
+            version=agent.version,
+            cost_profile=agent.cost_profile,
         )
         for agent in _registry.list_all()
     ]

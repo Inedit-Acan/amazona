@@ -1,14 +1,14 @@
 import type { Agent, AgentExecution } from "@/lib/api";
 import { StatusChip } from "@/components/status-chip";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
+import { VersionCard } from "@/components/version-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 /** Success rate / latency / last activity are computed here from real
- * AgentExecutionLog rows — never a fabricated "coste"/"versión"/
- * "evaluación" figure, since no cost tracking, versioning, or eval
- * suite exists in the backend yet (parte2.md §6.5 lists those too, but
- * this card only shows what the system can actually measure). */
+ * AgentExecutionLog rows. Still no "evaluación" figure — no eval suite
+ * exists in the backend yet (parte2.md §6.5 lists that too, but this
+ * card only shows what the system can actually measure). */
 export function AgentCard({ agent, executions }: { agent: Agent; executions: AgentExecution[] }) {
   const runCount = executions.length;
   const successRate = runCount > 0 ? executions.filter((e) => e.success).length / runCount : null;
@@ -64,6 +64,10 @@ export function AgentCard({ agent, executions }: { agent: Agent; executions: Age
             <p className="text-xs text-muted-foreground">Última actividad</p>
             <p className="font-medium">{lastActivity ? lastActivity.toLocaleString() : "—"}</p>
           </div>
+        </div>
+
+        <div className="border-t pt-3">
+          <VersionCard version={agent.version} costProfile={agent.cost_profile} />
         </div>
       </CardContent>
     </Card>
