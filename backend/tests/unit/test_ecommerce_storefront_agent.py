@@ -4,6 +4,7 @@ from app.agents.ecommerce_storefront import EcommerceStorefrontAgent
 
 def _base_input(**overrides):
     payload = {
+        "product_id": "prod-1234abcd",
         "product_name": "Travel cable organizer",
         "category": "accessories",
         "market": "us",

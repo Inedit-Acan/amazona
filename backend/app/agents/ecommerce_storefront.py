@@ -10,6 +10,7 @@ from app.ecommerce.content import (
 
 
 class EcommerceStorefrontInput(BaseModel):
+    product_id: str = "unknown"
     product_name: str
     category: str
     market: str
@@ -80,8 +81,9 @@ class EcommerceStorefrontAgent(Agent):
         conversion_tips = generate_conversion_tips(
             margin_percent=params.margin_percent, competition_level=params.competition_level
         )
+        store_slug = generate_store_slug(params.product_name, params.product_id)
         catalog_entry = {
-            "sku": generate_store_slug(params.product_name),
+            "sku": store_slug,
             "price": params.sale_price,
             "category": params.category,
             "market": params.market,
@@ -101,7 +103,7 @@ class EcommerceStorefrontAgent(Agent):
             ],
             data={
                 "launch_status": launch_status,
-                "store_slug": generate_store_slug(params.product_name),
+                "store_slug": store_slug,
                 "landing_page_copy": landing_page_copy,
                 "payment_gateway_plan": payment_gateway_plan,
                 "catalog_entry": catalog_entry,

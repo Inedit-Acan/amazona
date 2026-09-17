@@ -8,7 +8,7 @@ from app.db.models.mixins import IdMixin, TimestampMixin
 class ProductAnalysis(IdMixin, TimestampMixin, Base):
     __tablename__ = "product_analyses"
 
-    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
     objective_id: Mapped[str | None] = mapped_column(ForeignKey("objectives.id"), nullable=True)
     analysis_type: Mapped[str] = mapped_column(String(32))
     opportunity_score: Mapped[float | None] = mapped_column(Float, nullable=True)

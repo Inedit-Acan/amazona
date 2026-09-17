@@ -17,7 +17,7 @@ class AuditLog(IdMixin, Base):
     resource: Mapped[str] = mapped_column(String(255))
     before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    correlation_id: Mapped[str] = mapped_column(String(36))
+    correlation_id: Mapped[str] = mapped_column(String(36), index=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.UTC)
     )

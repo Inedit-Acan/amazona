@@ -8,7 +8,7 @@ from app.db.models.mixins import IdMixin, TimestampMixin
 class OperationsRecord(IdMixin, TimestampMixin, Base):
     __tablename__ = "operations_records"
 
-    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
     marketing_campaign_id: Mapped[str | None] = mapped_column(
         ForeignKey("marketing_campaigns.id"), nullable=True
     )

@@ -8,7 +8,7 @@ from app.db.models.mixins import IdMixin, TimestampMixin
 class EconomicAnalysis(IdMixin, TimestampMixin, Base):
     __tablename__ = "economic_analyses"
 
-    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
     supplier_quote_id: Mapped[str] = mapped_column(ForeignKey("supplier_quotes.id"))
     analysis_type: Mapped[str] = mapped_column(String(32), default="economic_risk")
     sale_price: Mapped[float] = mapped_column(Float)

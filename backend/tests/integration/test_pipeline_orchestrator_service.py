@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import Base
 from app.db.models.cfo_report import CFOReport
+from app.db.models.storefront import Storefront
 from app.pipeline.service import PipelineOrchestrator, PipelineRequest
 
 
@@ -94,3 +95,18 @@ def test_cfo_report_reflects_the_product_this_pipeline_run_created(db_session: S
     cfo_report_id = run.steps["cfo"]["entity_id"]
     cfo_report = db_session.get(CFOReport, cfo_report_id)
     assert cfo_report.data["total_products_analyzed"] == 1
+
+
+def test_two_runs_for_the_same_category_never_collide_on_store_slug(db_session: Session):
+    orchestrator = PipelineOrchestrator(db_session)
+    request = PipelineRequest(category="home", sale_price=50.0, destination_region="mexico")
+
+    first_run = orchestrator.run_pipeline(request)
+    second_run = orchestrator.run_pipeline(request)
+
+    # Both runs pick the same top-ranked mock candidate ("Silicone kitchen
+    # organizer") since research creates a fresh Product every time — the
+    # slug must still differ because it identifies the real product.
+    first_storefront = db_session.get(Storefront, first_run.steps["ecommerce"]["entity_id"])
+    second_storefront = db_session.get(Storefront, second_run.steps["ecommerce"]["entity_id"])
+    assert first_storefront.store_slug != second_storefront.store_slug

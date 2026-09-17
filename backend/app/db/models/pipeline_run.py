@@ -15,7 +15,7 @@ class PipelineRun(IdMixin, TimestampMixin, Base):
 
     __tablename__ = "pipeline_runs"
 
-    product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"), nullable=True)
+    product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"), nullable=True, index=True)
     category: Mapped[str] = mapped_column(String(64))
     market: Mapped[str] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(String(16))

@@ -8,7 +8,7 @@ from app.db.models.mixins import IdMixin, TimestampMixin
 class Storefront(IdMixin, TimestampMixin, Base):
     __tablename__ = "storefronts"
 
-    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
     market: Mapped[str] = mapped_column(String(16))
     store_slug: Mapped[str] = mapped_column(String(255))
     launch_status: Mapped[str] = mapped_column(String(16))

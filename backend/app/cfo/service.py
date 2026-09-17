@@ -1,7 +1,4 @@
-import datetime
-from collections.abc import Callable, Iterable
-from typing import Protocol, TypeVar
-
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.agents.cfo import CFOAgent
@@ -12,26 +9,6 @@ from app.db.models.economic_analysis import EconomicAnalysis
 from app.db.models.marketing_campaign import MarketingCampaign
 
 CFO_AGENT_ACTOR = "agent-cfo-1"
-
-
-class _HasCreatedAt(Protocol):
-    created_at: datetime.datetime
-
-
-_T = TypeVar("_T", bound=_HasCreatedAt)
-
-
-def _latest_per_key(rows: Iterable[_T], key_fn: Callable[[_T], object]) -> list[_T]:
-    """Keep only the most-recently-created row per key, mirroring the
-    `.order_by(created_at.desc()).first()` convention every other service
-    uses for a single product — applied catalog-wide across many keys."""
-    latest: dict[object, _T] = {}
-    for row in rows:
-        key = key_fn(row)
-        current = latest.get(key)
-        if current is None or row.created_at > current.created_at:
-            latest[key] = row
-    return list(latest.values())
 
 
 class CFOService:
@@ -46,12 +23,8 @@ class CFOService:
         self._agent = agent or CFOAgent()
 
     def run_generation(self, *, correlation_id: str) -> CFOReport:
-        economic_analyses = _latest_per_key(
-            self._db.query(EconomicAnalysis).all(), lambda a: a.product_id
-        )
-        campaigns = _latest_per_key(
-            self._db.query(MarketingCampaign).all(), lambda c: (c.product_id, c.market)
-        )
+        economic_analyses = self._latest_economic_analyses()
+        campaigns = self._latest_marketing_campaigns()
         budgets = self._db.query(Budget).all()
         allocations = self._db.query(BudgetAllocation).all()
 
@@ -105,3 +78,50 @@ class CFOService:
         )
         self._db.commit()
         return record
+
+    def _latest_economic_analyses(self) -> list[EconomicAnalysis]:
+        """The most recent EconomicAnalysis per product, computed in SQL
+        (MAX(created_at) grouped by product_id + join) instead of loading
+        every historical row and deduping in Python — cost scales with
+        the number of distinct products, not with total history."""
+        latest_per_product = (
+            self._db.query(
+                EconomicAnalysis.product_id,
+                func.max(EconomicAnalysis.created_at).label("latest_created_at"),
+            )
+            .group_by(EconomicAnalysis.product_id)
+            .subquery()
+        )
+        return (
+            self._db.query(EconomicAnalysis)
+            .join(
+                latest_per_product,
+                (EconomicAnalysis.product_id == latest_per_product.c.product_id)
+                & (EconomicAnalysis.created_at == latest_per_product.c.latest_created_at),
+            )
+            .all()
+        )
+
+    def _latest_marketing_campaigns(self) -> list[MarketingCampaign]:
+        """Same approach as `_latest_economic_analyses`, grouped by
+        (product_id, market) since a product can run a distinct campaign
+        per market."""
+        latest_per_campaign = (
+            self._db.query(
+                MarketingCampaign.product_id,
+                MarketingCampaign.market,
+                func.max(MarketingCampaign.created_at).label("latest_created_at"),
+            )
+            .group_by(MarketingCampaign.product_id, MarketingCampaign.market)
+            .subquery()
+        )
+        return (
+            self._db.query(MarketingCampaign)
+            .join(
+                latest_per_campaign,
+                (MarketingCampaign.product_id == latest_per_campaign.c.product_id)
+                & (MarketingCampaign.market == latest_per_campaign.c.market)
+                & (MarketingCampaign.created_at == latest_per_campaign.c.latest_created_at),
+            )
+            .all()
+        )

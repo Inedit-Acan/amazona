@@ -184,6 +184,48 @@ def test_run_generation_persists_a_reconstructable_row(db_session: Session):
     assert persisted.correlation_id == "corr-cfo-7"
 
 
+def test_only_the_latest_row_per_key_is_counted_at_larger_scale(db_session: Session):
+    """Milestone 13 (IVA-32): the SQL-side grouped query must dedupe
+    correctly at a scale where a naive full-table Python dedup would
+    still work but a broken GROUP BY (e.g. missing a join column) would
+    silently overcount or undercount."""
+    products = [_make_product(db_session, f"Product {i}") for i in range(20)]
+    for i, product in enumerate(products):
+        quote = _make_quote(db_session, product)
+        # Two historical analyses per product; only the second (latest,
+        # alternating recommendation) should be counted.
+        _make_economic_analysis(db_session, product, quote, "NO_GO", f"corr-econ-{i}-old")
+        _make_economic_analysis(
+            db_session, product, quote, "GO" if i % 2 == 0 else "REVIEW", f"corr-econ-{i}-new"
+        )
+        for market in ("us", "eu"):
+            db_session.add(
+                MarketingCampaign(
+                    product_id=product.id,
+                    market=market,
+                    platform="meta",
+                    daily_budget=10.0,
+                    campaign_status="READY",
+                    recommendation="GO",
+                    confidence=0.85,
+                    data={},
+                    correlation_id=f"corr-mktg-{i}-{market}",
+                )
+            )
+    db_session.commit()
+    service = CFOService(db_session)
+
+    report = service.run_generation(correlation_id="corr-cfo-scale")
+
+    assert report.data["total_products_analyzed"] == 20
+    assert report.data["go_count"] == 10
+    assert report.data["review_count"] == 10
+    assert report.data["no_go_count"] == 0
+    # 20 products x 2 markets each, none deduped away since (product_id,
+    # market) is a distinct key per campaign.
+    assert report.data["total_campaigns"] == 40
+
+
 def test_traceability_lists_the_included_analysis_and_campaign_ids(db_session: Session):
     product = _make_product(db_session)
     quote = _make_quote(db_session, product)

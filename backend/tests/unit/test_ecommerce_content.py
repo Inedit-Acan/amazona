@@ -7,19 +7,26 @@ from app.ecommerce.content import (
 
 
 def test_generate_store_slug_is_deterministic_lowercase_and_hyphenated():
-    first = generate_store_slug("Travel Cable Organizer")
-    second = generate_store_slug("Travel Cable Organizer")
+    first = generate_store_slug("Travel Cable Organizer", "abcd1234-...")
+    second = generate_store_slug("Travel Cable Organizer", "abcd1234-...")
 
     assert first == second
     assert first == first.lower()
     assert " " not in first
-    assert first == "travel-cable-organizer-store"
+    assert first == "travel-cable-organizer-abcd1234-store"
 
 
 def test_generate_store_slug_strips_special_characters():
-    slug = generate_store_slug("Wireless Earbuds Pro!! (2026)")
+    slug = generate_store_slug("Wireless Earbuds Pro!! (2026)", "abcd1234-...")
 
     assert all(c.isalnum() or c == "-" for c in slug)
+
+
+def test_generate_store_slug_differs_for_the_same_name_with_different_product_ids():
+    first = generate_store_slug("Silicone kitchen organizer", "11111111-aaaa")
+    second = generate_store_slug("Silicone kitchen organizer", "22222222-bbbb")
+
+    assert first != second
 
 
 def test_generate_landing_page_copy_includes_product_name():

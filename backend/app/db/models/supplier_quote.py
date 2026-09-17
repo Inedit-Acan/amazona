@@ -8,7 +8,7 @@ from app.db.models.mixins import IdMixin, TimestampMixin
 class SupplierQuote(IdMixin, TimestampMixin, Base):
     __tablename__ = "supplier_quotes"
 
-    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
     supplier_id: Mapped[str] = mapped_column(ForeignKey("suppliers.id"))
     analysis_type: Mapped[str] = mapped_column(String(32), default="sourcing")
     unit_price: Mapped[float] = mapped_column(Float)

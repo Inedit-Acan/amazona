@@ -62,6 +62,7 @@ class EcommerceStorefrontService:
 
         result = self._agent.run(
             {
+                "product_id": product.id,
                 "product_name": product.name,
                 "category": product.category,
                 "market": market,

@@ -8,7 +8,7 @@ from app.db.models.mixins import IdMixin, TimestampMixin
 class MarketingCampaign(IdMixin, TimestampMixin, Base):
     __tablename__ = "marketing_campaigns"
 
-    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
     marketplace_listing_id: Mapped[str | None] = mapped_column(
         ForeignKey("marketplace_listings.id"), nullable=True
     )

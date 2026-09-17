@@ -50,9 +50,15 @@ _DEFAULT_PAYMENT_GATEWAY = {
 _THIN_MARGIN_THRESHOLD = 0.2
 
 
-def generate_store_slug(product_name: str) -> str:
+def generate_store_slug(product_name: str, product_id: str) -> str:
+    """Deterministic per (product_name, product_id) — same product always
+    gets the same slug across repeated runs, but two different products
+    that happen to share a name (e.g. the same fixture candidate chosen
+    by two separate pipeline runs) never collide, since product_id is
+    always unique."""
     slug = re.sub(r"[^a-z0-9]+", "-", product_name.lower()).strip("-")
-    return f"{slug}-store"
+    suffix = product_id[:8] if product_id else "unknown"
+    return f"{slug}-{suffix}-store"
 
 
 def generate_landing_page_copy(
