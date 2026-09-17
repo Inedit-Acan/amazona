@@ -1,10 +1,16 @@
+import datetime
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, PipelineReviewNotPendingError
+from app.core.ids import new_correlation_id
+from app.db.models.audit import AuditLog
+from app.db.models.pipeline_review import PipelineReview as PipelineReviewModel
 from app.db.models.pipeline_run import PipelineRun as PipelineRunModel
 from app.db.session import get_db
+from app.pipeline.kill_switch import PipelineKillSwitchService
 from app.pipeline.service import PipelineOrchestrator, PipelineRequest
 
 router = APIRouter(tags=["pipeline"])
@@ -32,7 +38,36 @@ class PipelineRunOut(BaseModel):
     market: str
     status: str
     failed_step: str | None
+    needs_review: bool
     steps: dict
+
+
+class PipelineReviewOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    pipeline_run_id: str
+    reasons: list[str]
+    status: str
+    resolved_at: datetime.datetime | None
+    resolved_by: str | None
+    correlation_id: str
+
+
+class PipelineReviewActionIn(BaseModel):
+    actor: str
+
+
+class KillSwitchOut(BaseModel):
+    enabled: bool
+    reason: str | None
+    updated_by: str | None
+
+
+class KillSwitchSetIn(BaseModel):
+    enabled: bool
+    reason: str | None = None
+    actor: str
 
 
 def _load_run(correlation_id: str, db: Session) -> PipelineRunOut:
@@ -57,3 +92,73 @@ def get_pipeline_run(correlation_id: str, db: Session = Depends(get_db)) -> Pipe
 @router.get("/api/pipeline/runs", response_model=list[PipelineRunOut])
 def list_pipeline_runs(db: Session = Depends(get_db)) -> list[PipelineRunModel]:
     return db.query(PipelineRunModel).order_by(PipelineRunModel.created_at.desc()).all()
+
+
+@router.get("/api/pipeline/reviews", response_model=list[PipelineReviewOut])
+def list_pipeline_reviews(db: Session = Depends(get_db)) -> list[PipelineReviewModel]:
+    return (
+        db.query(PipelineReviewModel)
+        .filter_by(status="PENDING")
+        .order_by(PipelineReviewModel.created_at.desc())
+        .all()
+    )
+
+
+@router.post("/api/pipeline/reviews/{review_id}/approve", response_model=PipelineReviewOut)
+def approve_pipeline_review(
+    review_id: str, payload: PipelineReviewActionIn, db: Session = Depends(get_db)
+) -> PipelineReviewModel:
+    return _resolve_review(review_id, payload.actor, "APPROVED", db)
+
+
+@router.post("/api/pipeline/reviews/{review_id}/reject", response_model=PipelineReviewOut)
+def reject_pipeline_review(
+    review_id: str, payload: PipelineReviewActionIn, db: Session = Depends(get_db)
+) -> PipelineReviewModel:
+    return _resolve_review(review_id, payload.actor, "REJECTED", db)
+
+
+def _resolve_review(review_id: str, actor: str, new_status: str, db: Session) -> PipelineReviewModel:
+    review = db.get(PipelineReviewModel, review_id)
+    if review is None:
+        raise NotFoundError(f"pipeline review {review_id} not found")
+    if review.status != "PENDING":
+        raise PipelineReviewNotPendingError(f"pipeline review {review_id} is not pending (status={review.status})")
+
+    before_status = review.status
+    review.status = new_status
+    review.resolved_at = datetime.datetime.now(datetime.UTC)
+    review.resolved_by = actor
+    action_verb = "approve" if new_status == "APPROVED" else "reject"
+    db.add(
+        AuditLog(
+            actor=actor,
+            action=f"pipeline_review.{action_verb}",
+            resource=f"pipeline_review:{review.id}",
+            before={"status": before_status},
+            after={"status": new_status},
+            correlation_id=review.correlation_id,
+        )
+    )
+    db.commit()
+    db.refresh(review)
+    return review
+
+
+@router.get("/api/pipeline/kill-switch", response_model=KillSwitchOut)
+def get_kill_switch(db: Session = Depends(get_db)) -> KillSwitchOut:
+    state = PipelineKillSwitchService(db).get_state()
+    return KillSwitchOut.model_validate(state, from_attributes=True)
+
+
+@router.post("/api/pipeline/kill-switch", response_model=KillSwitchOut)
+def set_kill_switch(payload: KillSwitchSetIn, db: Session = Depends(get_db)) -> KillSwitchOut:
+    service = PipelineKillSwitchService(db)
+    correlation_id = new_correlation_id()
+    if payload.enabled:
+        state = service.enable(actor=payload.actor, correlation_id=correlation_id)
+    else:
+        state = service.disable(
+            reason=payload.reason or "no reason given", actor=payload.actor, correlation_id=correlation_id
+        )
+    return KillSwitchOut.model_validate(state, from_attributes=True)

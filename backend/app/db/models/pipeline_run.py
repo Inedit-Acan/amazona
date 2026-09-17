@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import JSON, Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -21,4 +21,5 @@ class PipelineRun(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(16))
     failed_step: Mapped[str | None] = mapped_column(String(32), nullable=True)
     steps: Mapped[dict] = mapped_column(JSON)
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     correlation_id: Mapped[str] = mapped_column(String(36))

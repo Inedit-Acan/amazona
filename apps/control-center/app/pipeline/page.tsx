@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { ApiError, api, type PipelineRun } from "@/lib/api";
+import { ApiError, api, type PipelineKillSwitchState, type PipelineRun } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,90 @@ const RUN_STATUS_STYLES: Record<string, string> = {
   COMPLETED: "text-emerald-600 dark:text-emerald-400",
   PARTIAL: "text-amber-600 dark:text-amber-400",
 };
+
+function KillSwitchControl() {
+  const [state, setState] = useState<PipelineKillSwitchState | null>(null);
+  const [reason, setReason] = useState("");
+  const [actor, setActor] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getPipelineKillSwitch()
+      .then(setState)
+      .catch(() => undefined);
+  }, []);
+
+  async function handleToggle() {
+    if (!state) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const next = await api.setPipelineKillSwitch({
+        enabled: !state.enabled,
+        reason: state.enabled ? reason || "no reason given" : undefined,
+        actor: actor || "unknown",
+      });
+      setState(next);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to update the kill switch.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!state) return null;
+
+  return (
+    <Card className="max-w-2xl">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Kill switch</CardTitle>
+        <span
+          className={`text-sm font-semibold ${state.enabled ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}
+        >
+          {state.enabled ? "ENABLED" : "DISABLED"}
+        </span>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          When disabled, no new pipeline run can start (Milestone 14, ADR 0006) — every attempt is
+          rejected until an operator re-enables it.
+        </p>
+        {!state.enabled && state.reason ? (
+          <p className="text-sm text-muted-foreground">Reason: {state.reason}</p>
+        ) : null}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <input
+            placeholder="your actor id"
+            value={actor}
+            onChange={(e) => setActor(e.target.value)}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          />
+          {state.enabled ? (
+            <input
+              placeholder="reason for disabling"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            />
+          ) : null}
+        </div>
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTriangle className="size-4" />
+            <AlertTitle>Kill switch update failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <Button variant={state.enabled ? "destructive" : "default"} disabled={busy} onClick={handleToggle}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+          {state.enabled ? "Disable pipeline" : "Re-enable pipeline"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function PipelinePage() {
   const [category, setCategory] = useState("home");
@@ -71,8 +155,10 @@ export default function PipelinePage() {
     <div className="space-y-6">
       <PageHeader
         title="Pipeline"
-        description="Run the full Fase 3 discovery chain (Research → Sourcing → Economics → Legal → Ecommerce → Marketplace → Marketing → Operations → CFO) as one continuous execution instead of clicking through each page and copying IDs by hand (Milestone 12, ADR 0005). The individual pages still exist for standalone use and debugging."
+        description="Run the full Fase 3 discovery chain (Research → Sourcing → Economics → Legal → Ecommerce → Marketplace → Marketing → Operations → CFO) as one continuous execution instead of clicking through each page and copying IDs by hand (Milestone 12, ADR 0005). Risky runs require human review and a kill switch can pause new runs entirely (Milestone 14, ADR 0006)."
       />
+
+      <KillSwitchControl />
 
       <Card className="max-w-2xl">
         <CardHeader>
@@ -170,7 +256,14 @@ export default function PipelinePage() {
         <Card className="max-w-3xl">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Pipeline run</CardTitle>
-            <span className={`text-sm font-semibold ${RUN_STATUS_STYLES[run.status] ?? ""}`}>{run.status}</span>
+            <div className="flex items-center gap-3">
+              {run.needs_review ? (
+                <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                  NEEDS HUMAN REVIEW
+                </span>
+              ) : null}
+              <span className={`text-sm font-semibold ${RUN_STATUS_STYLES[run.status] ?? ""}`}>{run.status}</span>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {run.status === "PARTIAL" ? (

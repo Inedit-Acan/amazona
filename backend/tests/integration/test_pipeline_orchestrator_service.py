@@ -110,3 +110,19 @@ def test_two_runs_for_the_same_category_never_collide_on_store_slug(db_session: 
     first_storefront = db_session.get(Storefront, first_run.steps["ecommerce"]["entity_id"])
     second_storefront = db_session.get(Storefront, second_run.steps["ecommerce"]["entity_id"])
     assert first_storefront.store_slug != second_storefront.store_slug
+
+
+def test_run_pipeline_raises_when_the_kill_switch_is_disabled(db_session: Session):
+    from app.core.errors import PipelineDisabledError
+    from app.db.models.product import Product
+    from app.pipeline.kill_switch import PipelineKillSwitchService
+
+    kill_switch = PipelineKillSwitchService(db_session)
+    kill_switch.disable(reason="incident", actor="ops@amazona.local", correlation_id="corr-disable")
+    orchestrator = PipelineOrchestrator(db_session, kill_switch=kill_switch)
+    request = PipelineRequest(category="home", sale_price=50.0, destination_region="mexico")
+
+    with pytest.raises(PipelineDisabledError):
+        orchestrator.run_pipeline(request)
+
+    assert db_session.query(Product).count() == 0

@@ -1,5 +1,5 @@
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.agents.cfo import CFOAgent
 from app.db.models.audit import AuditLog
@@ -81,47 +81,37 @@ class CFOService:
 
     def _latest_economic_analyses(self) -> list[EconomicAnalysis]:
         """The most recent EconomicAnalysis per product, computed in SQL
-        (MAX(created_at) grouped by product_id + join) instead of loading
-        every historical row and deduping in Python — cost scales with
-        the number of distinct products, not with total history."""
-        latest_per_product = (
-            self._db.query(
-                EconomicAnalysis.product_id,
-                func.max(EconomicAnalysis.created_at).label("latest_created_at"),
-            )
-            .group_by(EconomicAnalysis.product_id)
-            .subquery()
+        instead of loading every historical row and deduping in Python —
+        cost scales with the number of distinct products, not with total
+        history. Uses ROW_NUMBER() (not MAX(created_at) + join) because
+        MAX + join can return more than one row per product when two
+        rows share the exact same created_at — ROW_NUMBER() always
+        yields exactly one row per product regardless of ties (which of
+        the tied rows wins is implementation-defined, same ambiguity
+        `.order_by(created_at.desc()).first()` already has elsewhere in
+        this codebase — this only fixes the overcounting, not the tie
+        itself)."""
+        row_number = (
+            func.row_number()
+            .over(partition_by=EconomicAnalysis.product_id, order_by=EconomicAnalysis.created_at.desc())
+            .label("row_number")
         )
-        return (
-            self._db.query(EconomicAnalysis)
-            .join(
-                latest_per_product,
-                (EconomicAnalysis.product_id == latest_per_product.c.product_id)
-                & (EconomicAnalysis.created_at == latest_per_product.c.latest_created_at),
-            )
-            .all()
-        )
+        ranked = self._db.query(EconomicAnalysis, row_number).subquery()
+        latest = aliased(EconomicAnalysis, ranked)
+        return self._db.query(latest).filter(ranked.c.row_number == 1).all()
 
     def _latest_marketing_campaigns(self) -> list[MarketingCampaign]:
-        """Same approach as `_latest_economic_analyses`, grouped by
+        """Same approach as `_latest_economic_analyses`, partitioned by
         (product_id, market) since a product can run a distinct campaign
         per market."""
-        latest_per_campaign = (
-            self._db.query(
-                MarketingCampaign.product_id,
-                MarketingCampaign.market,
-                func.max(MarketingCampaign.created_at).label("latest_created_at"),
+        row_number = (
+            func.row_number()
+            .over(
+                partition_by=(MarketingCampaign.product_id, MarketingCampaign.market),
+                order_by=MarketingCampaign.created_at.desc(),
             )
-            .group_by(MarketingCampaign.product_id, MarketingCampaign.market)
-            .subquery()
+            .label("row_number")
         )
-        return (
-            self._db.query(MarketingCampaign)
-            .join(
-                latest_per_campaign,
-                (MarketingCampaign.product_id == latest_per_campaign.c.product_id)
-                & (MarketingCampaign.market == latest_per_campaign.c.market)
-                & (MarketingCampaign.created_at == latest_per_campaign.c.latest_created_at),
-            )
-            .all()
-        )
+        ranked = self._db.query(MarketingCampaign, row_number).subquery()
+        latest = aliased(MarketingCampaign, ranked)
+        return self._db.query(latest).filter(ranked.c.row_number == 1).all()

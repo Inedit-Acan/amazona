@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -190,14 +192,38 @@ def test_only_the_latest_row_per_key_is_counted_at_larger_scale(db_session: Sess
     still work but a broken GROUP BY (e.g. missing a join column) would
     silently overcount or undercount."""
     products = [_make_product(db_session, f"Product {i}") for i in range(20)]
+    base_time = datetime.datetime.now(datetime.UTC)
     for i, product in enumerate(products):
         quote = _make_quote(db_session, product)
-        # Two historical analyses per product; only the second (latest,
-        # alternating recommendation) should be counted.
-        _make_economic_analysis(db_session, product, quote, "NO_GO", f"corr-econ-{i}-old")
-        _make_economic_analysis(
-            db_session, product, quote, "GO" if i % 2 == 0 else "REVIEW", f"corr-econ-{i}-new"
+        # Two historical analyses per product, with explicit timestamps
+        # (not wall-clock timing) so the "latest wins" assertion below
+        # can't flake on a same-microsecond tie between old and new.
+        old = EconomicAnalysis(
+            product_id=product.id,
+            supplier_quote_id=quote.id,
+            sale_price=50.0,
+            monthly_fixed_costs=500.0,
+            margin_percent=0.9,
+            recommendation="NO_GO",
+            confidence=0.85,
+            data={"scenarios": {}},
+            correlation_id=f"corr-econ-{i}-old",
+            created_at=base_time,
         )
+        new = EconomicAnalysis(
+            product_id=product.id,
+            supplier_quote_id=quote.id,
+            sale_price=50.0,
+            monthly_fixed_costs=500.0,
+            margin_percent=0.9,
+            recommendation="GO" if i % 2 == 0 else "REVIEW",
+            confidence=0.85,
+            data={"scenarios": {}},
+            correlation_id=f"corr-econ-{i}-new",
+            created_at=base_time + datetime.timedelta(seconds=1),
+        )
+        db_session.add(old)
+        db_session.add(new)
         for market in ("us", "eu"):
             db_session.add(
                 MarketingCampaign(

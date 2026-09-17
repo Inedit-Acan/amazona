@@ -12,3 +12,11 @@ class NoAgentAvailableError(AmazonaError):
 
 class AgentIOValidationError(AmazonaError):
     """Raised when an agent's input or output doesn't match its declared schema."""
+
+
+class PipelineDisabledError(AmazonaError):
+    """Raised when a new pipeline run is attempted while the kill switch is disabled."""
+
+
+class PipelineReviewNotPendingError(AmazonaError):
+    """Raised when acting on a pipeline review that is already resolved."""

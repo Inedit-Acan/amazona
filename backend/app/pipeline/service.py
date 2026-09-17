@@ -3,8 +3,10 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.cfo.service import CFOService
+from app.core.errors import PipelineDisabledError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
+from app.db.models.pipeline_review import PipelineReview
 from app.db.models.pipeline_run import PipelineRun
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
@@ -15,6 +17,8 @@ from app.legal.service import LegalComplianceService
 from app.marketing.service import MarketingCampaignService
 from app.marketplace.service import MarketplaceListingService
 from app.operations.service import OperationsService
+from app.pipeline.kill_switch import PipelineKillSwitchService
+from app.pipeline.review import assess_pipeline_run
 from app.research.service import ResearchService
 from app.sourcing.service import SourcingService
 
@@ -65,10 +69,14 @@ class PipelineOrchestrator:
     early (status PARTIAL) when a step genuinely cannot produce a
     result to hand to the next one (e.g. research finds no candidates)."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, kill_switch: PipelineKillSwitchService | None = None) -> None:
         self._db = db
+        self._kill_switch = kill_switch or PipelineKillSwitchService(db)
 
     def run_pipeline(self, request: PipelineRequest) -> PipelineRun:
+        if not self._kill_switch.is_enabled():
+            raise PipelineDisabledError("pipeline runs are currently disabled by an operator")
+
         correlation_id = new_correlation_id()
         steps: dict[str, dict] = {}
 
@@ -211,6 +219,8 @@ class PipelineOrchestrator:
         failed_step: str | None,
         steps: dict[str, dict],
     ) -> PipelineRun:
+        assessment = assess_pipeline_run(status=status, steps=steps)
+
         run = PipelineRun(
             product_id=product_id,
             category=request.category,
@@ -218,16 +228,34 @@ class PipelineOrchestrator:
             status=status,
             failed_step=failed_step,
             steps=steps,
+            needs_review=assessment.needs_review,
             correlation_id=correlation_id,
         )
         self._db.add(run)
+        self._db.flush()
+
+        if assessment.needs_review:
+            self._db.add(
+                PipelineReview(
+                    pipeline_run_id=run.id,
+                    reasons=assessment.reasons,
+                    status="PENDING",
+                    correlation_id=correlation_id,
+                )
+            )
+
         self._db.add(
             AuditLog(
                 actor=PIPELINE_ACTOR,
                 action="pipeline.run",
                 resource=f"pipeline:{correlation_id}",
                 before=None,
-                after={"category": request.category, "status": status, "steps": list(steps.keys())},
+                after={
+                    "category": request.category,
+                    "status": status,
+                    "steps": list(steps.keys()),
+                    "needs_review": assessment.needs_review,
+                },
                 correlation_id=correlation_id,
             )
         )

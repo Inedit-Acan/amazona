@@ -475,7 +475,24 @@ export interface PipelineRun {
   market: string;
   status: "COMPLETED" | "PARTIAL";
   failed_step: string | null;
+  needs_review: boolean;
   steps: Record<string, PipelineStep>;
+}
+
+export interface PipelineReview {
+  id: string;
+  pipeline_run_id: string;
+  reasons: string[];
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  resolved_at: string | null;
+  resolved_by: string | null;
+  correlation_id: string;
+}
+
+export interface PipelineKillSwitchState {
+  enabled: boolean;
+  reason: string | null;
+  updated_by: string | null;
 }
 
 export const api = {
@@ -564,4 +581,21 @@ export const api = {
     max_results?: number;
   }) => request<PipelineRun>("/api/pipeline/runs", { method: "POST", body: JSON.stringify(payload) }),
   listPipelineRuns: () => request<PipelineRun[]>("/api/pipeline/runs"),
+  listPipelineReviews: () => request<PipelineReview[]>("/api/pipeline/reviews"),
+  approvePipelineReview: (reviewId: string, actor: string) =>
+    request<PipelineReview>(`/api/pipeline/reviews/${reviewId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ actor }),
+    }),
+  rejectPipelineReview: (reviewId: string, actor: string) =>
+    request<PipelineReview>(`/api/pipeline/reviews/${reviewId}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ actor }),
+    }),
+  getPipelineKillSwitch: () => request<PipelineKillSwitchState>("/api/pipeline/kill-switch"),
+  setPipelineKillSwitch: (payload: { enabled: boolean; reason?: string; actor: string }) =>
+    request<PipelineKillSwitchState>("/api/pipeline/kill-switch", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

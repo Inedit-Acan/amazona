@@ -27,7 +27,7 @@ from app.api import (
 )
 from app.approvals.service import ApprovalNotPendingError
 from app.core.config import get_settings
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, PipelineDisabledError, PipelineReviewNotPendingError
 from app.core.ids import new_correlation_id
 from app.core.logging import configure_logging, set_correlation_id
 from app.db.session import get_db
@@ -56,6 +56,18 @@ async def not_found_handler(request: Request, exc: NotFoundError) -> JSONRespons
 @app.exception_handler(ApprovalNotPendingError)
 async def approval_not_pending_handler(request: Request, exc: ApprovalNotPendingError) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(PipelineReviewNotPendingError)
+async def pipeline_review_not_pending_handler(
+    request: Request, exc: PipelineReviewNotPendingError
+) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(PipelineDisabledError)
+async def pipeline_disabled_handler(request: Request, exc: PipelineDisabledError) -> JSONResponse:
+    return JSONResponse(status_code=423, content={"detail": str(exc)})
 
 
 @app.middleware("http")

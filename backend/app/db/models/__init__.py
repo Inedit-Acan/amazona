@@ -14,6 +14,8 @@ from app.db.models.marketplace_listing import MarketplaceListing
 from app.db.models.memory_record import MemoryRecord
 from app.db.models.objective import Objective
 from app.db.models.operations_record import OperationsRecord
+from app.db.models.pipeline_kill_switch import PipelineKillSwitch
+from app.db.models.pipeline_review import PipelineReview
 from app.db.models.pipeline_run import PipelineRun
 from app.db.models.policy import Policy
 from app.db.models.product import Product
@@ -47,6 +49,8 @@ __all__ = [
     "MemoryRecord",
     "Objective",
     "OperationsRecord",
+    "PipelineKillSwitch",
+    "PipelineReview",
     "PipelineRun",
     "Policy",
     "Product",
