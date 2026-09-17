@@ -2,15 +2,11 @@
 // docs/design/AMAZONA_especificacion_paneles_aprobados_parte2.md (§2).
 //
 // /marketplace se fusionó en "Tienda y canales de venta" como pestaña de
-// canal (Milestone 16) — ya no es ruta ni ítem de menú aparte.
-//
-// Una ruta existente queda deliberadamente fuera de este menú, sin
-// borrarla, hasta que se fusione su contenido:
-//   - /pipeline: revisiones y kill switch del PipelineOrchestrator
-//     (ADR-0006) no están en la especificación de paneles aprobada; por
-//     el mapeo "Decisión humana → Aprobaciones" (parte2 §10) y por ser el
-//     mismo patrón aprobar/rechazar que api/approvals.py, deberían vivir
-//     como pestaña dentro de "Aprobaciones", no como ítem propio.
+// canal (Milestone 16), y /pipeline se fusionó en "Aprobaciones" — las
+// revisiones de riesgo del PipelineOrchestrator entran en la misma
+// bandeja que Approval, y el kill switch vive como control fijo en la
+// cabecera de esa página (Milestone 17, adenda a ADR-0006). Ninguna de
+// las dos rutas es ya un ítem de menú aparte.
 export const NAV_ITEMS = [
   { href: "/dashboard", label: "Panel" },
   { href: "/ceo", label: "Director ejecutivo" },

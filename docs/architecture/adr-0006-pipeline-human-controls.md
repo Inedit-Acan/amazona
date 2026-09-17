@@ -131,3 +131,26 @@ igual que cualquier otra transición de estado del sistema.
   ejecución (p. ej. porque un paso empieza a ejecutar una acción externa
   real), eso reabre esta ADR y ADR 0005 explícitamente — no se asume
   aquí.
+
+## Adenda — ubicación de UI (Milestone 17)
+
+Esta ADR dejó sin resolver dónde vive la UI de ambos controles en el
+Control Center. `docs/design/AMAZONA_handoff_fusion_marketplace_y_
+pipeline.md` (Tarea 2) documentó dos opciones razonables — Aprobaciones
+o Estado — y la dejó como decisión de producto explícita, no técnica.
+
+**Decisión confirmada con Ivan: Aprobaciones.** `PipelineReview` entra en
+la misma bandeja que `Approval` en `/approvals` (misma página, cards
+distintas por la diferencia de forma entre ambos modelos — ver
+`components/pipeline-review-card.tsx` vs `components/approval-card.tsx`),
+y `PipelineKillSwitch` es un control fijo en la cabecera de esa misma
+página (`components/kill-switch-control.tsx`), no en `/status`.
+
+Razonamiento: coherente con "Decisión humana → Aprobaciones" (mapeo de
+propiedad funcional en `AMAZONA_especificacion_paneles_aprobados_
+parte2.md` §10) y con el espíritu original de esta ADR — ambas piezas se
+introdujeron juntas en Milestone 14 como "control humano sobre el
+pipeline", así que viven juntas en la superficie de Decisión humana en
+vez de separarse entre Aprobaciones y Estado. `/pipeline` como ruta de
+menú independiente se retira (Milestone 17); los endpoints de
+`api/pipeline.py` no cambian.
