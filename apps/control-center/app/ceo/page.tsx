@@ -1,13 +1,22 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import Link from "next/link";
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
+import { AlertTriangle, ChevronDown, Loader2 } from "lucide-react";
+import { api, ApiError, type AgentExecution, type Agent, type Decision, type RunResult } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
+import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const AgentGraph3D = dynamic(
+  () => import("@/components/graph3d/agent-graph-3d").then((mod) => mod.AgentGraph3D),
+  { ssr: false, loading: () => <Skeleton className="h-[420px] w-full rounded-xl" /> },
+);
 
 const DEFAULT_CONTEXT = {
   product_validation: { estimated_monthly_searches: 12000, competition_level: "low" },
@@ -98,16 +107,27 @@ function buildInitialState(params: URLSearchParams) {
   };
 }
 
+const DECISION_STATUS_LABEL: Record<string, string> = {
+  GO: "Aprobado (GO)",
+  NO_GO: "Rechazado (NO_GO)",
+  REVIEW: "Requiere revisión",
+  HUMAN_APPROVAL: "Esperando aprobación humana",
+};
+
 function CeoForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const initial = buildInitialState(searchParams);
 
   const [title, setTitle] = useState(initial.title);
   const [createdBy, setCreatedBy] = useState("owner@amazona.local");
   const [context, setContext] = useState(JSON.stringify(initial.context, null, 2));
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
+  const [decision, setDecision] = useState<Decision | null>(null);
+  const [executions, setExecutions] = useState<AgentExecution[]>([]);
+  const [agentsById, setAgentsById] = useState<Map<string, Agent>>(new Map());
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -122,32 +142,121 @@ function CeoForm() {
     }
 
     setSubmitting(true);
+    setRunResult(null);
+    setDecision(null);
+    setExecutions([]);
     try {
       const objective = await api.createObjective({ title, created_by: createdBy, context: parsedContext });
-      const decision = await api.runObjective(objective.id);
-      router.push(`/projects/${decision.project_id}`);
+      const result = await api.runObjective(objective.id);
+      setRunResult(result);
+
+      // Best-effort enrichment — the graph and execution feed still work
+      // from `result` alone (status only) if either of these fails.
+      const [fullDecision, agentExecutions, agents] = await Promise.all([
+        api.getDecision(result.id).catch(() => null),
+        api.listAgentExecutions().catch(() => []),
+        api.listAgents().catch(() => []),
+      ]);
+      setDecision(fullDecision);
+      setExecutions(agentExecutions.filter((e) => e.correlation_id === result.correlation_id));
+      setAgentsById(new Map(agents.map((a) => [a.id, a])));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to run objective.");
+    } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
-        title="CEO"
-        description="Submit a simulated product-validation objective. The CEO plans the task graph, routes it to specialist agents, and returns a deterministic decision."
+        title="Director ejecutivo"
+        description="Centro de orquestación multiagente: un objetivo entra por CEO, se reparte entre los agentes especializados y el Decision Engine sintetiza la decisión. Simulado — sin dinero, pedidos ni proveedores reales."
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Grafo de agentes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <AgentGraph3D decision={decision} />
+        </CardContent>
+      </Card>
+
+      {runResult ? (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Resumen de misión</CardTitle>
+            <StatusChip status={runResult.status} />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Resultado</p>
+                <p className="font-medium">{DECISION_STATUS_LABEL[runResult.status] ?? runResult.status}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Confianza</p>
+                <p className="font-medium">
+                  {runResult.confidence != null ? runResult.confidence.toFixed(2) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Score de oportunidad</p>
+                <p className="font-medium">
+                  {runResult.opportunity_score != null ? runResult.opportunity_score.toFixed(2) : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Agentes ejecutados</p>
+                <p className="font-medium">{executions.length}</p>
+              </div>
+            </div>
+
+            {runResult.rationale ? <p className="text-sm text-muted-foreground">{runResult.rationale}</p> : null}
+
+            {executions.length > 0 ? (
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Vista previa de ejecución</p>
+                <ul className="divide-y rounded-md border">
+                  {executions.map((execution) => (
+                    <li key={execution.id} className="flex items-center justify-between gap-4 px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">
+                          {agentsById.get(execution.agent_id)?.name ?? execution.agent_id}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {execution.capability.replace(/_/g, " ")} · {execution.duration_ms}ms
+                        </p>
+                      </div>
+                      <StatusChip status={execution.success ? "COMPLETED" : "FAILED"} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link href={`/projects/${runResult.project_id}`} />}
+            >
+              Ver proyecto
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card className="max-w-2xl">
         <CardHeader>
-          <CardTitle>New objective</CardTitle>
+          <CardTitle>Nuevo objetivo</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-1.5">
               <label htmlFor="title" className="text-sm font-medium">
-                Title
+                Objetivo
               </label>
               <input
                 id="title"
@@ -160,7 +269,7 @@ function CeoForm() {
 
             <div className="space-y-1.5">
               <label htmlFor="createdBy" className="text-sm font-medium">
-                Requested by
+                Solicitado por
               </label>
               <input
                 id="createdBy"
@@ -171,33 +280,45 @@ function CeoForm() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="context" className="text-sm font-medium">
-                Simulated context (fixture inputs for each agent)
-              </label>
-              <textarea
-                id="context"
-                value={context}
-                onChange={(e) => setContext(e.target.value)}
-                rows={14}
-                className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs"
-              />
-              <p className="text-xs text-muted-foreground">
-                No real money, orders, suppliers, or tax submissions — these are simulated fixture values only.
-              </p>
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown className={`size-4 transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
+                Contexto avanzado
+              </button>
+              {showAdvanced ? (
+                <div className="mt-2 space-y-1.5">
+                  <label htmlFor="context" className="text-sm font-medium">
+                    Contexto simulado (valores fijos para cada agente)
+                  </label>
+                  <textarea
+                    id="context"
+                    value={context}
+                    onChange={(e) => setContext(e.target.value)}
+                    rows={14}
+                    className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Sin dinero, pedidos, proveedores ni presentaciones fiscales reales — valores de simulación.
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             {error ? (
               <Alert variant="destructive">
                 <AlertTriangle className="size-4" />
-                <AlertTitle>Could not run this objective</AlertTitle>
+                <AlertTitle>No se pudo ejecutar este objetivo</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             ) : null}
 
             <Button type="submit" disabled={submitting}>
               {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-              {submitting ? "Running…" : "Create & run objective"}
+              {submitting ? "Ejecutando…" : "Crear y ejecutar objetivo"}
             </Button>
           </form>
         </CardContent>
