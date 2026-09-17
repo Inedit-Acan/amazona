@@ -1,11 +1,21 @@
 import Link from "next/link";
 import { Bot, ClipboardCheck, Compass, FolderKanban, Wallet } from "lucide-react";
-import { api, type Agent, type AgentExecution, type Approval, type CFOReport, type Project } from "@/lib/api";
+import {
+  api,
+  type Agent,
+  type AgentExecution,
+  type Approval,
+  type CFOReport,
+  type EconomicsTimeseriesPoint,
+  type Project,
+} from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { StatusChip } from "@/components/status-chip";
 import { KpiCard } from "@/components/kpi-card";
 import { EmptyState } from "@/components/empty-state";
+import { DataProvenanceBadge } from "@/components/data-provenance-badge";
+import { EconomicsActivityChart } from "@/components/economics-activity-chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -22,15 +32,17 @@ export default async function DashboardPage() {
   let projects: Project[] = [];
   let executions: AgentExecution[] = [];
   let cfoReports: CFOReport[] = [];
+  let economicsTimeseries: EconomicsTimeseriesPoint[] = [];
   let error: string | null = null;
 
   try {
-    [agents, approvals, projects, executions, cfoReports] = await Promise.all([
+    [agents, approvals, projects, executions, cfoReports, economicsTimeseries] = await Promise.all([
       api.listAgents(),
       api.listApprovals(),
       api.listProjects(),
       api.listAgentExecutions(),
       api.listCFORuns(),
+      api.getEconomicsTimeseries(30),
     ]);
   } catch (err) {
     error = err instanceof Error ? err.message : "Unknown error";
@@ -153,6 +165,23 @@ export default async function DashboardPage() {
                   ))}
                 </ul>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Actividad económica — últimos 30 días</CardTitle>
+              <DataProvenanceBadge
+                status="verified"
+                tooltip="Recuento y promedios reales de EconomicAnalysis, no ingresos ejecutados."
+              />
+            </CardHeader>
+            <CardContent>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Decisiones económicas analizadas por día — no es un ledger de ventas: AMAZONA sigue en fase de
+                validación, ningún paso cobra dinero real todavía (ADR 0006).
+              </p>
+              <EconomicsActivityChart points={economicsTimeseries} />
             </CardContent>
           </Card>
 

@@ -230,6 +230,13 @@ export interface EconomicAnalysis {
   } | null;
 }
 
+export interface EconomicsTimeseriesPoint {
+  day: string;
+  analyses_count: number;
+  avg_margin_percent: number;
+  avg_sale_price: number;
+}
+
 export interface RegulatoryChange {
   date: string;
   description: string;
@@ -541,6 +548,8 @@ export const api = {
   }) => request<EconomicAnalysis>("/api/economics/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductEconomics: (productId: string) =>
     request<EconomicAnalysis[]>(`/api/products/${productId}/economics`),
+  getEconomicsTimeseries: (days = 30) =>
+    request<EconomicsTimeseriesPoint[]>(`/api/economics/analyses/timeseries?days=${days}`),
   createLegalAnalysisRun: (payload: {
     product_id: string;
     market: string;

@@ -112,3 +112,41 @@ def test_list_product_economics_returns_existing_analyses_for_a_product(client: 
     analyses = response.json()
     assert len(analyses) > 0
     assert all(a["product_id"] == product_id for a in analyses)
+
+
+def test_timeseries_returns_empty_list_when_no_analyses_exist(client: TestClient):
+    response = client.get("/api/economics/analyses/timeseries")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_timeseries_aggregates_todays_analyses_into_one_bucket(client: TestClient):
+    product_id, _ = _create_product_and_quote(client)
+    quotes = client.get(f"/api/products/{product_id}/suppliers").json()
+    supplier_quote_id = quotes[0]["id"]
+
+    client.post(
+        "/api/economics/runs",
+        json={"product_id": product_id, "supplier_quote_id": supplier_quote_id, "sale_price": 20.0},
+    )
+    client.post(
+        "/api/economics/runs",
+        json={"product_id": product_id, "supplier_quote_id": supplier_quote_id, "sale_price": 30.0},
+    )
+
+    response = client.get("/api/economics/analyses/timeseries", params={"days": 30})
+
+    assert response.status_code == 200
+    points = response.json()
+    assert len(points) == 1
+    assert points[0]["analyses_count"] == 2
+    assert points[0]["avg_sale_price"] == 25.0
+
+
+def test_timeseries_days_parameter_is_bounded(client: TestClient):
+    too_many = client.get("/api/economics/analyses/timeseries", params={"days": 366})
+    too_few = client.get("/api/economics/analyses/timeseries", params={"days": 0})
+
+    assert too_many.status_code == 422
+    assert too_few.status_code == 422
