@@ -59,6 +59,17 @@ def test_each_candidate_has_the_required_shape():
     provider = MockTrendsProvider()
 
     for candidate in provider.get_candidates(category="electronics", max_results=10):
-        assert set(candidate) == {"name", "demand_signal", "competition_level", "niche_rationale"}
+        assert set(candidate) == {
+            "name",
+            "demand_signal",
+            "competition_level",
+            "future_outlook_signal",
+            "regulatory_risk_signal",
+            "scalability_signal",
+            "niche_rationale",
+        }
         assert 0.0 <= candidate["demand_signal"] <= 1.0
         assert candidate["competition_level"] in {"low", "medium", "high"}
+        assert 0.0 <= candidate["future_outlook_signal"] <= 1.0
+        assert 0.0 <= candidate["regulatory_risk_signal"] <= 1.0
+        assert 0.0 <= candidate["scalability_signal"] <= 1.0

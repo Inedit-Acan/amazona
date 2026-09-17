@@ -185,6 +185,10 @@ export interface ResearchCandidate {
   data: {
     demand_signal?: number;
     competition_level?: string;
+    /** Radar axes added Milestone 26 — absent on analyses persisted before it. */
+    future_outlook_signal?: number;
+    regulatory_risk_signal?: number;
+    scalability_signal?: number;
     niche_rationale?: string;
     [key: string]: unknown;
   };

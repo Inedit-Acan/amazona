@@ -34,9 +34,15 @@ def test_each_candidate_has_the_expected_fields():
             "opportunity_score",
             "demand_signal",
             "competition_level",
+            "future_outlook_signal",
+            "regulatory_risk_signal",
+            "scalability_signal",
             "niche_rationale",
         }
         assert candidate["category"] == "home"
+        assert 0.0 <= candidate["future_outlook_signal"] <= 1.0
+        assert 0.0 <= candidate["regulatory_risk_signal"] <= 1.0
+        assert 0.0 <= candidate["scalability_signal"] <= 1.0
 
 
 def test_unknown_category_yields_no_candidates_and_low_confidence_review():

@@ -50,6 +50,13 @@ class ProductResearchAgent(Agent):
                     ),
                     "demand_signal": c["demand_signal"],
                     "competition_level": c["competition_level"],
+                    # 3 additional simulated radar axes (docs/design/
+                    # AMAZONA_handoff_backend_paneles_pendientes.md §3) —
+                    # informational only, do not feed opportunity_score or
+                    # the GO/REVIEW recommendation below.
+                    "future_outlook_signal": c["future_outlook_signal"],
+                    "regulatory_risk_signal": c["regulatory_risk_signal"],
+                    "scalability_signal": c["scalability_signal"],
                     "niche_rationale": c["niche_rationale"],
                 }
                 for c in raw_candidates
