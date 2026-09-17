@@ -4,6 +4,7 @@ import { ApiError, api, type Decision, type Project, type Task } from "@/lib/api
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { StatusChip } from "@/components/status-chip";
+import { ProjectHealth } from "@/components/project-health";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -44,6 +45,12 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
         <span className="text-sm text-muted-foreground">Project status</span>
         <StatusChip status={project.status} />
       </div>
+
+      <Card>
+        <CardContent className="pt-6">
+          <ProjectHealth decision={decision ?? null} />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

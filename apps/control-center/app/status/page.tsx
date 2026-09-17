@@ -1,33 +1,73 @@
 import { ApiError, api, type AgentExecution, type DetailedHealth } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { StatusChip } from "@/components/status-chip";
+import { ServiceMap, type ServiceMapNode } from "@/components/service-map";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-async function fetchHealth(): Promise<DetailedHealth> {
+async function fetchHealth(): Promise<{ health: DetailedHealth; apiReachable: boolean }> {
   try {
-    return await api.getHealth();
+    return { health: await api.getHealth(), apiReachable: true };
   } catch (err) {
     if (err instanceof ApiError) {
       try {
-        return JSON.parse(err.message) as DetailedHealth;
+        return { health: JSON.parse(err.message) as DetailedHealth, apiReachable: true };
       } catch {
         // fall through to the generic error state below
       }
     }
-    return { database: "error", migration: null, supabase_configured: false };
+    return { health: { database: "error", migration: null, supabase_configured: false }, apiReachable: false };
   }
 }
 
 export default async function StatusPage() {
-  const [health, executions] = await Promise.all([
+  const [{ health, apiReachable }, executions] = await Promise.all([
     fetchHealth(),
     api.listAgentExecutions().catch(() => [] as AgentExecution[]),
   ]);
 
+  const serviceMapNodes: ServiceMapNode[] = [
+    { id: "users", label: "Usuarios", status: "idle", note: "No hay telemetría de tráfico real todavía" },
+    { id: "frontend", label: "Frontend", status: "active" },
+    {
+      id: "api",
+      label: "API",
+      status: apiReachable ? "active" : "error",
+      note: apiReachable ? undefined : "No se pudo contactar al backend",
+    },
+    {
+      id: "database",
+      label: "Postgres",
+      status: health.database === "ok" ? "active" : "error",
+    },
+    {
+      id: "auth_storage",
+      label: "Auth / Storage",
+      status: health.supabase_configured ? "active" : "idle",
+      note: health.supabase_configured ? undefined : "Supabase no configurado",
+    },
+    { id: "queue", label: "Queue", status: "idle", note: "Sin endpoint de monitorización de cola todavía" },
+    { id: "workers", label: "Workers", status: "idle", note: "Sin telemetría de workers todavía" },
+    {
+      id: "integrations",
+      label: "Integraciones externas",
+      status: "idle",
+      note: "Sin monitorización de integraciones todavía",
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader title="System status" description="Operational health — no business data here, see Audit for that." />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Service Map</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ServiceMap nodes={serviceMapNodes} />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
