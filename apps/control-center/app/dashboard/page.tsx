@@ -1,97 +1,176 @@
 import Link from "next/link";
-import { api, type Agent, type Approval, type Project } from "@/lib/api";
+import { Bot, ClipboardCheck, Compass, FolderKanban, Wallet } from "lucide-react";
+import { api, type Agent, type AgentExecution, type Approval, type CFOReport, type Project } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { StatusChip } from "@/components/status-chip";
+import { KpiCard } from "@/components/kpi-card";
+import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+
+const FINANCIAL_HEALTH_LABEL: Record<CFOReport["financial_health_status"], string> = {
+  HEALTHY: "Saludable",
+  AT_RISK: "En riesgo",
+  CRITICAL: "Crítico",
+  NEEDS_REVIEW: "Requiere revisión",
+};
 
 export default async function DashboardPage() {
   let agents: Agent[] = [];
   let approvals: Approval[] = [];
   let projects: Project[] = [];
+  let executions: AgentExecution[] = [];
+  let cfoReports: CFOReport[] = [];
   let error: string | null = null;
 
   try {
-    [agents, approvals, projects] = await Promise.all([api.listAgents(), api.listApprovals(), api.listProjects()]);
+    [agents, approvals, projects, executions, cfoReports] = await Promise.all([
+      api.listAgents(),
+      api.listApprovals(),
+      api.listProjects(),
+      api.listAgentExecutions(),
+      api.listCFORuns(),
+    ]);
   } catch (err) {
     error = err instanceof Error ? err.message : "Unknown error";
   }
 
   const pendingApprovals = approvals.filter((a) => a.status === "PENDING");
   const availableAgents = agents.filter((a) => a.status === "AVAILABLE");
+  const latestCfoReport = cfoReports[0] ?? null;
+  const agentsById = new Map(agents.map((a) => [a.id, a]));
+  const recentExecutions = [...executions]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 8);
 
   return (
     <div>
       <PageHeader
-        title="Dashboard"
-        description="Simulated business state: no real money, orders, suppliers, or tax submissions."
+        title="Panel"
+        description="Estado ejecutivo de AMAZONA — negocio simulado: sin dinero, pedidos, proveedores ni presentaciones fiscales reales."
       />
 
       {error ? (
         <ApiErrorAlert message={error} />
       ) : (
         <div className="space-y-6">
+          <div className="flex items-center justify-end">
+            <Button size="sm" nativeButton={false} render={<Link href="/ceo" />}>
+              + Nuevo objetivo
+            </Button>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Projects</CardTitle>
-              </CardHeader>
-              <CardContent className="text-2xl font-semibold">{projects.length}</CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Agents online</CardTitle>
-              </CardHeader>
-              <CardContent className="text-2xl font-semibold">
-                {availableAgents.length}/{agents.length}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Pending approvals</CardTitle>
-              </CardHeader>
-              <CardContent className="text-2xl font-semibold">{pendingApprovals.length}</CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">New objective</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Button size="sm" nativeButton={false} render={<Link href="/ceo" />}>
-                  Launch validation
-                </Button>
-              </CardContent>
-            </Card>
+            <KpiCard
+              label="Proyectos"
+              value={projects.length}
+              icon={FolderKanban}
+              provenance="verified"
+            />
+            <KpiCard
+              label="Agentes en línea"
+              value={`${availableAgents.length}/${agents.length}`}
+              icon={Bot}
+              provenance="verified"
+            />
+            <KpiCard
+              label="Aprobaciones pendientes"
+              value={pendingApprovals.length}
+              icon={ClipboardCheck}
+              provenance="verified"
+            />
+            <KpiCard
+              label="Salud financiera"
+              value={latestCfoReport ? FINANCIAL_HEALTH_LABEL[latestCfoReport.financial_health_status] : "Sin datos"}
+              icon={Wallet}
+              caption={
+                latestCfoReport?.data
+                  ? `${latestCfoReport.data.total_products_analyzed} productos analizados`
+                  : "Aún no se ha ejecutado el agente CFO"
+              }
+              provenance={latestCfoReport ? "estimated" : "pending"}
+            />
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>Approvals awaiting a decision</CardTitle>
+              <CardTitle>Actividad empresarial</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {recentExecutions.length === 0 ? (
+                <EmptyState
+                  icon={Bot}
+                  title="Sin actividad de agentes todavía"
+                  description="Las ejecuciones de agentes aparecerán aquí en cuanto se lance el primer objetivo o pipeline."
+                />
+              ) : (
+                <ul className="divide-y">
+                  {recentExecutions.map((execution) => {
+                    const agent = agentsById.get(execution.agent_id);
+                    return (
+                      <li key={execution.id} className="flex items-center justify-between gap-4 py-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{agent?.name ?? execution.agent_id}</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {execution.capability.replace(/_/g, " ")} ·{" "}
+                            {new Date(execution.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                        <StatusChip status={execution.success ? "COMPLETED" : "FAILED"} />
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Decisiones necesarias</CardTitle>
             </CardHeader>
             <CardContent>
               {pendingApprovals.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nothing waiting on human approval right now.</p>
+                <p className="text-sm text-muted-foreground">Nada esperando aprobación humana ahora mismo.</p>
               ) : (
                 <ul className="divide-y">
                   {pendingApprovals.map((approval) => (
                     <li key={approval.id} className="flex items-center justify-between gap-4 py-3">
                       <div>
-                        <p className="text-sm font-medium">{approval.action}</p>
+                        <p className="text-sm font-medium">{approval.action.replace(/_/g, " ")}</p>
                         <p className="text-xs text-muted-foreground">
-                          Amount: {approval.amount != null ? `$${approval.amount.toFixed(2)}` : "n/a"} (simulated)
+                          Importe: {approval.amount != null ? `$${approval.amount.toFixed(2)}` : "n/a"} (simulado)
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
                         <StatusChip status={approval.status} />
                         <Button size="sm" variant="outline" nativeButton={false} render={<Link href="/approvals" />}>
-                          Review
+                          Revisar
                         </Button>
                       </div>
                     </li>
                   ))}
                 </ul>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Oportunidades</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <EmptyState
+                icon={Compass}
+                title="Todavía no hay un radar agregado de oportunidades"
+                description="Investigación analiza oportunidades por categoría bajo demanda — no existe hoy un feed agregado histórico de resultados. Lanza un análisis de mercado para ver candidatos."
+                action={
+                  <Button size="sm" variant="outline" nativeButton={false} render={<Link href="/research" />}>
+                    Ir a Investigación
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         </div>
