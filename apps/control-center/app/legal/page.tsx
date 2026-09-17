@@ -5,15 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ApiError, api, type LegalAnalysis } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
+import { StatusChip } from "@/components/status-chip";
+import { RiskList } from "@/components/risk-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
-const RECOMMENDATION_STYLES: Record<string, string> = {
-  GO: "text-emerald-600 dark:text-emerald-400",
-  REVIEW: "text-amber-600 dark:text-amber-400",
-  NO_GO: "text-destructive",
-};
 
 function LegalForm() {
   const router = useRouter();
@@ -139,9 +135,7 @@ function LegalForm() {
         <Card className="max-w-3xl">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Compliance report</CardTitle>
-            <span className={`text-sm font-semibold ${RECOMMENDATION_STYLES[analysis.recommendation] ?? ""}`}>
-              {analysis.recommendation}
-            </span>
+            <StatusChip status={analysis.recommendation} />
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
@@ -171,16 +165,7 @@ function LegalForm() {
               </div>
             ) : null}
 
-            {analysis.data?.risks && analysis.data.risks.length > 0 ? (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Risks</p>
-                <ul className="mt-1 list-inside list-disc text-sm text-destructive">
-                  {analysis.data.risks.map((risk) => (
-                    <li key={risk}>{risk}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+            <RiskList risks={analysis.data?.risks ?? []} />
 
             {analysis.data?.terms_and_conditions ? (
               <div>

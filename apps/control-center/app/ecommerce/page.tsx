@@ -7,6 +7,7 @@ import { ApiError, api, type MarketplaceListing, type Storefront } from "@/lib/a
 import { PageHeader } from "@/components/page-header";
 import { StatusChip } from "@/components/status-chip";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
+import { RiskList } from "@/components/risk-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -158,16 +159,7 @@ function OwnStoreChannel({ productId, setProductId, market, setMarket, onOptimiz
               </div>
             ) : null}
 
-            {storefront.data?.risks && storefront.data.risks.length > 0 ? (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Risks</p>
-                <ul className="mt-1 list-inside list-disc text-sm text-destructive">
-                  {storefront.data.risks.map((risk) => (
-                    <li key={risk}>{risk}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+            <RiskList risks={storefront.data?.risks ?? []} />
 
             <Button size="sm" variant="outline" onClick={onOptimizeMarketplace}>
               Optimize marketplace listing
@@ -332,16 +324,7 @@ function AmazonChannel({ productId, setProductId, market, setMarket }: ChannelPr
               </div>
             ) : null}
 
-            {listing.data?.risks && listing.data.risks.length > 0 ? (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Risks</p>
-                <ul className="mt-1 list-inside list-disc text-sm text-destructive">
-                  {listing.data.risks.map((risk) => (
-                    <li key={risk}>{risk}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+            <RiskList risks={listing.data?.risks ?? []} />
 
             <Button size="sm" variant="outline" onClick={planMarketingCampaign}>
               Plan marketing campaign

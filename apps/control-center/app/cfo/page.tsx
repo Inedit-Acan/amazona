@@ -4,16 +4,11 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ApiError, api, type CFOReport } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
+import { StatusChip } from "@/components/status-chip";
+import { RiskList } from "@/components/risk-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
-const HEALTH_STATUS_STYLES: Record<string, string> = {
-  HEALTHY: "text-emerald-600 dark:text-emerald-400",
-  AT_RISK: "text-amber-600 dark:text-amber-400",
-  CRITICAL: "text-destructive",
-  NEEDS_REVIEW: "text-amber-600 dark:text-amber-400",
-};
 
 function formatPercent(value: number | null): string {
   return value === null ? "n/a" : `${(value * 100).toFixed(0)}%`;
@@ -77,11 +72,7 @@ export default function CFOPage() {
         <Card className="max-w-3xl">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Financial health</CardTitle>
-            <span
-              className={`text-sm font-semibold ${HEALTH_STATUS_STYLES[report.financial_health_status] ?? ""}`}
-            >
-              {report.financial_health_status}
-            </span>
+            <StatusChip status={report.financial_health_status} />
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm">
@@ -119,16 +110,7 @@ export default function CFOPage() {
               </div>
             ) : null}
 
-            {report.data?.risks && report.data.risks.length > 0 ? (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Risks</p>
-                <ul className="mt-1 list-inside list-disc text-sm text-destructive">
-                  {report.data.risks.map((risk) => (
-                    <li key={risk}>{risk}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+            <RiskList risks={report.data?.risks ?? []} />
           </CardContent>
         </Card>
       ) : null}
@@ -143,9 +125,7 @@ export default function CFOPage() {
               {recentReports.map((r) => (
                 <li key={r.correlation_id} className="flex items-center justify-between">
                   <span className="font-mono text-xs text-muted-foreground">{r.correlation_id}</span>
-                  <span className={HEALTH_STATUS_STYLES[r.financial_health_status] ?? ""}>
-                    {r.financial_health_status}
-                  </span>
+                  <StatusChip status={r.financial_health_status} />
                 </li>
               ))}
             </ul>

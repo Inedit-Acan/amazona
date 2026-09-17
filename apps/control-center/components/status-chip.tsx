@@ -7,12 +7,14 @@ const STATUS_STYLES: Record<string, string> = {
   COMPLETED: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
   AVAILABLE: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
   READY: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+  HEALTHY: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
 
   REVIEW: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
   VALIDATING: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
   PENDING: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
   WAITING: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
   NEEDS_REVIEW: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+  AT_RISK: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
 
   RUNNING: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30",
   HUMAN_APPROVAL: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30",
@@ -23,6 +25,7 @@ const STATUS_STYLES: Record<string, string> = {
   FAILED: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30",
   BLOCKED: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30",
   EXPIRED: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30",
+  CRITICAL: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30",
 
   DRAFT: "bg-muted text-muted-foreground border-border",
   CANCELLED: "bg-muted text-muted-foreground border-border",

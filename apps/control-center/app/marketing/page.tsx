@@ -5,15 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ApiError, api, type MarketingCampaign } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
+import { StatusChip } from "@/components/status-chip";
+import { RiskList } from "@/components/risk-list";
+import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
-const CAMPAIGN_STATUS_STYLES: Record<string, string> = {
-  READY: "text-emerald-600 dark:text-emerald-400",
-  NEEDS_REVIEW: "text-amber-600 dark:text-amber-400",
-  BLOCKED: "text-destructive",
-};
 
 function MarketingForm() {
   const router = useRouter();
@@ -157,9 +154,7 @@ function MarketingForm() {
             <CardTitle>
               {campaign.platform} · {campaign.market} · ${campaign.daily_budget.toFixed(2)}/day
             </CardTitle>
-            <span className={`text-sm font-semibold ${CAMPAIGN_STATUS_STYLES[campaign.campaign_status] ?? ""}`}>
-              {campaign.campaign_status}
-            </span>
+            <StatusChip status={campaign.campaign_status} />
           </CardHeader>
           <CardContent className="space-y-4">
             {campaign.data?.ad_creative ? (
@@ -190,9 +185,10 @@ function MarketingForm() {
 
             {campaign.data?.performance_estimate ? (
               <div>
-                <p className="text-xs font-medium text-muted-foreground">
-                  Performance estimate (source: {campaign.data.performance_estimate.data_origin})
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-medium text-muted-foreground">Performance estimate</p>
+                  <DataProvenanceBadge status="estimated" tooltip={campaign.data.performance_estimate.data_origin} />
+                </div>
                 <p className="mt-1 text-sm">
                   CPC ${campaign.data.performance_estimate.avg_cpc.toFixed(2)} · CTR{" "}
                   {(campaign.data.performance_estimate.avg_ctr * 100).toFixed(1)}% · conversion{" "}
@@ -220,16 +216,7 @@ function MarketingForm() {
               </div>
             ) : null}
 
-            {campaign.data?.risks && campaign.data.risks.length > 0 ? (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Risks</p>
-                <ul className="mt-1 list-inside list-disc text-sm text-destructive">
-                  {campaign.data.risks.map((risk) => (
-                    <li key={risk}>{risk}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+            <RiskList risks={campaign.data?.risks ?? []} />
 
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={simulateOperations}>
