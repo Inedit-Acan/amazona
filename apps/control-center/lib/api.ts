@@ -163,6 +163,19 @@ export interface DetailedHealth {
   supabase_configured: boolean;
 }
 
+export type IncidentSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type IncidentStatus = "OPEN" | "RESOLVED";
+
+export interface Incident {
+  id: string;
+  title: string;
+  description: string | null;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  resolved_at: string | null;
+  created_at: string;
+}
+
 export interface ResearchCandidate {
   product_id: string;
   name: string;
@@ -530,6 +543,14 @@ export const api = {
     request<AuditEntry[]>(`/api/audit${correlationId ? `?correlation_id=${correlationId}` : ""}`),
   listAgentExecutions: () => request<AgentExecution[]>("/api/agent-executions"),
   getHealth: () => request<DetailedHealth>("/health/detailed"),
+  listIncidents: () => request<Incident[]>("/api/incidents"),
+  createIncident: (payload: { title: string; description?: string; severity: IncidentSeverity; actor: string }) =>
+    request<Incident>("/api/incidents", { method: "POST", body: JSON.stringify(payload) }),
+  resolveIncident: (incidentId: string, actor: string) =>
+    request<Incident>(`/api/incidents/${incidentId}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ actor }),
+    }),
   createResearchRun: (payload: { category: string; keywords?: string[]; max_results?: number }) =>
     request<ResearchRun>("/api/research/runs", { method: "POST", body: JSON.stringify(payload) }),
   createSourcingRun: (payload: {

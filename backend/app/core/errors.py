@@ -20,3 +20,7 @@ class PipelineDisabledError(AmazonaError):
 
 class PipelineReviewNotPendingError(AmazonaError):
     """Raised when acting on a pipeline review that is already resolved."""
+
+
+class IncidentNotOpenError(AmazonaError):
+    """Raised when resolving an incident that isn't OPEN."""

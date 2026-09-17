@@ -1,7 +1,9 @@
-import { ApiError, api, type AgentExecution, type DetailedHealth } from "@/lib/api";
+import { ApiError, api, type AgentExecution, type DetailedHealth, type Incident } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { StatusChip } from "@/components/status-chip";
 import { ServiceMap, type ServiceMapNode } from "@/components/service-map";
+import { IncidentCard } from "@/components/incident-card";
+import { IncidentReportForm } from "@/components/incident-report-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -21,10 +23,13 @@ async function fetchHealth(): Promise<{ health: DetailedHealth; apiReachable: bo
 }
 
 export default async function StatusPage() {
-  const [{ health, apiReachable }, executions] = await Promise.all([
+  const [{ health, apiReachable }, executions, incidents] = await Promise.all([
     fetchHealth(),
     api.listAgentExecutions().catch(() => [] as AgentExecution[]),
+    api.listIncidents().catch(() => [] as Incident[]),
   ]);
+  const openIncidents = incidents.filter((i) => i.status === "OPEN");
+  const resolvedIncidents = incidents.filter((i) => i.status === "RESOLVED");
 
   const serviceMapNodes: ServiceMapNode[] = [
     { id: "users", label: "Usuarios", status: "idle", note: "No hay telemetría de tráfico real todavía" },
@@ -66,6 +71,36 @@ export default async function StatusPage() {
         </CardHeader>
         <CardContent>
           <ServiceMap nodes={serviceMapNodes} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Incidentes</CardTitle>
+          {openIncidents.length > 0 ? <StatusChip status="OPEN" /> : null}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <IncidentReportForm />
+
+          {openIncidents.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">Abiertos</p>
+              {openIncidents.map((incident) => (
+                <IncidentCard key={incident.id} incident={incident} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Sin incidentes abiertos.</p>
+          )}
+
+          {resolvedIncidents.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">Resueltos</p>
+              {resolvedIncidents.map((incident) => (
+                <IncidentCard key={incident.id} incident={incident} />
+              ))}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

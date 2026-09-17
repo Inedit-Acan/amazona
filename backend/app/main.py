@@ -12,6 +12,7 @@ from app.api import (
     decisions,
     ecommerce,
     economics,
+    incidents,
     legal,
     marketing,
     marketplace,
@@ -27,7 +28,7 @@ from app.api import (
 )
 from app.approvals.service import ApprovalNotPendingError
 from app.core.config import get_settings
-from app.core.errors import NotFoundError, PipelineDisabledError, PipelineReviewNotPendingError
+from app.core.errors import IncidentNotOpenError, NotFoundError, PipelineDisabledError, PipelineReviewNotPendingError
 from app.core.ids import new_correlation_id
 from app.core.logging import configure_logging, set_correlation_id
 from app.db.session import get_db
@@ -68,6 +69,11 @@ async def pipeline_review_not_pending_handler(
 @app.exception_handler(PipelineDisabledError)
 async def pipeline_disabled_handler(request: Request, exc: PipelineDisabledError) -> JSONResponse:
     return JSONResponse(status_code=423, content={"detail": str(exc)})
+
+
+@app.exception_handler(IncidentNotOpenError)
+async def incident_not_open_handler(request: Request, exc: IncidentNotOpenError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 @app.middleware("http")
@@ -135,3 +141,4 @@ app.include_router(marketing.router)
 app.include_router(operations.router)
 app.include_router(cfo.router)
 app.include_router(pipeline.router)
+app.include_router(incidents.router)
