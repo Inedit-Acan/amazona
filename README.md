@@ -1,27 +1,42 @@
 # AMAZONA
 
-Sistema de e-commerce impulsado por IA con agentes especializados.
+Sistema de e-commerce impulsado por IA con agentes especializados
+deterministas (sin LLM en el camino de decisión). Simula, de principio a
+fin, la operación de un negocio: detectar una oportunidad de producto,
+analizarla, sourcear proveedores, evaluar rentabilidad y legalidad,
+lanzar canales de venta y campañas, operarla, y controlar la salud
+financiera agregada — con controles humanos obligatorios en los puntos
+de riesgo o gasto. No hay dinero real, pedidos, proveedores ni impuestos
+reales.
 
-## Arquitectura de agentes
+**Punto de entrada recomendado para entender el sistema completo:**
+[`docs/architecture/system-overview.md`](docs/architecture/system-overview.md)
+— arquitectura de las dos capas de orquestación, catálogo de los 13
+agentes, modelo de datos, controles humanos, y el índice completo de
+ADRs y milestones. Este README cubre solo cómo arrancarlo en local.
 
-- **Orquestador (Agente 9):** coordina el flujo entre agentes.
-- **Agente CEO:** define objetivos y toma decisiones de alto nivel.
-- **Agente CFO:** control económico; se integra con un software de facturación certificado Verifactu (no emite facturas propias).
-- **8 agentes operativos:** investigación de productos, proveedores, análisis económico, legal, e-commerce, marketplaces, marketing y atención al cliente.
+## Arquitectura de agentes (resumen — ver `system-overview.md` para el detalle)
 
-## Stack técnico (Milestone 1)
+- **Orquestador (Agente 9) + Agente CEO:** `CEOOrchestrator` — grafo fijo
+  de 4 agentes "validar-uno" (Milestone 1) con decisión determinista,
+  permisos/presupuesto, y aprobación humana.
+- **`PipelineOrchestrator`:** cadena automática de los 9 agentes
+  "descubrir-muchos" de Fase 3 (Research → ... → CFO) sobre un producto
+  real del catálogo — un orquestador nuevo y separado (Milestone 12),
+  con revisión humana obligatoria y kill switch sobre ejecuciones de
+  riesgo (Milestone 14).
+- **8 agentes operativos de Fase 3** (investigación, proveedores,
+  análisis económico, legal, e-commerce, marketplaces, marketing,
+  atención al cliente) **+ Agente CFO:** control económico agregado;
+  nunca emite facturas propias — se integraría con un software de
+  facturación certificado Verifactu si el proyecto aborda facturación.
+
+## Stack técnico
 
 - Frontend: Next.js, React, TypeScript, Tailwind CSS, shadcn/ui
 - Backend: Python 3.12+, FastAPI, Pydantic v2, SQLAlchemy 2.x, Alembic
 - Datos: PostgreSQL / Supabase (proyecto en región UE), Redis
 - Infra: Docker, GitHub Actions
-
-Planes de implementación:
-[Milestone 1](docs/superpowers/plans/2026-09-15-amazona-milestone-1.md) ·
-[Milestone 2](docs/superpowers/plans/2026-09-16-amazona-milestone-2.md).
-Decisiones de arquitectura:
-[ADR 0001 — Orquestador vs. CEO](docs/architecture/adr-0001-orchestrator-vs-ceo.md) ·
-[ADR 0002 — Protocolo de mensajería entre agentes](docs/architecture/adr-0002-agent-messaging-protocol.md).
 
 ## Desarrollo local
 
@@ -47,11 +62,11 @@ npm run dev
 `GET http://localhost:8000/health` debe responder `{"status": "ok", "service": "amazona-backend"}`.
 El Control Center queda disponible en http://localhost:3000.
 
-Guías de demo:
-[Milestone 1](docs/milestones/milestone-1-demo.md) (los tres escenarios de
-validación) ·
-[Milestone 2](docs/milestones/milestone-2-demo.md) (Supabase real, auth
-opcional, memoria/monitorización, flujo Investigación → Validación).
+Guías de demo, una por milestone (1-15): ver el índice completo en
+[`system-overview.md`](docs/architecture/system-overview.md) (sección
+"Índice de milestones"). Para probar el sistema completo de un vistazo:
+Control Center → **Pipeline** → un formulario, un clic → los 9 agentes
+de Fase 3 encadenados.
 
 `backend/.env.example` documenta las variables de Supabase
 (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
@@ -75,19 +90,27 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
 
 ## Estado
 
-- **Milestone 1** completo: objetivo simulado -> planificación -> agentes
-  especialistas -> decisión determinista -> permisos/presupuesto ->
-  aprobación humana -> auditoría, expuesto vía API REST y el Control
-  Center.
-- **Milestone 2** completo: base de datos central real en Supabase
-  (región UE), memoria compartida entre agentes, protocolo de mensajería
-  versionado, grafo de tareas persistido, reintentos acotados,
-  auth/roles opcionales (`REQUIRE_AUTH`), monitorización
-  (`/health/detailed`, latencia de agentes), y el primer agente de
-  Fase 3 — Investigación de Productos, con el loop
-  Investigación → Validación cerrado en el Control Center.
-- ⚠️ RLS pendiente de política en el proyecto Supabase (ver
-  [milestone-2-demo.md](docs/milestones/milestone-2-demo.md#seguridad-row-level-security)).
+**Fase 4 completa (Milestones 1-15).** Detalle completo en
+[`system-overview.md`](docs/architecture/system-overview.md); resumen:
+
+- **Milestone 1:** `CEOOrchestrator` + 4 agentes "validar-uno" + decisión
+  determinista + permisos/presupuesto + aprobación humana + auditoría.
+- **Milestone 2:** Supabase real, memoria compartida, protocolo de
+  mensajería, grafo de tareas persistido, auth/roles opcionales, primer
+  agente de Fase 3 (Research).
+- **Milestones 3-9:** los 8 agentes operativos de Fase 3 completos
+  (proveedores, análisis económico, legal, e-commerce, marketplaces,
+  marketing, atención al cliente).
+- **Milestone 10-11:** Agente CFO + persistencia real de reservas de
+  presupuesto (`BudgetLedgerService`).
+- **Milestones 12-15 (Fase 4 — Integración y pruebas):**
+  `PipelineOrchestrator` encadena los 9 agentes de Fase 3 automáticamente,
+  validado contra el espacio combinatorio real, con revisión humana
+  obligatoria + kill switch sobre ejecuciones de riesgo.
+- RLS activado con deny-all explícito en toda tabla pública desde su
+  propia migración (ADR 0003, Milestone 2 en adelante) — el linter de
+  seguridad de Supabase reporta 0 hallazgos, verificado en cada
+  milestone que añade una tabla.
 
 ## Notas
 
