@@ -6,11 +6,14 @@ const STATUS_STYLES: Record<string, string> = {
   APPROVED: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
   COMPLETED: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
   AVAILABLE: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+  READY: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
 
   REVIEW: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
   VALIDATING: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
   PENDING: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
   WAITING: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+  NEEDS_REVIEW: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30",
+
   RUNNING: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30",
   HUMAN_APPROVAL: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30",
   BUSY: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30",
@@ -26,7 +29,10 @@ const STATUS_STYLES: Record<string, string> = {
   DISABLED: "bg-muted text-muted-foreground border-border",
 };
 
-export function StatusBadge({ status }: { status: string }) {
+/** Single shared status vocabulary for every panel (docs/design/
+ * AMAZONA_sistema_de_diseno_visual.md §5) — never depends on color
+ * alone, since the label is always shown alongside it. */
+export function StatusChip({ status }: { status: string }) {
   return (
     <Badge
       variant="outline"

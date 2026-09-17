@@ -1,6 +1,6 @@
 import { ApiError, api, type AgentExecution, type DetailedHealth } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -35,7 +35,7 @@ export default async function StatusPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Database</CardTitle>
           </CardHeader>
           <CardContent>
-            <StatusBadge status={health.database === "ok" ? "AVAILABLE" : "FAILED"} />
+            <StatusChip status={health.database === "ok" ? "AVAILABLE" : "FAILED"} />
           </CardContent>
         </Card>
         <Card>
@@ -49,7 +49,7 @@ export default async function StatusPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Supabase</CardTitle>
           </CardHeader>
           <CardContent>
-            <StatusBadge status={health.supabase_configured ? "AVAILABLE" : "DISABLED"} />
+            <StatusChip status={health.supabase_configured ? "AVAILABLE" : "DISABLED"} />
           </CardContent>
         </Card>
       </div>
@@ -82,7 +82,7 @@ export default async function StatusPage() {
                     <TableCell className="text-sm">{e.capability}</TableCell>
                     <TableCell className="text-sm">{e.duration_ms.toFixed(1)} ms</TableCell>
                     <TableCell>
-                      <StatusBadge status={e.success ? "COMPLETED" : "FAILED"} />
+                      <StatusChip status={e.success ? "COMPLETED" : "FAILED"} />
                     </TableCell>
                   </TableRow>
                 ))}

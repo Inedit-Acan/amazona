@@ -2,7 +2,7 @@ import Link from "next/link";
 import { api, type Agent, type Approval, type Project } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -83,7 +83,7 @@ export default async function DashboardPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <StatusBadge status={approval.status} />
+                        <StatusChip status={approval.status} />
                         <Button size="sm" variant="outline" nativeButton={false} render={<Link href="/approvals" />}>
                           Review
                         </Button>

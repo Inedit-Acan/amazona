@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ApiError, api, type PipelineReview } from "@/lib/api";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -50,7 +50,7 @@ export function PipelineReviewCard({ review: initialReview }: { review: Pipeline
               Run {review.pipeline_run_id.slice(0, 8)}
             </p>
           </div>
-          <StatusBadge status={review.status} />
+          <StatusChip status={review.status} />
         </div>
       </CardHeader>
 

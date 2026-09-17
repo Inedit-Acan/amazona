@@ -6,7 +6,7 @@ import Link from "next/link";
 import { AlertTriangle, ChevronDown, Loader2 } from "lucide-react";
 import { ApiError, api, type Approval, type Decision, type Project } from "@/lib/api";
 import { isActionable, isExpired } from "@/lib/approvals";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -98,7 +98,7 @@ export function ApprovalCard({
               <p className="text-sm text-muted-foreground">Unknown project</p>
             )}
           </div>
-          <StatusBadge status={expired ? "EXPIRED" : approval.status} />
+          <StatusChip status={expired ? "EXPIRED" : approval.status} />
         </div>
       </CardHeader>
 

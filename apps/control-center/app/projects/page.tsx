@@ -2,7 +2,7 @@ import Link from "next/link";
 import { api, type Project } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent } from "@/components/ui/card";
 
 export default async function ProjectsPage() {
@@ -41,7 +41,7 @@ export default async function ProjectsPage() {
                     <p className="truncate text-sm font-medium">{project.name}</p>
                     <p className="truncate font-mono text-xs text-muted-foreground">{project.id}</p>
                   </div>
-                  <StatusBadge status={project.status} />
+                  <StatusChip status={project.status} />
                 </CardContent>
               </Card>
             </Link>

@@ -24,8 +24,8 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             className={cn(
               "rounded-md px-3 py-2 text-sm font-medium transition-colors",
               active
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                ? "bg-primary text-primary-foreground shadow-[0_0_14px_-3px_var(--emerald)]"
+                : "text-muted-foreground hover:bg-panel-hover hover:text-foreground",
             )}
           >
             {item.label}
@@ -43,7 +43,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen w-full flex-col md:flex-row">
       <aside className="hidden w-56 shrink-0 border-r bg-card px-3 py-6 md:flex md:flex-col">
         <div className="mb-6 flex items-center gap-2 px-2">
-          <LayoutDashboard className="size-5 text-primary" />
+          <LayoutDashboard className="size-5 text-primary drop-shadow-[0_0_6px_var(--emerald)]" />
           <span className="text-sm font-semibold tracking-tight">AMAZONA</span>
         </div>
         <NavLinks />
@@ -54,7 +54,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <header className="flex items-center justify-between border-b bg-card px-4 py-3 md:hidden">
         <div className="flex items-center gap-2">
-          <LayoutDashboard className="size-5 text-primary" />
+          <LayoutDashboard className="size-5 text-primary drop-shadow-[0_0_6px_var(--emerald)]" />
           <span className="text-sm font-semibold tracking-tight">AMAZONA</span>
         </div>
         <div className="flex items-center gap-3">

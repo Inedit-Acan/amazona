@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ApiError, api, type Decision, type Project, type Task } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -42,7 +42,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
 
       <div className="flex items-center gap-3">
         <span className="text-sm text-muted-foreground">Project status</span>
-        <StatusBadge status={project.status} />
+        <StatusChip status={project.status} />
       </div>
 
       <Card>
@@ -65,7 +65,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
                   <TableCell className="font-medium">{task.name.replace(/_/g, " ")}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{task.capability}</TableCell>
                   <TableCell>
-                    <StatusBadge status={task.status} />
+                    <StatusChip status={task.status} />
                   </TableCell>
                   <TableCell className="text-sm">{outputSummary(task)}</TableCell>
                 </TableRow>
@@ -80,7 +80,7 @@ export default async function ProjectDetailPage({ params }: PageProps<"/projects
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>CEO decision</CardTitle>
-              <StatusBadge status={decision.status} />
+              <StatusChip status={decision.status} />
             </div>
           </CardHeader>
           <CardContent className="space-y-4">

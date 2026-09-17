@@ -5,22 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ApiError, api, type MarketplaceListing, type Storefront } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
+import { StatusChip } from "@/components/status-chip";
+import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-
-const LAUNCH_STATUS_STYLES: Record<string, string> = {
-  READY: "text-emerald-600 dark:text-emerald-400",
-  NEEDS_REVIEW: "text-amber-600 dark:text-amber-400",
-  BLOCKED: "text-destructive",
-};
-
-const LISTING_STATUS_STYLES: Record<string, string> = {
-  READY: "text-emerald-600 dark:text-emerald-400",
-  NEEDS_REVIEW: "text-amber-600 dark:text-amber-400",
-  BLOCKED: "text-destructive",
-};
 
 interface ChannelProps {
   productId: string;
@@ -109,11 +99,7 @@ function OwnStoreChannel({ productId, setProductId, market, setMarket, onOptimiz
         <Card className="max-w-3xl">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>{storefront.store_slug}</CardTitle>
-            <span
-              className={`text-sm font-semibold ${LAUNCH_STATUS_STYLES[storefront.launch_status] ?? ""}`}
-            >
-              {storefront.launch_status}
-            </span>
+            <StatusChip status={storefront.launch_status} />
           </CardHeader>
           <CardContent className="space-y-4">
             {storefront.data?.landing_page_copy ? (
@@ -287,9 +273,7 @@ function AmazonChannel({ productId, setProductId, market, setMarket }: ChannelPr
         <Card className="max-w-3xl">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>{listing.platform} · {listing.market}</CardTitle>
-            <span className={`text-sm font-semibold ${LISTING_STATUS_STYLES[listing.listing_status] ?? ""}`}>
-              {listing.listing_status}
-            </span>
+            <StatusChip status={listing.listing_status} />
           </CardHeader>
           <CardContent className="space-y-4">
             {listing.data?.listing_content ? (
@@ -308,9 +292,10 @@ function AmazonChannel({ productId, setProductId, market, setMarket }: ChannelPr
 
             {listing.data?.competition_analysis ? (
               <div>
-                <p className="text-xs font-medium text-muted-foreground">
-                  Competition analysis (source: {listing.data.competition_analysis.data_origin})
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-medium text-muted-foreground">Competition analysis</p>
+                  <DataProvenanceBadge status="estimated" tooltip={listing.data.competition_analysis.data_origin} />
+                </div>
                 <p className="mt-1 text-sm">
                   {listing.data.competition_analysis.competitor_count} competitors · avg price $
                   {listing.data.competition_analysis.avg_price.toFixed(2)} · avg rating{" "}

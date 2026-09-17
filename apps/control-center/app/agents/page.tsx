@@ -1,7 +1,7 @@
 import { api, type Agent } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -31,7 +31,7 @@ export default async function AgentsPage() {
               <CardHeader>
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="text-base">{agent.name}</CardTitle>
-                  <StatusBadge status={agent.status} />
+                  <StatusChip status={agent.status} />
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
