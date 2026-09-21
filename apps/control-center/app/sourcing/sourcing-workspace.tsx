@@ -29,11 +29,11 @@ import {
   applyFilters,
   averageRadarValues,
   distinctionsFor,
-  formatAmount,
   sortByLandedCost,
   supplierRadarValues,
   type QuoteFilters,
 } from "@/lib/sourcing";
+import { formatAmount, formatInteger } from "@/lib/format";
 import { REGION_ANCHORS, REGION_LABELS, regionLabel } from "@/lib/regions";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -193,7 +193,7 @@ function SupplierCard({
         <dl className="space-y-1.5 text-xs">
           <div className="flex justify-between gap-2">
             <dt className="text-muted-foreground">MOQ</dt>
-            <dd className="font-medium">{quote.moq.toLocaleString("es-ES")} uds</dd>
+            <dd className="font-medium">{formatInteger(quote.moq)} uds</dd>
           </div>
           <div className="flex justify-between gap-2">
             <dt className="text-muted-foreground">Entrega</dt>
@@ -413,7 +413,7 @@ export function SourcingWorkspace({
       key: "moq",
       header: "MOQ",
       align: "right",
-      cell: (q) => q.moq.toLocaleString("es-ES"),
+      cell: (q) => formatInteger(q.moq),
       sortValue: (q) => q.moq,
       exportValue: (q) => q.moq,
     },
@@ -926,14 +926,14 @@ export function SourcingWorkspace({
                     {maxMoqLimit !== undefined ? (
                       <CompatibilityRow
                         state={selected.moq <= maxMoqLimit ? "pass" : "fail"}
-                        label={`MOQ dentro de tu límite (≤ ${maxMoqLimit.toLocaleString("es-ES")})`}
-                        detail={`${selected.moq.toLocaleString("es-ES")} uds`}
+                        label={`MOQ dentro de tu límite (≤ ${formatInteger(maxMoqLimit)})`}
+                        detail={`${formatInteger(selected.moq)} uds`}
                       />
                     ) : (
                       <CompatibilityRow
                         state="info"
                         label="MOQ (fija un MOQ máx. para evaluarlo)"
-                        detail={`${selected.moq.toLocaleString("es-ES")} uds`}
+                        detail={`${formatInteger(selected.moq)} uds`}
                       />
                     )}
                     {PENDING_COMPATIBILITY.map((label) => (

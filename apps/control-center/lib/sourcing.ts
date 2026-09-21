@@ -96,7 +96,3 @@ export function averageRadarValues(quotes: SupplierQuote[]): Record<string, numb
   return average;
 }
 
-/** Importe sin símbolo de divisa: el backend no especifica moneda. */
-export function formatAmount(value: number): string {
-  return value.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}

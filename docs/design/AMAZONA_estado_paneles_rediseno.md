@@ -19,7 +19,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | # | Panel | Estado |
 |---|---|---|
 | 1 | Proveedores y abastecimiento | Rediseñado |
-| 2 | Economía y rentabilidad | Pendiente |
+| 2 | Economía y rentabilidad | Rediseñado |
 | 3 | Legal y cumplimiento | Pendiente |
 | 4 | Tienda y canales de venta | Pendiente |
 | 5 | Marketing y adquisición | Pendiente |
@@ -39,6 +39,9 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `DataTable` | Proveedores | Legal (matriz de requisitos), Operaciones (pedidos), Finanzas, Auditoría (eventos) |
 | `NextStepBar` | Proveedores | Economía, Legal, Tienda (cierre de cada mockup del pipeline) |
 | `RouteMap` | Proveedores | Operaciones (rutas de envío), si llegan datos de transporte |
+| `ScenarioCard` | Economía | Finanzas (escenarios de caja), Marketing (escenarios de campaña) |
+| `BarChart` | Economía | Finanzas, Marketing, Operaciones (series de una sola métrica) |
+| `lib/format.ts` | Economía (extraído de Proveedores) | Todos los paneles con importes |
 
 ---
 
@@ -88,3 +91,37 @@ resultados reales.
 5. `ORDER BY total_landed_cost_per_unit` en `GET /api/sourcing/runs/{id}`
    (hoy el cliente reordena).
 6. `Product.image_url` / `description` si se quiere la ficha visual del mockup.
+
+---
+
+## 2. Economía y rentabilidad (`/economics`)
+
+**Hecho.** Selector de producto y de cotización real, supuestos (precio de venta,
+costes fijos), y — tras ejecutar el análisis — 6 KPIs, comparativa de los 3
+escenarios del backend con gráfico de beneficio, desglose unitario, veredicto de
+viabilidad con riesgos, CTAs a Legal y al Director ejecutivo, y barra de siguiente
+paso. Todos los números salen de `POST /api/economics/runs` o de la cotización.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Punto de equilibrio, simulador, análisis de sensibilidad, riesgo y capital:
+  el motor económico no los calcula y el cliente no debe duplicarlo (Milestone 16).
+- CAC, pasarela de pago, devoluciones, fulfillment por unidad.
+- Escenarios con precio/coste/CAC propios: los 3 del backend solo cambian el volumen.
+- Score de investigación, imagen y descripción de producto, divisa.
+
+**Backend que faltaría.**
+
+1. Ampliar `economics/scenarios.py` con punto de equilibrio (unidades, días, CAC
+   máximo tolerable, precio mínimo viable) y devolverlo en `EconomicAnalysis.data`.
+2. `POST /api/economics/simulate` (sin persistir): recibe precio, coste, CAC,
+   devoluciones y conversión y devuelve el resultado recalculado, para el
+   simulador sin duplicar lógica en el cliente.
+3. Análisis de sensibilidad: variación del beneficio por variable, desde el mismo
+   motor.
+4. Modelo de costes por unidad con CAC, pasarela, devoluciones y fulfillment
+   (parámetros por canal/mercado) y capital comprometido/sin cobertura.
+5. Persistir los supuestos (precio de venta, costes fijos) en el análisis y
+   exponerlos; `Product.image_url`/`description`; divisa en `SupplierQuote`.
+6. Deduplicar cotizaciones en el backend (una fila por proveedor y búsqueda) o
+   exponer «última cotización por proveedor»; hoy el cliente deduplica.

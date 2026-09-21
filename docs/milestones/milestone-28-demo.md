@@ -117,4 +117,82 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Panel 2 — Economía y rentabilidad.
+Panel 2 (abajo), luego Panel 3 — Legal y cumplimiento.
+
+---
+
+## Panel 2 — Economía y rentabilidad (`/economics`)
+
+Referencia: `docs/design/economia y rentabilidad.png` + v0.5 §7.
+
+### Qué se ve ahora
+
+1. **Producto y proveedor**: selector de producto (se recargan sus cotizaciones
+   reales con `GET /api/products/{id}/suppliers`), selector de cotización
+   (deduplicada por proveedor: cada nueva búsqueda de proveedores crea filas
+   repetidas) y resumen de la cotización (precio, logística+aduana, coste
+   entregado, plazo, MOQ). Preselección por `?product_id=&supplier_quote_id=`,
+   que es lo que envía el botón «Analizar economía» de Proveedores.
+2. **Supuestos del análisis**: precio de venta y costes fijos mensuales; «Ejecutar
+   análisis» llama a `POST /api/economics/runs`.
+3. Tras el análisis (todo sale de la respuesta del backend o de la cotización):
+   - 6 KPIs: precio de venta, coste total por unidad, margen de contribución,
+     beneficio estimado (mes), punto de equilibrio (**pendiente**), riesgo
+     económico (la recomendación GO/REVIEW/NO_GO traducida).
+   - **Comparativa de escenarios**: 3 `ScenarioCard` (conservador/base/optimista)
+     + gráfico de barras del beneficio por escenario (el base, destacado).
+   - **Desglose económico por unidad**: precio, producto/proveedor, logística y
+     aduana, coste de entrega, margen de contribución, costes fijos; las líneas
+     sin dato (pasarela, devoluciones, CAC, fulfillment) salen con badge
+     «Pendiente».
+   - **Viabilidad económica**: veredicto, beneficio por escenario (✓/✗), lista de
+     riesgos (`RiskList`) y dos CTAs reales: «Enviar a revisión legal» y
+     «Validar con el Director ejecutivo» (precarga el coste entregado real).
+   - **Análisis avanzado**: simulador, sensibilidad, punto de equilibrio, riesgo y
+     capital — tarjetas deshabilitadas con badge «Pendiente».
+   - `NextStepBar`: Economía validada → Revisión legal → Plan de lanzamiento →
+     Seguimiento de resultados.
+
+### Componentes nuevos / tocados
+
+- `ScenarioCard`, `BarChart` (una serie, valores negativos, extremo de datos
+  redondeado, vista de tabla, etiqueta en cada barra) en `components/`.
+- `KpiCard`: prop `provenanceTooltip`, y el badge de procedencia pasa a ir
+  debajo del valor (con 6 tarjetas por fila el valor y el badge lado a lado no
+  cabían). Cambia también las tarjetas del resto de paneles que lo usan.
+- `lib/format.ts` (nuevo): `formatAmount`, `formatInteger`, `formatPercent`,
+  todos con separador de miles (es-ES no lo pone en números de 4 cifras si no se
+  fuerza `useGrouping`). Proveedores pasa a usarlos.
+- `lib/economics.ts` + tests: lista de escenarios, contribución unitaria,
+  etiquetas de recomendación, texto de viabilidad, deduplicado de cotizaciones.
+
+### Qué se dejó fuera (y por qué)
+
+Regla del Milestone 16: **el cliente no reimplementa el motor económico**. Por eso
+no hay simulador, sensibilidad ni break-even aunque el mockup los muestre: habría
+sido duplicar la lógica de `economics/` en el navegador.
+
+- Punto de equilibrio (unidades, facturación, días, CAC máximo, precio mínimo).
+- Simulador interactivo, análisis de sensibilidad, riesgo y capital.
+- CAC, pasarela de pago, devoluciones y fulfillment en el desglose unitario.
+- Los 3 escenarios del backend solo varían el **volumen** de ventas; el mockup
+  muestra escenarios con precio/coste/CAC distintos. Se muestran tal cual, sin
+  disfrazarlos.
+- Score de investigación, imagen y descripción del producto; divisa.
+- Persistir los supuestos (precio de venta, costes fijos): hoy solo viven en la
+  ejecución del análisis.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 25/25 (8 nuevos: contribución unitaria, el
+  caso de la spec §7.10, deduplicado, etiquetas, formato); `npm run build`
+  correcto; `eslint` limpio sobre los archivos de este panel.
+- **En navegador con datos reales** (mismo stack aislado que el panel 1): los
+  importes en pantalla coinciden exactamente con la respuesta cruda de
+  `POST /api/economics/runs` (margen 0,8026 → «80,3 %»; beneficios 4.665,57 /
+  6.879,38 / 9.093,20; GO con confianza 85 %). Móvil 375 px sin desbordamiento,
+  antes y después de ejecutar el análisis.
+
+### Qué sigue
+
+Panel 3 — Legal y cumplimiento.
