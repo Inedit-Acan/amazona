@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Paneles 2 a 10 (abajo), luego Panel 11 — Auditoría.
+Paneles 2 a 11 (abajo), luego Panel 12 — Estado.
 
 ---
 
@@ -880,3 +880,85 @@ sigue funcionando. Sigue incluyendo el interruptor de emergencia del pipeline en
 ### Qué sigue
 
 Panel 11 — Auditoría.
+
+---
+
+## Panel 11 — Auditoría y trazabilidad (`/audit`)
+
+Referencia: `docs/design/auditoria.png` + parte 2 §8. La spec quiere un registro forense
+e inmutable con criticidad, resultado, evidencias con hash, cadena de hashes, anomalías y
+retención. El backend guarda `AuditLog` (actor, acción, recurso, estado antes/después, ID
+de correlación, fecha): una tabla de eventos, sin hashes, evidencias ni criticidad. Es el
+panel con más datos reales junto a Proyectos; se construye sobre eso y lo demás queda
+pendiente. Se conserva el filtro `?correlation_id=` (enlazado desde Proyectos y Agentes).
+
+### Qué se ve ahora
+
+1. **KPIs**: eventos registrados, eventos hoy, aprobaciones, decisiones del CEO, errores
+   (acciones que indican un fallo) y «acciones críticas» (**pendiente**: los eventos no
+   tienen criticidad).
+2. Siete pestañas, como en el mockup:
+   - **Eventos**: tabla (fecha y hora, tipo, acción, actor, proyecto, recurso, correlación)
+     con filtros de periodo, tipo, actor, proyecto y texto, paginación, orden y exportar
+     CSV; **detalle del evento** (ID, tipo, actor, recurso, proyecto, correlación,
+     **antes / después** del estado) y **Correlation Trace** con todo lo ocurrido bajo el
+     mismo ID de correlación.
+   - **Timeline**: los eventos de los últimos días con actividad, agrupados por día.
+   - **Proyectos**: eventos por proyecto (atribuidos por el ID de correlación de la decisión).
+   - **Agentes**: actividad por actor (tipo, eventos, errores, primer y último evento).
+   - **Seguridad**: las acciones de personas del registro y qué falta por auditar.
+   - **Integridad** y **Retención**: pendientes de backend.
+3. Con `?correlation_id=` la pantalla muestra solo ese ID, con un aviso y el botón para
+   volver a todo el registro.
+
+### Componentes nuevos / tocados
+
+- Reutilizados: `CorrelationTrace`, `DataTable`, `KpiCard`, `PendingFeatures`,
+  `DataProvenanceBadge`, `EmptyState`, `Tabs` de shadcn.
+- `CorrelationTrace`: las horas se interpretan como UTC (`parseUtc`), igual que el resto.
+- `lib/audit.ts` + tests: categoría de la acción (por prefijo), tipo de actor (por nombre),
+  filtros, resumen, actividad por actor y por proyecto, agrupación por día y diferencias
+  antes/después. El «tipo» y el «tipo de actor» son clasificaciones de presentación, no
+  campos guardados.
+- `/audit` carga proyectos y decisiones en servidor para atribuir eventos a proyectos.
+
+### Qué se dejó fuera (y por qué)
+
+- **Criticidad, resultado (éxito/error/creado) y acciones críticas por evento**, y las
+  **anomalías** (precio sin aprobación, acción fuera de política…): el registro no clasifica
+  ni evalúa los eventos.
+- **Integridad demostrable**: hash por evento, cadena de hashes, verificación y «eventos
+  modificados = 0». La interfaz no edita ni borra eventos, pero el backend no puede
+  demostrar que nadie los tocó, así que **no se afirma integridad** ni se muestra un
+  «100 %».
+- **Evidencias asociadas** (informes, Legal Gate, presupuesto, documentos con hash y versión),
+  **provenance por evento**, **historial de versiones** y **auditoría IA** (modelo, coste,
+  herramientas).
+- **Origen del evento, IP y user agent**; **vista por proyecto como expediente forense**;
+  **retención**; **exportación** a JSON/PDF y **paquete de auditoría** (solo hay CSV).
+- **Seguridad real** (inicios de sesión, permisos, API keys, integraciones): no se registran.
+- **El proyecto de cada evento** se deduce por el ID de correlación de la decisión: los
+  eventos de análisis por producto (investigación, economía, legal…) y de memoria quedan sin
+  proyecto. Se leen las decisiones de los 40 primeros proyectos.
+- **Límite de 500 eventos, los más antiguos primero**: `GET /api/audit` ordena por fecha
+  ascendente y corta en 500, así que en un sistema con historia larga **los eventos más
+  recientes no llegarían a la pantalla**. Con esa cifra el KPI avisa; hace falta paginación y
+  orden descendente en el backend.
+- La exportación CSV incluye solo la página visible de la tabla.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 75/75 (7 nuevos de `lib/audit.ts`); `npm run build`
+  correcto; `eslint` limpio sobre los archivos del panel.
+- **En navegador con datos reales** (stack aislado, sin Supabase): los 98 eventos de la base
+  aislada coinciden con `GET /api/audit` (37 de hoy, 6 aprobaciones, 5 decisiones, 0
+  errores). Probado: filtro por tipo (6 eventos de aprobación, con el proyecto atribuido y
+  el antes/después `PENDING → APPROVED`), Correlation Trace de 13 eventos, paginación, filtro
+  por actor (3 del CEO), búsqueda sin resultados, las siete pestañas (con clics reales), y
+  `?correlation_id=` (12 eventos, aviso y pestañas de proyectos/actores coherentes; un ID
+  inexistente muestra el estado vacío con enlace para volver). Móvil 375 px sin desbordamiento
+  de página (la tabla desplaza dentro de su contenedor).
+
+### Qué sigue
+
+Panel 12 — Estado.

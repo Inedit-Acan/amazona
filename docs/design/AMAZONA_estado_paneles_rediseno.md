@@ -28,7 +28,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 8 | Proyectos | Rediseñado |
 | 9 | Agentes | Rediseñado |
 | 10 | Aprobaciones | Rediseñado |
-| 11 | Auditoría | Pendiente |
+| 11 | Auditoría | Rediseñado |
 | 12 | Estado | Pendiente |
 
 ## Componentes compartidos añadidos por este trabajo
@@ -461,3 +461,43 @@ interruptor de emergencia) intactas. Corrige el manejo de fechas UTC (`isExpired
    mostrarlas en «Decididas» / historial.
 8. `GET /api/approvals/summary` (pendientes, críticas, vencen pronto, aprobadas hoy, tiempo
    medio) para no calcular los KPI en el cliente.
+
+---
+
+## 11. Auditoría y trazabilidad (`/audit`)
+
+**Hecho.** KPIs, siete pestañas (eventos con filtros, paginación y detalle antes/después con
+Correlation Trace; timeline; actividad por proyecto y por actor; acciones de personas;
+integridad y retención como pendientes) y el filtro por ID de correlación.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Criticidad, resultado y acciones críticas por evento; anomalías.
+- Hash por evento, cadena de hashes y verificación de integridad; evidencias con hash y
+  versión; provenance; historial de versiones; auditoría IA (modelo, coste, herramientas).
+- Origen del evento, IP y user agent; expediente forense por proyecto.
+- Retención; exportación JSON/PDF; paquete de auditoría.
+- Eventos de seguridad reales (login, permisos, API keys, integraciones).
+
+**Backend que faltaría.**
+
+1. `GET /api/audit` con paginación y orden descendente (`?limit=&before=`), filtros
+   (`actor`, `action_prefix`, `project_id`, `from`/`to`) y total; hoy corta en 500 los más
+   antiguos.
+2. Campos en `AuditLog`: `project_id`, `event_type`, `severity` (criticidad), `result`,
+   `source`, `ip`, `user_agent`; con ellos las columnas y el KPI de acciones críticas son
+   reales y el proyecto no hay que deducirlo por correlación.
+3. Registro append-only con integridad: `prev_hash` y `hash` por evento (cadena), endpoint
+   `GET /api/audit/integrity` (última verificación, eventos íntegros, modificados) y
+   restricciones de base de datos que impidan `UPDATE`/`DELETE`.
+4. Evidencias (`AuditEvidence`: tipo, hash, versión, origen, estado, evento) y su endpoint, y
+   provenance por evento.
+5. Detector de anomalías (precio sin aprobación, acción fuera de política, cambios de
+   configuración inusuales) que escriba eventos propios.
+6. Auditoría de seguridad (inicios de sesión, cambios de permisos, API keys, integraciones,
+   políticas) y de IA (versión, modelo, herramientas, coste, duración).
+7. Política de retención por tipo de evento y `POST /api/audit/package` que genere el
+   paquete por proyecto/periodo (eventos, aprobaciones, evidencias, versiones, hashes) y las
+   exportaciones JSON/PDF.
+8. `GET /api/audit/summary` (eventos del día, aprobaciones, errores…) para no contarlos en el
+   cliente.

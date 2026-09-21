@@ -1,4 +1,5 @@
 import type { AuditEntry } from "@/lib/api";
+import { parseUtc } from "@/lib/dates";
 
 /** Visualizes every audit entry sharing one correlation ID as a
  * chronological chain (parte2.md §8.7 "Correlation Trace") — whatever
@@ -21,7 +22,7 @@ export function CorrelationTrace({ entries }: { entries: AuditEntry[] }) {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
               <p className="text-sm font-medium">{entry.action}</p>
-              <p className="text-xs text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">{new Date(parseUtc(entry.created_at)).toLocaleString("es-ES")}</p>
             </div>
             <p className="text-xs text-muted-foreground">
               {entry.actor} · {entry.resource}
