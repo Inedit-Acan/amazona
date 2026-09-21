@@ -1,242 +1,51 @@
-"use client";
-
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { AlertTriangle, Loader2 } from "lucide-react";
-import { ApiError, api, type MarketingCampaign } from "@/lib/api";
+import { api, type Product } from "@/lib/api";
+import { EMPTY_PRODUCT_MARKETING_DATA, loadProductMarketingData } from "@/lib/product-channels";
 import { PageHeader } from "@/components/page-header";
-import { StatusChip } from "@/components/status-chip";
-import { RiskList } from "@/components/risk-list";
-import { DataProvenanceBadge } from "@/components/data-provenance-badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ApiErrorAlert } from "@/components/api-error";
+import { MarketingWorkspace } from "./marketing-workspace";
 
-function MarketingForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const initialProductId = searchParams.get("product_id") ?? "";
-  const initialMarket = searchParams.get("market") ?? "us";
-
-  const [productId, setProductId] = useState(initialProductId);
-  const [market, setMarket] = useState(initialMarket);
-  const [platform, setPlatform] = useState("meta");
-  const [dailyBudget, setDailyBudget] = useState(20.0);
-  const [campaign, setCampaign] = useState<MarketingCampaign | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      const result = await api.createMarketingCampaignRun({
-        product_id: productId,
-        market,
-        platform,
-        daily_budget: dailyBudget,
-      });
-      setCampaign(result);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Marketing campaign generation failed.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function validateThisCampaign() {
-    if (!campaign) return;
-    const params = new URLSearchParams({
-      title: `Validate ${campaign.platform} campaign for product ${campaign.product_id}`,
-      spend_amount: String(campaign.daily_budget),
-    });
-    router.push(`/ceo?${params.toString()}`);
-  }
-
-  function simulateOperations() {
-    if (!campaign) return;
-    const params = new URLSearchParams({ product_id: campaign.product_id, market: campaign.market });
-    router.push(`/operations?${params.toString()}`);
-  }
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Marketing"
-        description="Design a campaign proposal — audience segments, ad creative (text + image brief), simulated performance estimate, and a budget recommendation — from real product/pricing/legal/listing data. Fase 3, Agente 7. No real ad spend or Meta/Google/TikTok Ads credentials."
-      />
-
-      <Card className="max-w-2xl">
-        <CardHeader>
-          <CardTitle>New campaign proposal</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <div className="grid gap-4 sm:grid-cols-4">
-              <div className="space-y-1.5 sm:col-span-2">
-                <label htmlFor="productId" className="text-sm font-medium">
-                  Product ID
-                </label>
-                <input
-                  id="productId"
-                  value={productId}
-                  onChange={(e) => setProductId(e.target.value)}
-                  placeholder="from a Research run"
-                  required
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="market" className="text-sm font-medium">
-                  Market
-                </label>
-                <select
-                  id="market"
-                  value={market}
-                  onChange={(e) => setMarket(e.target.value)}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                >
-                  <option value="us">us</option>
-                  <option value="eu">eu</option>
-                  <option value="mx">mx</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="platform" className="text-sm font-medium">
-                  Platform
-                </label>
-                <select
-                  id="platform"
-                  value={platform}
-                  onChange={(e) => setPlatform(e.target.value)}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                >
-                  <option value="meta">meta</option>
-                  <option value="google">google</option>
-                </select>
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <label htmlFor="dailyBudget" className="text-sm font-medium">
-                  Daily budget (simulated)
-                </label>
-                <input
-                  id="dailyBudget"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={dailyBudget}
-                  onChange={(e) => setDailyBudget(Number(e.target.value))}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-
-            {error ? (
-              <Alert variant="destructive">
-                <AlertTriangle className="size-4" />
-                <AlertTitle>Marketing campaign generation failed</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <Button type="submit" disabled={submitting || !productId}>
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-              {submitting ? "Generating…" : "Generate campaign proposal"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {campaign ? (
-        <Card className="max-w-3xl">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>
-              {campaign.platform} · {campaign.market} · ${campaign.daily_budget.toFixed(2)}/day
-            </CardTitle>
-            <StatusChip status={campaign.campaign_status} />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {campaign.data?.ad_creative ? (
-              <div className="rounded-md border p-3">
-                <p className="font-medium">{campaign.data.ad_creative.headline}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{campaign.data.ad_creative.primary_text}</p>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Image brief: {campaign.data.ad_creative.image_brief}
-                </p>
-                <Button size="sm" className="mt-2" disabled>
-                  {campaign.data.ad_creative.cta}
-                </Button>
-              </div>
-            ) : null}
-
-            {campaign.data?.audience_segments && campaign.data.audience_segments.length > 0 ? (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Audience segments</p>
-                <ul className="mt-1 space-y-1 text-sm">
-                  {campaign.data.audience_segments.map((segment) => (
-                    <li key={segment.name}>
-                      {segment.name} ({segment.age_range}) — reach ~{segment.estimated_reach.toLocaleString()}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {campaign.data?.performance_estimate ? (
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-xs font-medium text-muted-foreground">Performance estimate</p>
-                  <DataProvenanceBadge status="estimated" tooltip={campaign.data.performance_estimate.data_origin} />
-                </div>
-                <p className="mt-1 text-sm">
-                  CPC ${campaign.data.performance_estimate.avg_cpc.toFixed(2)} · CTR{" "}
-                  {(campaign.data.performance_estimate.avg_ctr * 100).toFixed(1)}% · conversion{" "}
-                  {(campaign.data.performance_estimate.conversion_rate * 100).toFixed(1)}%
-                </p>
-                <p
-                  className={`text-sm font-medium ${
-                    (campaign.data.performance_estimate.projected_roas ?? 1) < 1
-                      ? "text-destructive"
-                      : ""
-                  }`}
-                >
-                  Projected ROAS:{" "}
-                  {campaign.data.performance_estimate.projected_roas !== null
-                    ? `${campaign.data.performance_estimate.projected_roas.toFixed(2)}x`
-                    : "unknown (no pricing data yet)"}
-                </p>
-              </div>
-            ) : null}
-
-            {campaign.data?.budget_recommendation ? (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground">Budget recommendation</p>
-                <p className="mt-1 text-sm">{campaign.data.budget_recommendation}</p>
-              </div>
-            ) : null}
-
-            <RiskList risks={campaign.data?.risks ?? []} />
-
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={simulateOperations}>
-                Simulate operations
-              </Button>
-              <Button size="sm" variant="outline" onClick={validateThisCampaign}>
-                Validate this campaign
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-    </div>
-  );
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
-export default function MarketingPage() {
+export default async function MarketingPage({ searchParams }: PageProps<"/marketing">) {
+  const params = await searchParams;
+  const requestedProductId = first(params.product_id);
+  const requestedMarket = first(params.market);
+
+  let products: Product[] = [];
+  let data = EMPTY_PRODUCT_MARKETING_DATA;
+  let productId: string | undefined;
+  let error: string | null = null;
+
+  try {
+    products = await api.listProducts();
+    productId = products.find((p) => p.id === requestedProductId)?.id ?? products[0]?.id;
+    if (productId) data = await loadProductMarketingData(productId);
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Error desconocido";
+  }
+
+  // El mercado pedido manda; si no, el de la última propuesta; si no, EE. UU.
+  const market = requestedMarket ?? data.campaigns[0]?.market ?? "us";
+
   return (
-    <Suspense fallback={null}>
-      <MarketingForm />
-    </Suspense>
+    <div>
+      <PageHeader
+        title="Marketing y adquisición"
+        description="Diseña una propuesta de campaña — audiencias, creatividad (texto + brief de imagen), estimación de rendimiento y recomendación de presupuesto — a partir de datos reales de producto, precio, legal y tienda. Fase 3, Agente 7. Todo el rendimiento es simulado: sin gasto publicitario real ni credenciales de Meta/Google/TikTok Ads."
+      />
+
+      {error ? (
+        <ApiErrorAlert message={error} />
+      ) : (
+        <MarketingWorkspace
+          products={products}
+          initialProductId={productId}
+          initialData={data}
+          initialMarket={market}
+        />
+      )}
+    </div>
   );
 }

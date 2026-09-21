@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Paneles 2 a 4 (abajo), luego Panel 5 — Marketing y adquisición.
+Paneles 2 a 5 (abajo), luego Panel 6 — Operaciones.
 
 ---
 
@@ -380,3 +380,96 @@ mockup: contexto, tarjetas de canal y el detalle del canal elegido.
 ### Qué sigue
 
 Panel 5 — Marketing y adquisición.
+
+---
+
+## Panel 5 — Marketing y adquisición (`/marketing`)
+
+Referencia: `docs/design/marketing.png` + v0.5 §11. Es el panel cuyo mockup está más
+lejos de lo que el backend sabe: el mockup enseña rendimiento **real** de campañas
+(inversión, ingresos atribuidos, CAC, funnel, atribución) y el agente solo genera una
+**propuesta simulada** por producto, mercado y plataforma. Se construye lo que la
+propuesta trae y lo demás queda como pendiente.
+
+### Qué se ve ahora
+
+1. **Producto y contexto**: selector de producto y de mercado; precio y margen de
+   contribución del análisis económico más reciente, estado de la tienda (landing) y
+   Legal Gate del mercado (con enlace a Economía / Tienda / Legal si faltan); CAC
+   máximo (**pendiente**).
+2. **Nueva campaña**: canal (Meta Ads / Google Ads) y presupuesto diario →
+   `POST /api/marketing/runs`. El canal elegido también decide qué propuesta se
+   muestra abajo. Los campos del mockup que el agente no acepta (objetivo, evento de
+   conversión, duración, CAC objetivo/máximo) se anuncian como no configurables.
+3. **Plan de adquisición por canal**: una fila por plataforma con la última propuesta
+   del mercado (presupuesto diario, ROAS proyectado, estado); pulsar una fila la
+   selecciona.
+4. Con propuesta:
+   - 6 KPIs: presupuesto diario (supuesto tuyo), ROAS proyectado, CPC, CTR y
+     conversión **estimados** (todos con badge de estimación y el `data_origin` del
+     backend) y estado general con tono de veredicto.
+   - **Audiencias propuestas** (segmentos reales con edad, intereses y alcance
+     relativo) y **creatividad y vista previa** (titular, texto, CTA y brief de imagen
+     reales, con vista previa del texto en formato Meta feed o Google búsqueda).
+   - **Recomendación del agente** (veredicto, recomendación de presupuesto y riesgos)
+     con la acción real de aprobar el gasto: «Validar inversión con el Director
+     ejecutivo» (handoff a `/ceo` con `spend_amount`, el de siempre).
+   - **Presupuesto y guardrails**: presupuesto asignado y las reglas que el agente
+     aplica hoy (NO_GO económico/legal, ROAS < 1, falta de análisis, listado
+     bloqueado, plazo > 45 días).
+   - Tarjeta «Rendimiento real — pendiente de backend» y `NextStepBar` con «Simular
+     operaciones».
+5. Carga el historial guardado del producto; `?product_id=&market=` (que envían
+   Tienda y Amazon) preselecciona producto y mercado.
+
+### Componentes nuevos / tocados
+
+- Reutilizados: `ProductHeader`, `KpiCard` (con `tone`), `PendingFeatures`,
+  `VerdictBanner`, `DataTable`, `StatusChip`, `RiskList`, `NextStepBar`,
+  `DataProvenanceBadge`.
+- `lib/product-channels.ts`: `loadProductMarketingData` (lo de Tienda + campañas).
+- `lib/marketing.ts` + tests: etiquetas de plataforma, última propuesta por
+  plataforma/mercado, plan por canal, barras de audiencia, veredicto y reglas del
+  agente.
+
+### Qué se dejó fuera (y por qué)
+
+- **Inversión, ingresos atribuidos, CAC/CPA, conversiones, ROAS reales, funnel de
+  conversión, rendimiento por canal y atribución**: no hay integración con Meta,
+  Google ni TikTok Ads, y por tanto no hay gasto ni tráfico. Mostrar cualquier cifra
+  aquí sería inventarla.
+- **Distribución del presupuesto en % por canal**, Creators/Influencers y TikTok Ads:
+  el backend genera una propuesta por plataforma (solo Meta y Google) sin repartir
+  presupuesto.
+- **Score, intención y fuente de las audiencias**; remarketing y lookalike.
+- **Vídeos, imágenes, Creative Score, variantes y estado de aprobación de las
+  creatividades**: el agente genera un único texto con un brief de imagen, nunca un
+  bitmap. Las pestañas Instagram y TikTok de la vista previa salen deshabilitadas.
+- **CAC máximo y CAC objetivo**: el motor económico no los calcula.
+- **Pacing, gastado y restante**, y los guardrails que necesitan gasto real (pausar
+  por CAC, limitar subidas bruscas, bloquear claims y mercados no autorizados).
+- **Recomendaciones de IA basadas en rendimiento real** (subir inversión en Meta,
+  A/B de creatividades…): solo existe la recomendación de presupuesto del agente, que
+  sale de su ROAS proyectado.
+- **«Solicitar aprobación de inversión»**: no existe un endpoint que cree esa
+  solicitud; el camino real es validar el gasto con el Director ejecutivo.
+- Los textos de la plantilla (creatividad, recomendación, riesgos) están en inglés en
+  el backend; se muestran tal cual y se avisa.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 41/41 (4 nuevos de `lib/marketing.ts`); `npm run
+  build` correcto; `eslint` limpio sobre los archivos del panel.
+- **En navegador con datos reales** (stack aislado, sin Supabase): «Wireless earbuds
+  pro» en la UE. La propuesta de Meta con 20 de presupuesto coincide con
+  `GET /api/products/{id}/campaigns` (ROAS 0,4706 → «0,47 x», CPC 0,85, CTR 1,2 %,
+  conversión 2,0 %, estado BLOQUEADA, mismo riesgo y misma recomendación, alcances
+  250.000 y 120.000). Probado: pestañas de la vista previa (Meta/Google), canal sin
+  propuesta (estado vacío), generar la de Google con 50 de presupuesto (ROAS 0,55 y
+  la vista previa se abre en formato Google), selección de fila en el plan (vuelve a
+  Meta) y el error del backend (alerta legible sin perder lo mostrado). Móvil 375 px
+  sin desbordamiento.
+
+### Qué sigue
+
+Panel 6 — Operaciones.

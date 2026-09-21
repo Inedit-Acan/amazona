@@ -2,6 +2,7 @@ import {
   api,
   type EconomicAnalysis,
   type LegalAnalysis,
+  type MarketingCampaign,
   type MarketplaceListing,
   type Storefront,
   type SupplierQuote,
@@ -35,4 +36,19 @@ export async function loadProductChannelData(productId: string): Promise<Product
     api.listProductSuppliers(productId),
   ]);
   return { storefronts, listings, legal, economics, quotes };
+}
+
+/** Lo de arriba más las propuestas de campaña del producto (panel de Marketing). */
+export interface ProductMarketingData extends ProductChannelData {
+  campaigns: MarketingCampaign[];
+}
+
+export const EMPTY_PRODUCT_MARKETING_DATA: ProductMarketingData = { ...EMPTY_PRODUCT_CHANNEL_DATA, campaigns: [] };
+
+export async function loadProductMarketingData(productId: string): Promise<ProductMarketingData> {
+  const [channels, campaigns] = await Promise.all([
+    loadProductChannelData(productId),
+    api.listProductCampaigns(productId),
+  ]);
+  return { ...channels, campaigns };
 }

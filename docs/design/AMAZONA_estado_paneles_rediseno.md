@@ -22,7 +22,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 2 | Economía y rentabilidad | Rediseñado |
 | 3 | Legal y cumplimiento | Rediseñado |
 | 4 | Tienda y canales de venta | Rediseñado |
-| 5 | Marketing y adquisición | Pendiente |
+| 5 | Marketing y adquisición | Rediseñado |
 | 6 | Operaciones | Pendiente |
 | 7 | Finanzas y control | Pendiente |
 | 8 | Proyectos | Pendiente |
@@ -216,3 +216,46 @@ inventario, riesgos). Carga el historial guardado del producto.
 7. Integración de analytics/tracking, dominio y email transaccional (o al menos su
    estado de configuración) para los tres últimos checks de Launch Readiness.
 8. Traducir/normalizar los textos de las plantillas (hoy en inglés).
+
+---
+
+## 5. Marketing y adquisición (`/marketing`)
+
+**Hecho.** Contexto del producto (precio, margen, landing, Legal Gate), formulario de
+campaña (canal y presupuesto), plan por canal con la última propuesta de cada
+plataforma, y por propuesta: 6 KPIs estimados, audiencias, creatividad con vista
+previa Meta/Google, recomendación del agente, presupuesto asignado y reglas que
+aplica el agente. Carga el historial guardado.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Inversión, ingresos atribuidos, CAC/CPA, conversiones y ROAS reales; funnel;
+  rendimiento por canal; atribución.
+- Reparto de presupuesto en % por canal, Creators/Influencers, TikTok Ads.
+- Score/intención/fuente de audiencias; remarketing y lookalike.
+- Vídeo, imágenes, Creative Score, variantes y estado de creatividades.
+- CAC objetivo y máximo; pacing, gastado, restante.
+- Guardrails que dependen de gasto real; recomendaciones basadas en rendimiento real.
+- Objetivo, evento de conversión y duración de la campaña.
+- Solicitud de aprobación de inversión.
+
+**Backend que faltaría.**
+
+1. Integración de solo lectura con Meta Ads / Google Ads / TikTok Ads (o al menos un
+   modelo `CampaignMetrics` diario: impresiones, clics, gasto, conversiones,
+   ingresos) con `data_origin` real vs simulado; de ahí salen KPIs, funnel,
+   rendimiento por canal y atribución.
+2. Ampliar `MarketingCampaignAgent` para aceptar objetivo, evento de conversión,
+   duración, CAC objetivo y CAC máximo, y devolver un reparto de presupuesto por
+   canal (`channel_plan: [{platform, share, amount, objective}]`).
+3. El motor económico debe exponer el **CAC máximo tolerable** (ver Economía) y el
+   agente comprobarlo contra el CAC proyectado; sin él no hay guardrail de CAC.
+4. Puntuación de audiencias (`score`, `intent`, `source`) y de creatividades
+   (`creative_score`, `status`), más generación de variantes y de medios (imagen/
+   vídeo) o un brief de storyboard.
+5. `POST /api/marketing/investment-requests` que cree la solicitud de aprobación de
+   inversión en la bandeja de Aprobaciones con los guardrails evaluados.
+6. Motor de guardrails activo (pausar/alertar por CAC o ROAS reales, limitar aumentos
+   de presupuesto, bloquear claims/mercados no autorizados) y recomendaciones de IA
+   derivadas del rendimiento real.
+7. Traducir/normalizar los textos de las plantillas (hoy en inglés).
