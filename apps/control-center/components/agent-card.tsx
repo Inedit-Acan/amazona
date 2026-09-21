@@ -1,4 +1,6 @@
 import type { Agent, AgentExecution } from "@/lib/api";
+import { parseUtc } from "@/lib/agents";
+import { formatDuration } from "@/lib/format";
 import { StatusChip } from "@/components/status-chip";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { VersionCard } from "@/components/version-card";
@@ -16,7 +18,7 @@ export function AgentCard({ agent, executions }: { agent: Agent; executions: Age
     runCount > 0 ? executions.reduce((sum, e) => sum + e.duration_ms, 0) / runCount : null;
   const lastActivity =
     runCount > 0
-      ? new Date(Math.max(...executions.map((e) => new Date(e.created_at).getTime())))
+      ? new Date(Math.max(...executions.map((e) => parseUtc(e.created_at))))
       : null;
 
   return (
@@ -28,7 +30,7 @@ export function AgentCard({ agent, executions }: { agent: Agent; executions: Age
         </div>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <p className="text-muted-foreground capitalize">{agent.role} agent</p>
+        <p className="text-muted-foreground capitalize">Rol: {agent.role}</p>
         <div className="flex flex-wrap gap-1">
           {agent.capabilities.map((c) => (
             <Badge key={c} variant="secondary" className="font-mono text-xs">
@@ -39,10 +41,10 @@ export function AgentCard({ agent, executions }: { agent: Agent; executions: Age
 
         <div className="grid grid-cols-2 gap-x-3 gap-y-2 border-t pt-3">
           <div>
-            <p className="text-xs text-muted-foreground">Reliability</p>
+            <p className="text-xs text-muted-foreground">Fiabilidad</p>
             <div className="flex items-center gap-1.5">
               <p className="font-medium">{(agent.reliability_score * 100).toFixed(0)}%</p>
-              <DataProvenanceBadge status="estimated" tooltip="Nominal reliability score set on the agent descriptor." />
+              <DataProvenanceBadge status="estimated" tooltip="Puntuación de fiabilidad nominal definida en el descriptor del agente." />
             </div>
           </div>
           <div>
@@ -58,7 +60,7 @@ export function AgentCard({ agent, executions }: { agent: Agent; executions: Age
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Latencia media</p>
-            <p className="font-medium">{avgLatencyMs !== null ? `${avgLatencyMs.toFixed(0)}ms` : "—"}</p>
+            <p className="font-medium">{avgLatencyMs !== null ? formatDuration(avgLatencyMs) : "—"}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Última actividad</p>

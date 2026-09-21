@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Paneles 2 a 8 (abajo), luego Panel 9 — Agentes.
+Paneles 2 a 9 (abajo), luego Panel 10 — Aprobaciones.
 
 ---
 
@@ -721,3 +721,81 @@ Es uno de los paneles con más datos reales.
 ### Qué sigue
 
 Panel 9 — Agentes.
+
+---
+
+## Panel 9 — Agentes (`/agents`)
+
+Referencia: `docs/design/agentes.png` + parte 2 §6. La spec quiere un **Agent Control
+Center** (agentes, ejecuciones, versiones, herramientas, permisos, evaluaciones, costes,
+errores y rendimiento). Hoy el backend tiene el registro de agentes (nombre, rol,
+capacidades, estado, versión y un coste nominal) y el log de ejecuciones del CEO
+(`AgentExecutionLog`: agente, capacidad, duración, éxito, traza). Se construye sobre eso.
+
+### Qué se ve ahora
+
+1. 6 KPIs: agentes registrados, disponibles (con los ocupados), ejecuciones registradas,
+   tasa de éxito, latencia media (con badge de estimación: los agentes son deterministas y
+   duran fracciones de milisegundo) y agentes con errores.
+2. Cinco pestañas, como en el mockup:
+   - **Agentes**: tarjetas (`AgentCard`, reutilizada) agrupadas por equipo (Investigación,
+     Abastecimiento, Economía, Legal, Comercio, Marketing, Operaciones, Finanzas), con
+     búsqueda por nombre o capacidad y filtro por equipo.
+   - **Actividad**: ejecuciones recientes (agente, capacidad, resultado, duración, cuándo y
+     enlace a la traza en Auditoría) con búsqueda, orden y exportar CSV, y alertas por
+     ejecuciones fallidas.
+   - **Rendimiento**: tabla por agente (runs, éxito, latencia, errores, última actividad)
+     con filtro de periodo (todo, 24 h, 7 días, 30 días) y dos gráficos de reparto
+     (ejecuciones por equipo y por agente).
+   - **Evaluaciones**: pendiente de backend.
+   - **Versiones**: versión vigente y coste nominal por tarea de cada agente, más la lista
+     de lo que falta (historial, staging, rollback, herramientas, permisos, handoffs).
+
+### Componentes nuevos / tocados
+
+- Reutilizados: `AgentCard`, `KpiCard`, `DataTable`, `StackedBar`, `RankedBars`,
+  `PendingFeatures`, `DataProvenanceBadge`, y las pestañas de shadcn (`Tabs`).
+- `AgentCard`: la latencia usa `formatDuration` (antes «0ms» para ejecuciones de
+  0,01 ms) y la hora de última actividad interpreta las fechas del backend como UTC.
+- `lib/format.ts`: `formatDuration`. `lib/agents.ts` + tests: equipo por rol, agrupación,
+  estadísticas por agente, resumen de la flota, ventana de tiempo y ejecuciones por equipo.
+
+### Qué se dejó fuera (y por qué)
+
+- **Coste del día, coste por agente, tokens, llamadas a API y búsquedas**: el registro solo
+  declara un coste nominal simulado por tarea (todos a 0); no hay coste medido.
+- **Evaluación (score), Evaluation Suite y umbral de despliegue**: no existe evaluación de
+  agentes.
+- **Estado «Ejecutando», proyecto/tarea en curso y progreso de la tarjeta**: el registro
+  solo informa `AVAILABLE`; no guarda el proyecto o la tarea que trabaja cada agente.
+- **Versionado con historial, producción/staging, comparación y rollback**; **herramientas y
+  permisos**; **handoffs**; **trazas operativas**; **vista de detalle del agente** y «Nueva
+  versión de agente»; «Actividad en tiempo real» en streaming y los recursos de la
+  columna derecha.
+- **Alertas por umbral** (error rate alto, coste anómalo, latencia alta, versión
+  degradada): solo se alerta de ejecuciones fallidas.
+- **Filtros por proyecto y modelo**: la ejecución no guarda ni el proyecto ni el modelo.
+- **«Todo el histórico» son las 100 últimas ejecuciones**: `GET /api/agent-executions` está
+  limitado a 100 filas, así que los KPI y el rendimiento no cuentan más allá de eso.
+- **Solo el CEO registra ejecuciones**: los agentes de la Fase 3 (Investigación, Proveedores,
+  Economía, Legal, Tienda…) se invocan desde sus paneles y hoy no escriben en el log, así que
+  aparecen con 0 ejecuciones aunque se usen.
+- **Los 13 agentes son los del registro actual** (4 de validación del CEO + 9 de la Fase 3),
+  no la arquitectura de 13 agentes reorganizados de la spec (Product Hunter, Market Analyst…);
+  se agrupan por equipo con un mapa de rol → equipo del cliente.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 61/61 (7 nuevos de `lib/agents.ts` y 1 de
+  `lib/format.ts`); `npm run build` correcto; `eslint` limpio sobre los archivos del panel.
+- **En navegador con datos reales** (stack aislado, sin Supabase; tras lanzar 3 objetivos del
+  CEO): 13 agentes en 8 equipos, 12 ejecuciones (3 por especialista), éxito 100 %, latencia
+  «<1 ms», sin agentes con errores; la actividad, el rendimiento y el reparto por equipo
+  coinciden con `GET /api/agent-executions`; el filtro de 24 h, las cinco pestañas y la
+  búsqueda funcionan. Se corrigió un desbordamiento de 20 px de la barra de pestañas en
+  móvil (ahora hace scroll dentro de su contenedor): 375 px sin desbordamiento en las cinco
+  pestañas.
+
+### Qué sigue
+
+Panel 10 — Aprobaciones.

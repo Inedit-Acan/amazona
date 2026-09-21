@@ -21,3 +21,11 @@ export function formatPercent(fraction: number, digits = 1): string {
   });
   return `${text} %`;
 }
+
+/** Duración en milisegundos legible: las ejecuciones simuladas duran fracciones de
+ * milisegundo, que con `toFixed(0)` saldrían como «0 ms». */
+export function formatDuration(ms: number): string {
+  if (ms < 1) return "<1 ms";
+  if (ms < 1000) return `${Math.round(ms).toLocaleString("es-ES")} ms`;
+  return `${(ms / 1000).toLocaleString("es-ES", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
+}

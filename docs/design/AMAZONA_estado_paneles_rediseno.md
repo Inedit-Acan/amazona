@@ -26,7 +26,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 6 | Operaciones | Rediseñado |
 | 7 | Finanzas y control | Rediseñado |
 | 8 | Proyectos | Rediseñado |
-| 9 | Agentes | Pendiente |
+| 9 | Agentes | Rediseñado |
 | 10 | Aprobaciones | Pendiente |
 | 11 | Auditoría | Pendiente |
 | 12 | Estado | Pendiente |
@@ -380,3 +380,42 @@ hitos, grafo de tareas y evidencia.
 6. `GET /api/projects/summary` con conteos y agregados para no hacer una petición de tareas
    y de decisiones por proyecto al montar el portfolio.
 7. Traducir/normalizar los textos de riesgos de los agentes (hoy en inglés).
+
+---
+
+## 9. Agentes (`/agents`)
+
+**Hecho.** KPIs de la flota, tarjetas por equipo (con búsqueda y filtro), actividad con
+exportación y alertas por fallos, rendimiento por agente con ventana de tiempo y gráficos de
+reparto, y versiones vigentes.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Costes medidos (coste del día, tokens, API calls, búsquedas), Evaluation Suite y score.
+- Estado «Ejecutando», proyecto/tarea en curso y progreso de la tarjeta.
+- Historial de versiones, staging/producción, rollback; herramientas y permisos; handoffs;
+  trazas operativas; vista de detalle; «Nueva versión de agente».
+- Alertas por umbral (error rate, coste, latencia, versión degradada).
+- Filtros por proyecto y modelo; actividad en tiempo real.
+- Ejecuciones de los agentes de la Fase 3 (no escriben en el log).
+
+**Backend que faltaría.**
+
+1. Que todos los agentes (no solo el CEO) registren `AgentExecutionLog` con `project_id`,
+   `task_id`, `model`, `input_tokens`/`output_tokens`, `cost` y `error`, para poder filtrar
+   por proyecto y modelo y medir costes reales.
+2. Estado en vivo del agente (`RUNNING`, `WAITING`, `PAUSED`, `ERROR`, `NEEDS_REVIEW`) con
+   la tarea actual y su progreso, en `AgentOut`.
+3. `Agent.team` en el registro (hoy el cliente lo deduce del rol) y reorganizar el pool a
+   los 13 agentes operativos de la spec (Product Hunter, Market Analyst, Supplier Finder…).
+4. Evaluation Suite (`AgentEvaluation`: versión, métricas de relevancia, errores, grounding,
+   coste, latencia, cumplimiento; umbral de despliegue) con endpoint de lectura.
+5. Versionado (`AgentVersion`: versión, fecha, evaluación, entorno producción/staging,
+   comparación) y rollback.
+6. Herramientas y permisos por agente (`AgentTool`, `AgentPermission`: disponible vs
+   otorgado) y registro de handoffs entre agentes.
+7. Alertas de agentes con umbrales configurables (error rate, coste, latencia, degradación)
+   y su endpoint.
+8. Quitar el límite fijo de 100 en `GET /api/agent-executions` (paginación) o añadir
+   `GET /api/agents/summary` con agregados por ventana de tiempo (24 h/7 d/30 d) para no
+   traer todo el log al cliente.
