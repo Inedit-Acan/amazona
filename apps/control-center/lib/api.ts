@@ -8,6 +8,20 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+
+  /** Mensaje legible del backend: FastAPI responde `{"detail": "..."}`; si el
+   * cuerpo no es ese JSON se devuelve tal cual. */
+  get detail(): string {
+    try {
+      const body: unknown = JSON.parse(this.message);
+      if (body && typeof body === "object" && "detail" in body && typeof body.detail === "string") {
+        return body.detail;
+      }
+    } catch {
+      // cuerpo no JSON: se usa el texto original
+    }
+    return this.message;
+  }
 }
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -67,6 +81,15 @@ export interface Objective {
   created_by: string;
   status: string;
   context: Record<string, unknown> | null;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  category: string;
+  status: string;
+  created_by: string;
+  source: string;
 }
 
 export interface Project {
@@ -526,6 +549,8 @@ export const api = {
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
   runObjective: (objectiveId: string) =>
     request<RunResult>(`/api/objectives/${objectiveId}/run`, { method: "POST" }),
+  listProducts: (status?: string) =>
+    request<Product[]>(`/api/products${status ? `?status=${encodeURIComponent(status)}` : ""}`),
   listProjects: () => request<Project[]>("/api/projects"),
   getProject: (projectId: string) => request<Project>(`/api/projects/${projectId}`),
   listTasks: (projectId: string) => request<Task[]>(`/api/tasks?project_id=${projectId}`),
