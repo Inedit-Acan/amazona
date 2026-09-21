@@ -41,17 +41,18 @@ import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
 import { KpiCard } from "@/components/kpi-card";
 import { NextStepBar } from "@/components/next-step-bar";
+import { PendingFeatures } from "@/components/pending-features";
+import { ProductHeader } from "@/components/product-header";
 import { RiskList } from "@/components/risk-list";
 import { ScenarioCard } from "@/components/scenario-card";
+import { SectionNav } from "@/components/section-nav";
+import { VerdictBanner } from "@/components/verdict-banner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 const INPUT_CLASS = "w-full rounded-md border bg-background px-3 py-2 text-sm";
-const PRODUCT_STATUS_LABEL: Record<string, string> = { CANDIDATE: "Candidato" };
-const PRODUCT_SOURCE_LABEL: Record<string, string> = { research: "Investigación", manual: "Manual" };
 
 /** Secciones de la spec (§7.4) que el motor económico del backend no calcula:
  * hoy solo produce 3 escenarios con volúmenes distintos y un margen único. */
@@ -259,26 +260,15 @@ export function EconomicsWorkspace({
               </Field>
             ) : null}
 
-            <div className="flex items-center gap-4">
-              <div className="flex size-16 shrink-0 items-center justify-center rounded-xl border bg-muted text-primary">
-                <PackageSearch className="size-7" />
-              </div>
-              <div className="min-w-0 space-y-2">
-                <p className="truncate text-base font-semibold">{product.name}</p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant="outline">{product.category}</Badge>
-                  <Badge variant="outline">{PRODUCT_STATUS_LABEL[product.status] ?? product.status}</Badge>
-                  <Badge variant="outline">{PRODUCT_SOURCE_LABEL[product.source] ?? product.source}</Badge>
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    Investigación:
-                    <DataProvenanceBadge
-                      status="pending"
-                      tooltip="El backend no expone el score de investigación de un producto."
-                    />
-                  </span>
-                </div>
-              </div>
-            </div>
+            <ProductHeader product={product}>
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                Investigación:
+                <DataProvenanceBadge
+                  status="pending"
+                  tooltip="El backend no expone el score de investigación de un producto."
+                />
+              </span>
+            </ProductHeader>
 
             {loadingQuotes ? (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -446,23 +436,19 @@ export function EconomicsWorkspace({
             />
           </section>
 
-          <nav aria-label="Secciones del análisis" className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" nativeButton={false} render={<a href="#escenarios" />}>
-              Escenarios
-            </Button>
-            <Button size="sm" variant="outline" nativeButton={false} render={<a href="#desglose" />}>
-              Desglose de costes
-            </Button>
-            <Button size="sm" variant="outline" nativeButton={false} render={<a href="#viabilidad" />}>
-              Resumen y decisión
-            </Button>
-            {PENDING_ANALYSES.map((item) => (
-              <Button key={item.title} size="sm" variant="outline" disabled title="Pendiente: el backend aún no lo calcula">
-                <item.icon />
-                {item.title}
-              </Button>
-            ))}
-          </nav>
+          <SectionNav
+            label="Secciones del análisis"
+            items={[
+              { label: "Escenarios", href: "#escenarios" },
+              { label: "Desglose de costes", href: "#desglose" },
+              { label: "Resumen y decisión", href: "#viabilidad" },
+              ...PENDING_ANALYSES.map((item) => ({
+                label: item.title,
+                icon: item.icon,
+                pendingReason: "Pendiente: el backend aún no lo calcula",
+              })),
+            ]}
+          />
 
           <section className="grid gap-4 xl:grid-cols-12">
             <Card id="escenarios" className="scroll-mt-4 xl:col-span-7">
@@ -588,26 +574,7 @@ export function EconomicsWorkspace({
                 </CardAction>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div
-                  className={cn(
-                    "flex items-start gap-3 rounded-lg border p-3",
-                    viability.tone === "ok" && "border-primary/40 bg-primary/10",
-                    viability.tone === "warn" && "border-amber-500/40 bg-amber-500/10",
-                    viability.tone === "bad" && "border-red-500/40 bg-red-500/10",
-                  )}
-                >
-                  {viability.tone === "ok" ? (
-                    <Check className="mt-0.5 size-4 shrink-0 text-primary" />
-                  ) : (
-                    <AlertTriangle
-                      className={cn("mt-0.5 size-4 shrink-0", viability.tone === "warn" ? "text-amber-500" : "text-red-500")}
-                    />
-                  )}
-                  <div>
-                    <p className="text-sm font-semibold">{viability.title}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{viability.detail}</p>
-                  </div>
-                </div>
+                <VerdictBanner tone={viability.tone} title={viability.title} detail={viability.detail} />
 
                 <div>
                   <p className="mb-2 text-xs font-medium text-muted-foreground">Beneficio mensual por escenario</p>
@@ -641,35 +608,13 @@ export function EconomicsWorkspace({
               </CardContent>
             </Card>
 
-            <Card className="xl:col-span-7">
-              <CardHeader>
-                <CardTitle>Análisis avanzado</CardTitle>
-                <CardAction>
-                  <DataProvenanceBadge
-                    status="pending"
-                    tooltip="Requieren exponer el cálculo desde el motor económico del backend; el cliente no duplica esa lógica."
-                  />
-                </CardAction>
-              </CardHeader>
-              <CardContent>
-                <ul className="grid gap-3 sm:grid-cols-2">
-                  {PENDING_ANALYSES.map((item) => (
-                    <li key={item.title} className="flex gap-3 rounded-lg border border-dashed p-3">
-                      <item.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">{item.title}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{item.description}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-3 text-[11px] text-muted-foreground">
-                  El motor económico hoy solo modela coste de entrega + costes fijos mensuales y tres volúmenes de
-                  venta. Estas secciones necesitan que el backend exponga ese cálculo (p. ej. una simulación
-                  sin estado) para no duplicar la lógica económica en la interfaz.
-                </p>
-              </CardContent>
-            </Card>
+            <PendingFeatures
+              className="xl:col-span-7"
+              title="Análisis avanzado"
+              tooltip="Requieren exponer el cálculo desde el motor económico del backend; el cliente no duplica esa lógica."
+              items={PENDING_ANALYSES}
+              note="El motor económico hoy solo modela coste de entrega + costes fijos mensuales y tres volúmenes de venta. Estas secciones necesitan que el backend exponga ese cálculo (p. ej. una simulación sin estado) para no duplicar la lógica económica en la interfaz."
+            />
           </section>
         </>
       )}

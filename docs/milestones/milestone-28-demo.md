@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Panel 2 (abajo), luego Panel 3 — Legal y cumplimiento.
+Panel 2 y Panel 3 (abajo), luego Panel 4 — Tienda y canales de venta.
 
 ---
 
@@ -196,3 +196,94 @@ sido duplicar la lógica de `economics/` en el navegador.
 ### Qué sigue
 
 Panel 3 — Legal y cumplimiento.
+
+---
+
+## Panel 3 — Legal y cumplimiento (`/legal`)
+
+Referencia: `docs/design/legal y cumplimiento.png` + v0.5 §8.
+
+### Qué se ve ahora
+
+1. **Producto y contexto**: selector de producto, cabecera del producto real y
+   cuatro datos de contexto — proveedor (el de la cotización con la que se hizo el
+   análisis) y mercado objetivo reales; modelo logístico y canal previsto con badge
+   «Pendiente».
+2. **Parámetros del análisis**: mercado (EE. UU. / UE / México) y la declaración
+   «ya se cuenta con las certificaciones requeridas» → `POST /api/legal/runs`.
+3. **Se muestra el último análisis guardado**: la página ya no arranca vacía; carga
+   `GET /api/products/{id}/legal` y enseña el más reciente del mercado elegido
+   (cambiar de mercado o de producto cambia el análisis mostrado sin volver a
+   ejecutarlo).
+4. Con análisis:
+   - 6 KPIs: cumplimiento general (**pendiente**), riesgo legal (nº de riesgos),
+     certificaciones (nº exigidas y si se declararon), evidencias documentales
+     (**pendiente**), cambios regulatorios (nº y fecha del último) y **Legal Gate**
+     (Bloqueado / Requiere revisión humana / Preparado, con color de veredicto).
+   - **Matriz de requisitos legales**: una fila por certificación exigida (mercado,
+     estado, evidencia, fuente) y si la categoría está restringida.
+   - **Legal Gate y decisión**: veredicto, motivos «a resolver antes de continuar»
+     (categoría restringida, certificaciones sin acreditar) y CTA «Validar con el
+     Director ejecutivo» (el handoff a `/ceo` de siempre).
+   - **Riesgos legales** (`RiskList`), **inteligencia regulatoria** (línea de tiempo
+     de los cambios normativos), **borrador de términos y condiciones** (el que ya
+     existía).
+   - Tarjeta «Pendiente de backend» con lo que el mockup enseña y no hay de dónde
+     sacar, y `NextStepBar` con «Generar tienda» (deshabilitado si el Legal Gate está
+     bloqueado).
+
+### Componentes nuevos / tocados
+
+Este panel es el segundo en repetir patrones del primero, así que se extrajeron a
+`components/` y **Economía se refactorizó para usarlos**:
+
+- `SectionNav` (pestañas-ancla; las secciones sin datos salen deshabilitadas con
+  motivo), `PendingFeatures` (tarjeta «pendiente de backend»), `VerdictBanner`
+  (veredicto con tono; lo usan la viabilidad económica y el Legal Gate),
+  `ProductHeader` (cabecera del producto).
+- `KpiCard`: prop `tone` (success / warning / danger) para tarjetas cuyo valor es
+  un veredicto.
+- `lib/legal.ts` + tests: estados del Legal Gate, filas de requisitos, motivos,
+  cambios ordenados, último análisis por mercado.
+
+### Qué se dejó fuera (y por qué)
+
+- **Cumplimiento general (82 %)**, **criticidad** por requisito (Crítico/Alto/…),
+  filtros por criticidad y matriz **probabilidad × impacto**: el agente solo devuelve
+  una recomendación GO/REVIEW/NO_GO, sin puntuar nada.
+- **Evidencias y documentos** (declaración de conformidad, informes, manuales, hash,
+  versión): no existe almacén de documentos. Las certificaciones se muestran como
+  «Declarada por ti, sin evidencia», nunca como «Verificado».
+- **Fuentes regulatorias** (Comisión Europea, Access2Markets, ECHA, Safety Gate,
+  legislación nacional) con «última consulta»: hoy hay un único dataset simulado.
+- **Rol en la operación** y **mapa de responsabilidades** (fabricante, importador…).
+- **Clasificación de cambios** crítico/relevante/informativo y filtro «últimos 30
+  días».
+- Modelo logístico, canal previsto, imagen y descripción del producto.
+- Los textos del dataset (riesgos, cambios) están en inglés en el backend; se
+  muestran tal cual y se avisa.
+- «Preparado» solo significa que el análisis simulado no bloquea; el texto lo dice y
+  nunca se muestra «100 % legal» (spec §8.11).
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 31/31 (6 nuevos: Legal Gate, certificaciones
+  declaradas, filas, motivos, orden de cambios, análisis por mercado); `npm run build`
+  correcto; `eslint` limpio sobre los archivos del panel y los componentes
+  compartidos.
+- **En navegador con datos reales** (stack aislado, sin Supabase): el análisis de
+  «Wireless earbuds pro» en UE muestra exactamente lo que devuelve
+  `POST /api/legal/runs` (2 certificaciones CE/RoHS pendientes, 3 riesgos, 1 cambio,
+  Requiere revisión humana, proveedor mexicano de la cotización usada). Probado:
+  cambio de producto (carga el historial guardado; «Minimalist phone case» en UE →
+  Bloqueado con «Categoría restringida» + «REACH sin acreditar», y «Generar tienda»
+  deshabilitado), declarar certificaciones y reanalizar (→ Preparado, fila
+  «Declarada por ti»), cambio de mercado (estado vacío, luego «0 requeridas» sin
+  motivos), recarga (se recupera el análisis guardado) y el error del backend
+  (alerta legible, el análisis mostrado no se pierde). Economía se volvió a
+  comprobar tras el refactor. Móvil 375 px sin desbordamiento de página (la tabla
+  de requisitos desplaza dentro de su contenedor).
+
+### Qué sigue
+
+Panel 4 — Tienda y canales de venta.

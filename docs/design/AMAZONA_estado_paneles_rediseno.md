@@ -20,7 +20,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 |---|---|---|
 | 1 | Proveedores y abastecimiento | Rediseñado |
 | 2 | Economía y rentabilidad | Rediseñado |
-| 3 | Legal y cumplimiento | Pendiente |
+| 3 | Legal y cumplimiento | Rediseñado |
 | 4 | Tienda y canales de venta | Pendiente |
 | 5 | Marketing y adquisición | Pendiente |
 | 6 | Operaciones | Pendiente |
@@ -42,6 +42,11 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `ScenarioCard` | Economía | Finanzas (escenarios de caja), Marketing (escenarios de campaña) |
 | `BarChart` | Economía | Finanzas, Marketing, Operaciones (series de una sola métrica) |
 | `lib/format.ts` | Economía (extraído de Proveedores) | Todos los paneles con importes |
+| `SectionNav` | Economía, Legal | Cualquier panel con las «tabs» del mockup (Tienda, Marketing, Operaciones, Finanzas…) |
+| `PendingFeatures` | Economía, Legal | Todo panel cuyo mockup enseña datos que aún no existen |
+| `VerdictBanner` | Economía, Legal | Tienda (estado de lanzamiento), Aprobaciones, Estado |
+| `ProductHeader` | Economía, Legal | Tienda, Marketing (cabecera de producto de cada mockup del pipeline) |
+| `KpiCard` `tone` | Legal | Tarjetas KPI cuyo valor es un veredicto |
 
 ---
 
@@ -125,3 +130,43 @@ paso. Todos los números salen de `POST /api/economics/runs` o de la cotización
    exponerlos; `Product.image_url`/`description`; divisa en `SupplierQuote`.
 6. Deduplicar cotizaciones en el backend (una fila por proveedor y búsqueda) o
    exponer «última cotización por proveedor»; hoy el cliente deduplica.
+
+---
+
+## 3. Legal y cumplimiento (`/legal`)
+
+**Hecho.** Selector de producto, contexto (proveedor y mercado reales), parámetros
+del análisis, carga del último análisis guardado por producto y mercado, 6 KPIs
+(con Legal Gate en tono de veredicto), matriz de requisitos por certificación
+exigida, Legal Gate con motivos, riesgos, línea de tiempo de cambios normativos,
+borrador de T&C y barra de siguiente paso. Todo sale de `LegalAnalysis`.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Porcentaje de cumplimiento, criticidad por requisito, matriz probabilidad × impacto.
+- Evidencias y documentos del producto (versión, fecha, hash, estado, revisión).
+- Fuentes regulatorias reales y su última consulta.
+- Rol en la operación y mapa de responsabilidades.
+- Clasificación de cambios normativos por criticidad.
+- Modelo logístico y canal previsto; imagen y descripción del producto.
+
+**Backend que faltaría.**
+
+1. Ampliar `MockRegulatoryDirectory` / `LegalComplianceAgent` para devolver, por
+   requisito: `criticality`, `status` (verificado / revisar / incompleto / pendiente /
+   no aplica), `source` y `evidence_ids`; y por riesgo: `probability` e `impact`.
+2. Guardar en `LegalAnalysis` los parámetros con los que se ejecutó
+   (`certification_available`, hoy solo se deduce de la recomendación) y `created_at`
+   en `LegalAnalysisOut`.
+3. Modelo de documentos de producto (`ProductDocument`: tipo, versión, fecha,
+   proveedor, hash, estado de revisión) con subida y endpoint de listado; sin él no
+   puede haber evidencias.
+4. Determinación del rol en la operación (fabricante / importador / distribuidor /
+   vendedor / marketplace / representante) a partir del modelo logístico y de origen,
+   y con ello el mapa de responsabilidades.
+5. Fuentes regulatorias reales (Comisión Europea, Access2Markets, ECHA, Safety Gate)
+   con registro de última consulta, y clasificación de los cambios (crítico /
+   relevante / informativo) con filtro por fecha.
+6. `Product.logistics_model` y `Product.channel` (o tomarlos del proyecto) para el
+   contexto del producto.
+7. Traducir/normalizar los textos del dataset (hoy en inglés).
