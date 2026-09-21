@@ -4,6 +4,7 @@ import {
   type LegalAnalysis,
   type MarketingCampaign,
   type MarketplaceListing,
+  type OperationsRecord,
   type Storefront,
   type SupplierQuote,
 } from "@/lib/api";
@@ -51,4 +52,19 @@ export async function loadProductMarketingData(productId: string): Promise<Produ
     api.listProductCampaigns(productId),
   ]);
   return { ...channels, campaigns };
+}
+
+/** Lo de Marketing más los informes de operaciones del producto (panel de Operaciones). */
+export interface ProductOperationsData extends ProductMarketingData {
+  operations: OperationsRecord[];
+}
+
+export const EMPTY_PRODUCT_OPERATIONS_DATA: ProductOperationsData = { ...EMPTY_PRODUCT_MARKETING_DATA, operations: [] };
+
+export async function loadProductOperationsData(productId: string): Promise<ProductOperationsData> {
+  const [marketing, operations] = await Promise.all([
+    loadProductMarketingData(productId),
+    api.listProductOperations(productId),
+  ]);
+  return { ...marketing, operations };
 }

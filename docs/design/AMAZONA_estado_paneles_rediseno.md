@@ -23,7 +23,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 3 | Legal y cumplimiento | Rediseñado |
 | 4 | Tienda y canales de venta | Rediseñado |
 | 5 | Marketing y adquisición | Rediseñado |
-| 6 | Operaciones | Pendiente |
+| 6 | Operaciones | Rediseñado |
 | 7 | Finanzas y control | Pendiente |
 | 8 | Proyectos | Pendiente |
 | 9 | Agentes | Pendiente |
@@ -259,3 +259,44 @@ aplica el agente. Carga el historial guardado.
    de presupuesto, bloquear claims/mercados no autorizados) y recomendaciones de IA
    derivadas del rendimiento real.
 7. Traducir/normalizar los textos de las plantillas (hoy en inglés).
+
+---
+
+## 6. Operaciones (`/operations`)
+
+**Hecho.** Contexto del producto y mercado, generación de la simulación operativa y,
+por informe: KPIs de la simulación, seguimiento del pedido de muestra con tiempos
+derivados, proveedor y modelo sin stock (cobro/pago del pedido de muestra),
+devoluciones (política), soporte (triaje IA/humano de un ticket de ejemplo), estado y
+riesgos. Carga el historial guardado.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Todo el Control Tower: KPIs de operación, pipeline con conteos, pedidos recientes,
+  mapa logístico, Operational Health.
+- Incidencias de pedido; rendimiento de proveedores y transportistas.
+- Devoluciones y soporte reales; automatizaciones y modo operativo.
+- Capital adelantado, desfase cobro-pago y cobertura.
+
+**Backend que faltaría.**
+
+1. Modelo de pedidos reales: `Order` (canal, producto, cliente, importes, estado,
+   fechas), `OrderEvent` (etapa, timestamp, fuente) y `Shipment` (transportista,
+   tracking, estado). Sin esto no hay ninguno de los KPIs ni el pipeline.
+2. Endpoint de listado y agregados (`GET /api/operations/orders`,
+   `/api/operations/summary`) con conteos por etapa, % a tiempo, entrega media y tasa
+   de devoluciones.
+3. Incidencias de pedido (`OrderIncident`: pedido, proveedor, prioridad, SLA,
+   responsable, acción recomendada) o extender `Incident` con `order_id`/`supplier_id`/
+   `sla_due_at`.
+4. Métricas de proveedor y transportista calculadas desde los pedidos, que también
+   alimenten a Proveedores y abastecimiento (aceptación, despacho en SLA, defectos,
+   tracking válido, score operativo).
+5. Devoluciones (`ReturnRequest`: motivo, estado, importes) y tickets de soporte reales
+   con el mismo triaje IA/humano.
+6. Reglas de automatización (`AutomationRule`: disparador, acción, estado) y el modo
+   operativo, con su registro en Auditoría.
+7. Fechas de cobro y pago para calcular capital adelantado, desfase y cobertura.
+8. Relacionar explícitamente el `OperationsRecord` con la cotización usada
+   (`supplier_quote_id`) para no depender de «la más reciente».
+9. Traducir/normalizar los textos de las plantillas (hoy en inglés).

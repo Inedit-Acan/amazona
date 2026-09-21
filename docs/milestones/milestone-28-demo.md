@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Paneles 2 a 5 (abajo), luego Panel 6 — Operaciones.
+Paneles 2 a 6 (abajo), luego Panel 7 — Finanzas y control.
 
 ---
 
@@ -473,3 +473,90 @@ propuesta trae y lo demás queda como pendiente.
 ### Qué sigue
 
 Panel 6 — Operaciones.
+
+---
+
+## Panel 6 — Operaciones (`/operations`)
+
+Referencia: `docs/design/operaciones.png` + parte 2 §3. La spec define este panel
+como el **Control Tower operativo** («no debe ser un generador manual de informes»),
+pero el backend solo tiene un agente que **simula un pedido de muestra**: no existen
+pedidos, clientes, transportistas, incidencias de pedido ni ticketing reales. Es el
+panel con más distancia entre mockup y datos: se construye lo que el informe trae y
+el resto se declara pendiente, sin rellenar un Control Tower con cifras inventadas.
+
+### Qué se ve ahora
+
+1. **Producto y contexto**: selector de producto y mercado, botón «Generar
+   simulación operativa» (→ `POST /api/operations/runs`) y cinco datos de contexto:
+   precio, proveedor (con región y plazo) y Legal Gate reales, estado de la campaña
+   del mercado, y «Pedidos reales» como **pendiente**.
+2. Con informe (uno por producto y mercado; carga el historial guardado):
+   - 6 KPIs: estado de la operación (tono de veredicto), pedido de muestra (id y
+     unidades), entrega prevista (día N desde el pedido), ventana de devolución,
+     cargo de reposición y reembolso estimado.
+   - **Seguimiento del pedido de muestra**: línea de tiempo con las cinco etapas del
+     agente (pedido, proveedor procesa, despachado, en reparto, entregado) y sus días,
+     más los tiempos derivados de esas diferencias (procesamiento, hasta el despacho,
+     tránsito, total).
+   - **Proveedor y modelo sin stock**: proveedor, plazo usado y plazo real, si está
+     verificado, y el cobro al cliente / pago al proveedor / logística del pedido de
+     muestra (precio de venta y cotización reales).
+   - **Devoluciones** (política del mercado), **soporte postventa** (triaje IA vs
+     persona de un ticket de ejemplo) y **estado y riesgos**.
+   - Tarjeta «Control Tower — pendiente de backend» con las diez piezas del mockup que
+     no tienen fuente, y `NextStepBar` hacia Finanzas y control.
+3. `?product_id=&market=` (que envía Marketing con «Simular operaciones») preselecciona
+   producto y mercado.
+
+### Componentes nuevos / tocados
+
+- Todo reutilizado de los paneles 1–5: `ProductHeader`, `KpiCard` (con `tone`),
+  `PendingFeatures`, `VerdictBanner`, `StatusChip`, `RiskList`, `NextStepBar`,
+  `DataProvenanceBadge`.
+- `lib/product-channels.ts`: `loadProductOperationsData` (lo de Marketing + informes
+  de operaciones).
+- `lib/operations.ts` + tests: etiquetas de etapa y de tipo de ticket, diferencias
+  entre etapas, veredicto de operación.
+
+### Qué se dejó fuera (y por qué)
+
+- **KPIs de la operación** (pedidos activos, en tránsito, entregados hoy, % a tiempo,
+  entrega media, tasa de devoluciones, SLA de proveedor), **pipeline con conteos y
+  cuellos de botella**, **pedidos recientes con filtros**, **mapa logístico**,
+  **Operational Health**: requieren pedidos reales; no hay ninguna tabla de pedidos.
+- **Centro de incidencias de pedido** (prioridad, proveedor, SLA, responsable, acción
+  recomendada): la API de incidentes existente (Milestone 25) es de incidencias del
+  sistema, sin pedido/proveedor/SLA y con su sitio natural en Estado, así que no se
+  mezcla aquí.
+- **Rendimiento de proveedores y transportistas**: no hay pedidos ni tracking con los
+  que medirlos; tampoco hay transportistas en el modelo.
+- **Devoluciones reales** (abiertas, en revisión, recibidas, tasa y motivos) y
+  **soporte real**: solo existe la política simulada y un ticket de ejemplo.
+- **Modelo sin stock completo**: capital adelantado, desfase entre cobro y pago y
+  cobertura necesitan fechas de cobro y pago.
+- **Automatizaciones operativas y modo operativo**, «Configurar reglas», exportar
+  informe, sincronización en vivo.
+- El «Proveedor» que se muestra es el de la cotización del análisis económico, mientras
+  que el plazo y la verificación que usa el agente salen de la cotización más reciente;
+  suelen coincidir, pero no hay un vínculo explícito.
+- Los textos de riesgos y el motivo de escalado están en inglés en el backend; se
+  muestran tal cual y se avisa.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 44/44 (3 nuevos de `lib/operations.ts`);
+  `npm run build` correcto; `eslint` limpio sobre los archivos del panel.
+- **En navegador con datos reales** (stack aislado, sin Supabase): «Wireless earbuds
+  pro» en la UE. El informe en pantalla coincide con
+  `GET /api/products/{id}/operations` (pedido ORD-5696f77bdf, etapas día 0/1/12/14/15,
+  plazo 12 días, proveedor no verificado, ventana 14 días, reembolso 20,00, ticket de
+  cumplimiento escalado, mismo riesgo, «Requiere revisión» con confianza 40 %).
+  Probado: mercado sin informe (estado vacío y CTA deshabilitado), cambio de producto
+  (contexto sin economía/legal/campaña con enlaces a cada panel), generar el informe
+  de un producto sin análisis económico (riesgo «no economic analysis», reembolso
+  «—») y el error del backend (alerta legible). Móvil 375 px sin desbordamiento.
+
+### Qué sigue
+
+Panel 7 — Finanzas y control (CFO).
