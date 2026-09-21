@@ -1,137 +1,47 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2 } from "lucide-react";
-import { ApiError, api, type CFOReport } from "@/lib/api";
+import { api, type CFOReport, type EconomicAnalysis, type Product } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
-import { StatusChip } from "@/components/status-chip";
-import { RiskList } from "@/components/risk-list";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ApiErrorAlert } from "@/components/api-error";
+import { CfoWorkspace } from "./cfo-workspace";
 
-function formatPercent(value: number | null): string {
-  return value === null ? "n/a" : `${(value * 100).toFixed(0)}%`;
-}
+/** Tope de productos de los que se lee la última decisión económica: hoy no hay un
+ * endpoint agregado y cada producto cuesta una petición. */
+const PORTFOLIO_PRODUCT_LIMIT = 20;
 
-export default function CFOPage() {
-  const [report, setReport] = useState<CFOReport | null>(null);
-  const [recentReports, setRecentReports] = useState<CFOReport[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export default async function CFOPage() {
+  let reports: CFOReport[] = [];
+  let products: Product[] = [];
+  let analyses: Record<string, EconomicAnalysis[]> = {};
+  let error: string | null = null;
 
-  useEffect(() => {
-    api
-      .listCFORuns()
-      .then(setRecentReports)
-      .catch(() => undefined);
-  }, []);
-
-  async function handleGenerate() {
-    setError(null);
-    setSubmitting(true);
-    try {
-      const result = await api.createCFORun();
-      setReport(result);
-      setRecentReports(await api.listCFORuns());
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "CFO report generation failed.");
-    } finally {
-      setSubmitting(false);
-    }
+  try {
+    const [loadedReports, loadedProducts] = await Promise.all([api.listCFORuns(), api.listProducts()]);
+    reports = loadedReports;
+    products = loadedProducts;
+    const entries = await Promise.all(
+      products.slice(0, PORTFOLIO_PRODUCT_LIMIT).map(async (p) => [p.id, await api.listProductEconomics(p.id)] as const),
+    );
+    analyses = Object.fromEntries(entries);
+  } catch (err) {
+    error = err instanceof Error ? err.message : "Error desconocido";
   }
 
   return (
-    <div className="space-y-6">
+    <div>
       <PageHeader
-        title="CFO"
-        description="Consolidate EconomicAnalysis (Agente 3) + MarketingCampaign (Agente 7) + BudgetEngine reservations into one aggregate financial-health report across the whole catalog — not per product. Aggregate reporting only: this agent never emits invoices; real billing must go through a certified Verifactu-compliant third-party system."
+        title="Finanzas y control"
+        description="Consolida las decisiones económicas, las campañas y las reservas del BudgetEngine en un informe de salud financiera de todo el catálogo — no por producto. Es un informe agregado: este agente nunca emite facturas (la facturación real debe pasar por un sistema certificado Verifactu de terceros) y todavía no hay contabilidad, tesorería ni caja reales."
       />
 
-      <Card className="max-w-2xl">
-        <CardHeader>
-          <CardTitle>New financial health report</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {error ? (
-            <Alert variant="destructive">
-              <AlertTriangle className="size-4" />
-              <AlertTitle>CFO report generation failed</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
-
-          <Button onClick={handleGenerate} disabled={submitting}>
-            {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-            {submitting ? "Generating…" : "Generate financial health report"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {report ? (
-        <Card className="max-w-3xl">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Financial health</CardTitle>
-            <StatusChip status={report.financial_health_status} />
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm">
-              Recommendation <strong>{report.recommendation}</strong> · confidence{" "}
-              {(report.confidence * 100).toFixed(0)}%
-            </p>
-
-            {report.data ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Products analyzed</p>
-                  <p className="mt-1 text-sm">
-                    {report.data.total_products_analyzed} total — {report.data.go_count} GO,{" "}
-                    {report.data.review_count} REVIEW, {report.data.no_go_count} NO_GO (
-                    {formatPercent(report.data.no_go_ratio)} NO_GO)
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Campaigns</p>
-                  <p className="mt-1 text-sm">
-                    {report.data.active_campaigns}/{report.data.total_campaigns} active · $
-                    {report.data.total_daily_budget.toFixed(2)} total daily budget
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">Budget utilization</p>
-                  <p className="mt-1 text-sm">
-                    {formatPercent(report.data.budget_utilization)} of ${" "}
-                    {report.data.total_budget_hard_limit.toFixed(2)} hard limit (reserved $
-                    {report.data.total_reserved.toFixed(2)}, committed $
-                    {report.data.total_committed.toFixed(2)}, spent $
-                    {report.data.total_spent.toFixed(2)})
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            <RiskList risks={report.data?.risks ?? []} />
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {recentReports.length > 0 ? (
-        <Card className="max-w-3xl">
-          <CardHeader>
-            <CardTitle>Recent reports</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-1 text-sm">
-              {recentReports.map((r) => (
-                <li key={r.correlation_id} className="flex items-center justify-between">
-                  <span className="font-mono text-xs text-muted-foreground">{r.correlation_id}</span>
-                  <StatusChip status={r.financial_health_status} />
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      ) : null}
+      {error ? (
+        <ApiErrorAlert message={error} />
+      ) : (
+        <CfoWorkspace
+          initialReports={reports}
+          products={products.slice(0, PORTFOLIO_PRODUCT_LIMIT)}
+          totalProducts={products.length}
+          analysesByProduct={analyses}
+        />
+      )}
     </div>
   );
 }

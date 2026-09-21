@@ -24,7 +24,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 4 | Tienda y canales de venta | Rediseñado |
 | 5 | Marketing y adquisición | Rediseñado |
 | 6 | Operaciones | Rediseñado |
-| 7 | Finanzas y control | Pendiente |
+| 7 | Finanzas y control | Rediseñado |
 | 8 | Proyectos | Pendiente |
 | 9 | Agentes | Pendiente |
 | 10 | Aprobaciones | Pendiente |
@@ -47,6 +47,8 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `VerdictBanner` | Economía, Legal | Tienda (estado de lanzamiento), Aprobaciones, Estado |
 | `ProductHeader` | Economía, Legal | Tienda, Marketing (cabecera de producto de cada mockup del pipeline) |
 | `KpiCard` `tone` | Legal | Tarjetas KPI cuyo valor es un veredicto |
+| `StackedBar` | Finanzas | Proyectos (lifecycle/health), Agentes (uso), Auditoría (eventos por tipo) |
+| `RankedBars` | Finanzas | Agentes (rendimiento), Proyectos, Auditoría |
 | `lib/markets.ts` | Legal, Tienda | Marketing, Operaciones (etiquetas de mercado y «último por mercado») |
 | `lib/product-channels.ts` | Tienda | Marketing, Operaciones (todo lo persistido de un producto) |
 
@@ -300,3 +302,44 @@ riesgos. Carga el historial guardado.
 8. Relacionar explícitamente el `OperationsRecord` con la cotización usada
    (`supplier_quote_id`) para no depender de «la más reciente».
 9. Traducir/normalizar los textos de las plantillas (hoy en inglés).
+
+---
+
+## 7. Finanzas y control (`/cfo`)
+
+**Hecho.** Generación y carga de informes CFO, 6 KPIs (salud, productos analizados,
+% NO_GO, uso de presupuesto, campañas, presupuesto diario), presupuesto global con
+reparto real de reservas, salud financiera con reglas del agente, cartera y
+rentabilidad por producto (estimada), historial de informes.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Caja, ingresos, beneficio neto, margen neto, gasto, runway; cash flow y forecast.
+- P&L consolidado; Budget vs Real vs Forecast por áreas; variance analysis.
+- Tesorería, cuentas a pagar y a cobrar, Working Capital.
+- Fiscalidad, contabilidad, capital y financiación.
+- CFO Copilot y Financial Health de siete componentes; alertas basadas en datos reales.
+- Reparto del presupuesto por áreas; rentabilidad por canal/país/proveedor/campaña/proyecto.
+
+**Backend que faltaría.**
+
+1. Libro de movimientos (`LedgerEntry`: fecha, cuenta, categoría, importe, moneda,
+   origen, conciliado) alimentado por pedidos reales, gastos publicitarios y pagos a
+   proveedores; de él salen caja, ingresos, gasto, P&L y runway.
+2. Integraciones de solo lectura con pasarelas y bancos (Stripe, PayPal, Amazon,
+   cuenta operativa) para tesorería y cuentas a cobrar; `Payable` para cuentas a pagar.
+3. Presupuesto por área (`Budget.area`, presupuesto vs real) y periodo, con endpoint de
+   Budget vs Real vs Forecast y variance analysis con causas.
+4. Motor de forecast (escenarios y horizontes de 3/6/12 meses) sobre el libro, sin
+   duplicar el motor económico de producto.
+5. Working Capital: cobro cliente vs pago a proveedor por pedido (ver Operaciones) y
+   objetivo de cobertura 75–90 %.
+6. Fiscalidad y contabilidad: IVA/impuestos estimados, obligaciones, conciliación,
+   distinguiendo borrador de declaración presentada (la facturación real sigue en un
+   sistema Verifactu de terceros).
+7. Endpoint agregado de la última decisión económica por producto
+   (`GET /api/economics/analyses/latest`) para no hacer una petición por producto, y
+   `created_at` en `CFOReportOut` para poder ordenar y fechar el historial.
+8. CFO Copilot con fuente, periodo y cálculo en cada respuesta, y un Financial Health
+   score explicable por componentes.
+9. Traducir/normalizar los textos de riesgos y evidencias (hoy en inglés).

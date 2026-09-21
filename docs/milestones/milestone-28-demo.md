@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Paneles 2 a 6 (abajo), luego Panel 7 — Finanzas y control.
+Paneles 2 a 7 (abajo), luego Panel 8 — Proyectos.
 
 ---
 
@@ -560,3 +560,79 @@ el resto se declara pendiente, sin rellenar un Control Tower con cifras inventad
 ### Qué sigue
 
 Panel 7 — Finanzas y control (CFO).
+
+---
+
+## Panel 7 — Finanzas y control (`/cfo`)
+
+Referencia: `docs/design/CFO.png` + parte 2 §4. El mockup es el de una empresa con
+contabilidad, tesorería, cobros y forecast; el backend solo tiene un agente CFO que
+**agrega** las últimas decisiones económicas, las campañas y las reservas del
+`BudgetEngine` en un informe de salud financiera de todo el catálogo. Es, con
+Operaciones, el panel donde más cosas quedan pendientes; nada de caja, P&L, tesorería
+o forecast se dibuja.
+
+### Qué se ve ahora
+
+1. **Informe de salud financiera**: botón para generar uno nuevo (`POST /api/cfo/runs`).
+   La página ya no arranca vacía: carga los informes guardados y muestra el más reciente.
+2. 6 KPIs: salud financiera (tono de veredicto), productos analizados (con GO / REVISIÓN /
+   NO_GO), % de decisiones NO_GO, uso del presupuesto (real si hay reservas; «pendiente»
+   si no), campañas listas y presupuesto diario propuesto.
+3. **Presupuesto global**: límite máximo total y reparto en gastado / comprometido /
+   reservado / disponible (barra apilada con leyenda), a partir de las reservas reales
+   del `BudgetEngine`. Sin presupuestos registrados, lo dice y explica por qué.
+4. **Salud financiera**: veredicto, riesgos y evidencias del informe y las cuatro
+   reglas fijas que aplica el agente.
+5. **Cartera de productos**: barra GO / Revisión / NO_GO y **rentabilidad por producto**
+   (beneficio mensual estimado del escenario base de la última decisión de cada producto,
+   ranking con soporte de negativos).
+6. **Historial de informes** (estado, productos, % NO_GO y uso de presupuesto de cada uno)
+   y tarjeta «Finanzas de empresa — pendiente de backend».
+
+### Componentes nuevos / tocados
+
+- `StackedBar` (barra apilada de una sola serie con leyenda, para partes de un total) y
+  `RankedBars` (ranking horizontal de una métrica con negativos): nada similar existía;
+  reutilizables en Proyectos, Agentes y Auditoría.
+- Reutilizados: `KpiCard` (con `tone`), `VerdictBanner`, `SectionNav`, `PendingFeatures`,
+  `DataTable`, `RiskList`, `StatusChip`, `EmptyState`.
+- `lib/finance.ts` + tests: desglose del presupuesto, filas de cartera, veredicto y reglas.
+- `/cfo` deja de ser una página de cliente pura: pasa a cargar los datos en servidor.
+
+### Qué se dejó fuera (y por qué)
+
+- **Caja disponible, ingresos, beneficio neto, margen neto, gasto del mes y runway**,
+  **cash flow**, **forecast** (Base/Conservador/Expansión), **P&L consolidado**,
+  **Budget vs Real vs Forecast por áreas**, **variance analysis**, **tesorería**,
+  **cuentas a pagar y a cobrar**, **Working Capital**, **fiscalidad**, **contabilidad**,
+  **capital y financiación**, **alertas financieras** de datos reales, **CFO Copilot** y el
+  **Financial Health** de siete componentes: no existen movimientos de caja, ingresos
+  reales, bancos, pasarelas de cobro, facturas ni impuestos.
+- **Distribución del presupuesto por áreas**: el `BudgetEngine` guarda un total, no áreas.
+- **Rentabilidad por canal, país, proveedor, campaña o proyecto**: no hay ventas reales
+  que agrupar. Solo por producto, con datos estimados del análisis económico (y sin
+  recalcular unit economics, que es de Economía).
+- **Periodo, entidad, escenario y exportar informe** de la cabecera del mockup.
+- Los riesgos y evidencias del agente están en inglés en el backend; se muestran tal cual.
+- La rentabilidad por producto lee la última decisión de cada producto con una petición
+  por producto y se limita a los 20 primeros; no hay un endpoint agregado.
+- Para probar la barra de presupuesto se sembraron un presupuesto y una reserva **solo en
+  la base de datos SQLite aislada**; ningún dato se escribió en Supabase.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 47/47 (3 nuevos de `lib/finance.ts`); `npm run build`
+  correcto; `eslint` limpio sobre los archivos del panel.
+- **En navegador con datos reales** (stack aislado, sin Supabase): informe generado desde
+  la UI; las cifras coinciden con `GET /api/cfo/runs` (1 producto GO, 0 % NO_GO, campañas
+  0/1, sin presupuesto → KPI «pendiente» y el riesgo del agente) y la rentabilidad por
+  producto con el beneficio base del análisis económico (3.835,13). Con un presupuesto
+  sembrado en la base aislada (límite 1.000, reservado 150, comprometido 250, gastado 300)
+  el uso pasa a «70 %» (igual que `budget_utilization` del informe), la barra reparte
+  300 / 250 / 150 / 300 disponible y el historial muestra los dos informes. Móvil 375 px
+  sin desbordamiento.
+
+### Qué sigue
+
+Panel 8 — Proyectos.
