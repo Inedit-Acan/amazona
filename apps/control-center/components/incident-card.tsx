@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { ApiError, api, type Incident } from "@/lib/api";
+import { parseUtc } from "@/lib/dates";
 import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,13 @@ const SEVERITY_STYLES: Record<Incident["severity"], string> = {
 
 const OPERATOR_ACTOR = "owner@amazona.local";
 
+const SEVERITY_LABEL: Record<Incident["severity"], string> = {
+  LOW: "BAJA",
+  MEDIUM: "MEDIA",
+  HIGH: "ALTA",
+  CRITICAL: "CRÍTICA",
+};
+
 export function IncidentCard({ incident: initialIncident }: { incident: Incident }) {
   const router = useRouter();
   const [incident, setIncident] = useState(initialIncident);
@@ -35,9 +43,9 @@ export function IncidentCard({ incident: initialIncident }: { incident: Incident
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setError("This incident was already resolved.");
+        setError("Este incidente ya fue resuelto.");
       } else {
-        setError(err instanceof Error ? err.message : "Failed to resolve incident.");
+        setError(err instanceof Error ? err.message : "No se pudo resolver el incidente.");
       }
     } finally {
       setResolving(false);
@@ -47,14 +55,14 @@ export function IncidentCard({ incident: initialIncident }: { incident: Incident
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{incident.title}</p>
-            <p className="text-xs text-muted-foreground">{new Date(incident.created_at).toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground">{new Date(parseUtc(incident.created_at)).toLocaleString("es-ES")}</p>
           </div>
           <div className="flex items-center gap-1.5">
             <Badge variant="outline" className={cn("font-medium", SEVERITY_STYLES[incident.severity])}>
-              {incident.severity}
+              {SEVERITY_LABEL[incident.severity]}
             </Badge>
             <StatusChip status={incident.status} />
           </div>
@@ -64,7 +72,7 @@ export function IncidentCard({ incident: initialIncident }: { incident: Incident
         {incident.description ? <p className="text-sm text-muted-foreground">{incident.description}</p> : null}
 
         {incident.status === "RESOLVED" && incident.resolved_at ? (
-          <p className="text-xs text-muted-foreground">Resuelto: {new Date(incident.resolved_at).toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">Resuelto: {new Date(parseUtc(incident.resolved_at)).toLocaleString("es-ES")}</p>
         ) : null}
 
         {error ? (

@@ -29,7 +29,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 9 | Agentes | Rediseñado |
 | 10 | Aprobaciones | Rediseñado |
 | 11 | Auditoría | Rediseñado |
-| 12 | Estado | Pendiente |
+| 12 | Estado | Rediseñado |
 
 ## Componentes compartidos añadidos por este trabajo
 
@@ -51,6 +51,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `RankedBars` | Finanzas | Agentes (rendimiento), Proyectos, Auditoría |
 | `lib/markets.ts` | Legal, Tienda | Marketing, Operaciones (etiquetas de mercado y «último por mercado») |
 | `lib/product-channels.ts` | Tienda | Marketing, Operaciones (todo lo persistido de un producto) |
+| `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
 
@@ -501,3 +502,41 @@ integridad y retención como pendientes) y el filtro por ID de correlación.
    exportaciones JSON/PDF.
 8. `GET /api/audit/summary` (eventos del día, aprobaciones, errores…) para no contarlos en el
    cliente.
+
+## 12. Estado e infraestructura (`/status`)
+
+**Hecho.** Banner de estado general con prioridad visual, seis KPIs (estado general,
+servicios con señal, latencia de la API medida en la carga, incidentes activos, migración,
+ejecuciones de agentes), tabla de los servicios con señal real con icono y texto, mapa de
+servicios, incidentes (reportar y resolver), tarjeta de base de datos, últimas diez
+ejecuciones de agentes y el estado «backend caído» sin cifras inventadas.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Uptime, p50/p95/p99, requests/min, 2xx/4xx/5xx, error budget.
+- Los otros 14 servicios del mockup; disponibilidad real de Supabase (solo se sabe si está
+  configurado).
+- Colas, dead-letter, workers, cron; integraciones y rate limits.
+- Métricas de base de datos; deployments; migraciones anteriores/pendientes/fallidas.
+- Coste técnico; Logs Explorer; página de estado pública.
+- Causa, impacto y duración de incidentes; apertura automática.
+
+**Backend que faltaría.**
+
+1. Endpoint de métricas (`GET /api/infra/metrics?window=`): uptime, latencias p50/p95/p99,
+   requests/min, 2xx/4xx/5xx y error budget, con serie temporal.
+2. `GET /api/infra/services`: estado, latencia y último chequeo por servicio (Auth, Storage,
+   Realtime, Edge Functions, Workers, Queue, Cron, Email, Monitoring, Logs, Backup, CDN,
+   DNS, certificados), comprobando de verdad Supabase y no solo su configuración.
+3. Colas: tareas pendientes, en curso, dead-letter y la más antigua; workers activos.
+4. Cron: tareas programadas con última ejecución, resultado y próxima.
+5. Integraciones y rate limits: estado, latencia, errores y consumo del límite de Stripe,
+   Google/Meta Ads, Amazon SP-API, OpenAI…
+6. Deployments: versión, commit, fecha, autor y estado del despliegue actual y anteriores.
+7. Migraciones: aplicadas (con fecha), pendientes y fallidas, no solo la versión actual.
+8. Métricas de base de datos: CPU, memoria, conexiones, cache hit, queries lentas, locks,
+   storage e IOPS.
+9. Coste técnico por concepto (inferencia de IA, base de datos, storage, functions, APIs).
+10. Logs técnicos consultables por servicio, nivel, request y correlación.
+11. Incidentes con causa, impacto, servicios afectados, duración y responsable; apertura
+    automática cuando un chequeo falla y cierre enlazado a la recuperación.

@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Paneles 2 a 11 (abajo), luego Panel 12 — Estado.
+Paneles 2 a 12 (abajo).
 
 ---
 
@@ -962,3 +962,82 @@ pendiente. Se conserva el filtro `?correlation_id=` (enlazado desde Proyectos y 
 ### Qué sigue
 
 Panel 12 — Estado.
+
+## Panel 12 — Estado e infraestructura (`/status`)
+
+Referencia: `docs/design/estado de AMAZONA.png` + parte 2 §9. El mockup es un «System
+Operations Center» con 18 servicios, uptime, percentiles, colas, cron, integraciones,
+despliegues y costes técnicos. El backend solo expone `GET /health/detailed` (base de datos,
+versión de migración y si Supabase está configurado), los incidentes registrados a mano y el
+log de ejecuciones de agentes. El panel muestra esa señal real, medida en cada carga de la
+página, y deja todo lo demás como pendiente: no aparece ningún uptime, percentil ni
+«18/18 servicios operativos».
+
+### Qué se ve ahora
+
+1. **Banner de estado general** (`VerdictBanner`) con prioridad visual superior: backend
+   caído > base de datos con error > incidentes abiertos > operativo.
+2. **Seis KPIs**: estado general, servicios con señal (operativos / medibles), latencia de la
+   API (una sola medida de la comprobación de salud desde el servidor del frontend, no un
+   p95), incidentes activos (con los resueltos), migración (pendiente si no hay versión) y
+   ejecuciones de agentes (con las fallidas, de las últimas 100).
+3. **Servicios**: tabla de los cuatro con señal real (frontend, API, base de datos,
+   Supabase) con estado con icono y texto (no solo color, §9.4), latencia donde la hay y el
+   motivo de cada estado.
+4. **Mapa de servicios** (`ServiceMap`): verde con señal, rojo si falla, gris sin telemetría
+   (cola, procesos, integraciones, usuarios).
+5. **Incidentes**: formulario para reportar (`IncidentReportForm`) y tarjetas abiertas /
+   resueltas (`IncidentCard`) con el botón para resolverlas.
+6. **Base de datos**: estado, migración y Supabase; métricas del motor como pendientes.
+7. **Ejecuciones recientes de agentes**: las diez últimas (cuándo, agente, capacidad,
+   duración, estado).
+8. **System Operations Center — pendiente de backend** (`PendingFeatures`) con todo lo que
+   enseña el mockup y no existe.
+9. **Backend caído**: si la API no responde, el banner lo dice, la base de datos y Supabase
+   pasan a «sin telemetría» y los incidentes y ejecuciones muestran «—» / «no se pudieron
+   cargar» (nunca un «0» verificado).
+
+### Componentes nuevos / tocados
+
+- Reutilizados: `VerdictBanner`, `KpiCard` (con `tone`), `ServiceMap`, `IncidentCard`,
+  `IncidentReportForm`, `StatusChip`, `DataProvenanceBadge`, `PendingFeatures`,
+  `lib/format.ts` y `parseUtc`.
+- `lib/status.ts` + tests: filas de servicios a partir de la señal real, resumen
+  (operativos / caídos / con señal) y estado general con su prioridad.
+- `ServiceStateBadge` (local de la página): estado con icono y texto.
+- `IncidentCard`: las fechas se interpretan como UTC (`parseUtc`, salían con 2 h de
+  desfase) y la cabecera se ajusta en móvil (antes se salía de la tarjeta a 375 px).
+
+### Qué se dejó fuera (y por qué)
+
+- **Uptime, latencias p50/p95/p99, requests/min, 2xx/4xx/5xx y error budget**: no hay
+  métricas ni series temporales; la latencia que se ve es una medida puntual.
+- **Los otros 14 servicios** (Auth, Storage, Realtime, Edge Functions, Workers, Queue, Cron,
+  Email, Monitoring, Logs, Backup, CDN, DNS, certificados): sin telemetría. Supabase solo
+  consta como *configurado*; no se comprueba que responda.
+- **Colas, dead-letter, workers y cron**; **integraciones y rate limits** (Stripe, Ads,
+  SP-API, OpenAI…).
+- **Métricas de base de datos** (CPU, memoria, conexiones, cache hit, queries lentas, locks,
+  storage, IOPS).
+- **Deployments** (versión, commit, fecha) y **migraciones** anteriores / pendientes /
+  fallidas: solo existe la versión actual (y en la base aislada es `null`).
+- **Coste técnico**, **Logs Explorer** y **página de estado pública**.
+- **Incidentes con causa, impacto y duración** y **apertura automática**: se registran a mano.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 79/79 (4 nuevos de `lib/status.ts`); `npm run build`
+  correcto; `eslint` limpio sobre `app/status`, `lib` e `incident-card.tsx`.
+- **En navegador con datos reales** (stack aislado, sin Supabase): KPIs y tabla coinciden con
+  `/health/detailed` (base de datos ok, migración `null`), `/api/incidents` y
+  `/api/agent-executions` (20 ejecuciones, 0 fallidas; horas en local correctas). Creado un
+  incidente desde el formulario: aparecen el banner ámbar «1 incidente activo» y el KPI; se
+  resolvió desde la tarjeta y todo vuelve a «Operativo» con «1 resuelto». **Backend caído**
+  probado parando el backend aislado: banner rojo, API caída, base de datos y Supabase sin
+  telemetría, incidentes y ejecuciones «—» como pendientes; al rearrancarlo, todo vuelve.
+  Móvil 375 px sin desbordamiento (las tablas desplazan dentro de su contenedor).
+
+### Qué sigue
+
+Los doce paneles están rediseñados. Lo siguiente es el backend que falta por panel
+(`docs/design/AMAZONA_estado_paneles_rediseno.md`).
