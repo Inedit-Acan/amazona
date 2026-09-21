@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Paneles 2 a 9 (abajo), luego Panel 10 — Aprobaciones.
+Paneles 2 a 10 (abajo), luego Panel 11 — Auditoría.
 
 ---
 
@@ -799,3 +799,84 @@ capacidades, estado, versión y un coste nominal) y el log de ejecuciones del CE
 ### Qué sigue
 
 Panel 10 — Aprobaciones.
+
+---
+
+## Panel 10 — Aprobaciones y decisiones (`/approvals`)
+
+Referencia: `docs/design/aprobaciones y decisiones.png` + parte 2 §7. La spec quiere un
+**Human Decision Center** con criticidad, cadena de aprobación, guardrails, reglas de
+autoaprobación y workflow. Hoy una aprobación autoriza **una acción con un importe**, la
+resuelve un único aprobador y no guarda criticidad, solicitante, motivo ni fecha de
+solicitud. Este panel es de los que tienen acciones reales (aprobar y rechazar cambian el
+presupuesto y la auditoría), así que se conservó toda la lógica existente y se probó que
+sigue funcionando. Sigue incluyendo el interruptor de emergencia del pipeline en la cabecera
+(decisión del Milestone 17).
+
+### Qué se ve ahora
+
+1. **KPIs**: pendientes, **críticas** (pendiente: sin criticidad), vencen en 24 h, aprobadas
+   hoy y **tiempo medio** (pendiente: no se guarda cuándo se solicitó).
+2. **Bandeja** (lista a la izquierda, detalle a la derecha, como el mockup): aprobaciones de
+   gasto y revisiones de pipeline en una sola lista, con filtros Pendientes / Decididas /
+   Todas, búsqueda, filtro por tipo y «Reglas» deshabilitado. Cada fila muestra el tipo, el
+   proyecto, el importe y cuándo vence (o su estado, si ya se decidió). Las pendientes salen
+   primero, las que vencen antes arriba.
+3. **Detalle de una aprobación**: la tarjeta existente (importe, confianza, recomendación del
+   CEO, estado financiero y legal, riesgo, evidencias y **Aprobar / Rechazar**) más el
+   **estado de las validaciones** (`ProjectHealth`) y el **impacto de la decisión**: qué pasa
+   si apruebas y si rechazas, según lo que hace el backend (aprobar compromete el importe del
+   presupuesto, rechazar libera la reserva; ambas quedan en la auditoría).
+4. **Detalle de una revisión de pipeline**: la tarjeta existente con sus motivos y las
+   acciones de aprobar/rechazar.
+5. Tarjeta «Human Decision Center — pendiente de backend».
+
+### Componentes nuevos / tocados
+
+- Reutilizados: `ApprovalCard`, `PipelineReviewCard`, `KillSwitchControl`, `ProjectHealth`,
+  `KpiCard`, `StatusChip`, `PendingFeatures`, `EmptyState`, `DataProvenanceBadge`.
+- `ApprovalCard`: vencimiento en texto relativo y en UTC («Vence en 3 h»), acción y importe
+  con el formato del resto de paneles, y el encabezado ya no desborda en móvil (también en
+  `PipelineReviewCard`).
+- `lib/dates.ts` (nuevo): `parseUtc`, `relativeTime` e `isSameLocalDay`. **Corrige un fallo
+  real**: el backend devuelve las fechas sin zona («…T21:49:34») y `new Date()` las tomaba
+  como hora local, así que `isExpired` se equivocaba por el desfase horario del navegador. `lib/agents.ts` y
+  `AgentCard` ahora usan el mismo `parseUtc`.
+- `lib/approvals.ts` + tests: bandeja unificada, orden, estadísticas, etiqueta de vencimiento
+  e impacto de la decisión.
+
+### Qué se dejó fuera (y por qué)
+
+- **Criticidad (Crítica/Alta/Media/Baja)**, tipos de solicitud más allá del texto de la
+  acción, **solicitante**, **fecha de solicitud** (y por tanto la antigüedad y el tiempo
+  medio de resolución) y **presupuesto visible** (asignado, gastado, comprometido,
+  disponible) en la solicitud: el modelo no los guarda o no los expone.
+- **Solicitar cambios**, **motivo de rechazo obligatorio** y el feedback a agentes: el
+  rechazo solo envía el aprobador.
+- **Cadena de aprobación, separación de funciones, guardrails condicionados, reglas de
+  autoaprobación, Workflow Builder y simulador de políticas**: no existe un modelo de política.
+- **Documentos y comentarios** de la solicitud, y la pestaña «Reglas».
+- **Aprobador fijo**: la interfaz aprueba siempre como `owner@amazona.local` (ya era así); no
+  hay sesión de aprobador real.
+- **Las revisiones de pipeline resueltas desaparecen de la bandeja**: `GET /api/pipeline/reviews`
+  solo lista las pendientes, así que «Decididas» solo conserva las aprobaciones de gasto.
+- **«Vencen pronto» = 24 h**: la spec no fija el umbral.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 68/68 (7 nuevos de la bandeja y `lib/dates.ts`, más los
+  de la lógica de aprobación de antes, que siguen pasando); `npm run build` correcto; `eslint`
+  limpio sobre los archivos del panel.
+- **En navegador con datos reales** (stack aislado, sin Supabase; se lanzaron objetivos del CEO
+  de 150, 1.500 y 39,90 y una ejecución del pipeline que dejó una revisión pendiente). Los
+  KPI, la lista y los importes coinciden con `GET /api/approvals`. Probado de extremo a
+  extremo **con acciones reales en la base aislada**: aprobar la de 39,90 (pasa a «Decididas»
+  como Aprobado, «Aprobadas hoy» = 1) y rechazar la de 1.500 (Rechazado, `resolved_by`
+  `owner@amazona.local` en la API); en una decidida los botones salen deshabilitados; aprobar la
+  revisión de pipeline (la API deja de listarla, como esperado); el interruptor de emergencia
+  sigue en la cabecera. Móvil 375 px: se corrigió el encabezado de las tarjetas (chip fuera de
+  la tarjeta) y ya no desborda.
+
+### Qué sigue
+
+Panel 11 — Auditoría.

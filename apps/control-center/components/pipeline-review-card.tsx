@@ -31,9 +31,9 @@ export function PipelineReviewCard({ review: initialReview }: { review: Pipeline
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setError("This pipeline review can no longer be actioned — it was already resolved.");
+        setError("Esta revisión de pipeline ya no se puede accionar — ya fue resuelta.");
       } else {
-        setError(err instanceof Error ? err.message : "Failed to update pipeline review.");
+        setError(err instanceof Error ? err.message : "No se pudo actualizar la revisión de pipeline.");
       }
     } finally {
       setPending(null);
@@ -43,11 +43,11 @@ export function PipelineReviewCard({ review: initialReview }: { review: Pipeline
   return (
     <Card className="overflow-hidden">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold">Pipeline review</p>
+            <p className="truncate text-base font-semibold">Revisión de pipeline</p>
             <p className="truncate text-sm text-muted-foreground">
-              Run {review.pipeline_run_id.slice(0, 8)}
+              Ejecución {review.pipeline_run_id.slice(0, 8)}
             </p>
           </div>
           <StatusChip status={review.status} />
@@ -56,7 +56,7 @@ export function PipelineReviewCard({ review: initialReview }: { review: Pipeline
 
       <CardContent className="space-y-4">
         <div>
-          <p className="text-xs text-muted-foreground">Reasons flagged for review</p>
+          <p className="text-xs text-muted-foreground">Motivos señalados para revisión</p>
           <ul className="mt-1 list-inside list-disc text-sm">
             {review.reasons.map((reason) => (
               <li key={reason}>{reason}</li>
@@ -74,7 +74,7 @@ export function PipelineReviewCard({ review: initialReview }: { review: Pipeline
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button className="flex-1" disabled={!actionable || pending !== null} onClick={() => act("approve")}>
             {pending === "approve" ? <Loader2 className="size-4 animate-spin" /> : null}
-            Approve
+            Aprobar
           </Button>
           <Button
             className="flex-1"
@@ -83,7 +83,7 @@ export function PipelineReviewCard({ review: initialReview }: { review: Pipeline
             onClick={() => act("reject")}
           >
             {pending === "reject" ? <Loader2 className="size-4 animate-spin" /> : null}
-            Reject
+            Rechazar
           </Button>
         </div>
       </CardContent>

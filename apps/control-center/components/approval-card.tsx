@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AlertTriangle, ChevronDown, Loader2 } from "lucide-react";
 import { ApiError, api, type Approval, type Decision, type Project } from "@/lib/api";
-import { isActionable, isExpired } from "@/lib/approvals";
+import { actionLabel, expiryLabel, isActionable, isExpired } from "@/lib/approvals";
+import { formatAmount } from "@/lib/format";
 import { StatusChip } from "@/components/status-chip";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,15 +17,6 @@ const APPROVER_ACTOR = "owner@amazona.local";
 
 function findEvidence(decision: Decision, source: string) {
   return decision.evidence.find((e) => e.source === source);
-}
-
-function formatExpiry(expiresAt: string | null): string {
-  if (!expiresAt) return "No expiry";
-  const date = new Date(expiresAt);
-  const diffMs = date.getTime() - Date.now();
-  if (diffMs <= 0) return `Expired ${date.toLocaleString()}`;
-  const hours = Math.round(diffMs / 3_600_000);
-  return hours >= 1 ? `Expires in ~${hours}h (${date.toLocaleString()})` : `Expires soon (${date.toLocaleString()})`;
 }
 
 export function ApprovalCard({
@@ -72,9 +64,9 @@ export function ApprovalCard({
       router.refresh();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setError("This approval can no longer be actioned — it was already resolved or has expired.");
+        setError("Esta aprobación ya no se puede accionar — ya fue resuelta o expiró.");
       } else {
-        setError(err instanceof Error ? err.message : "Failed to update approval.");
+        setError(err instanceof Error ? err.message : "No se pudo actualizar la aprobación.");
       }
     } finally {
       setPending(null);
@@ -84,9 +76,9 @@ export function ApprovalCard({
   return (
     <Card className="overflow-hidden">
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold">{approval.action.replace(/_/g, " ")}</p>
+            <p className="truncate text-base font-semibold">{actionLabel(approval.action)}</p>
             {project ? (
               <Link
                 href={`/projects/${project.id}`}
@@ -95,7 +87,7 @@ export function ApprovalCard({
                 {project.name}
               </Link>
             ) : (
-              <p className="text-sm text-muted-foreground">Unknown project</p>
+              <p className="text-sm text-muted-foreground">Proyecto desconocido</p>
             )}
           </div>
           <StatusChip status={expired ? "EXPIRED" : approval.status} />
@@ -105,32 +97,32 @@ export function ApprovalCard({
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
           <div>
-            <p className="text-xs text-muted-foreground">Amount (simulated)</p>
-            <p className="font-medium">{approval.amount != null ? `$${approval.amount.toFixed(2)}` : "—"}</p>
+            <p className="text-xs text-muted-foreground">Importe (simulado)</p>
+            <p className="font-medium">{approval.amount != null ? formatAmount(approval.amount) : "—"}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Confidence</p>
+            <p className="text-xs text-muted-foreground">Confianza</p>
             <p className="font-medium">{decision?.confidence != null ? decision.confidence.toFixed(2) : "—"}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">CEO recommendation</p>
+            <p className="text-xs text-muted-foreground">Recomendación del director ejecutivo</p>
             <p className="font-medium">{decision ? decision.status.replace(/_/g, " ") : "—"}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Finance status</p>
-            <p className="font-medium">{financeVeto ? "Veto (negative margin)" : "Clear"}</p>
+            <p className="text-xs text-muted-foreground">Estado financiero</p>
+            <p className="font-medium">{financeVeto ? "Veto (margen negativo)" : "Sin objeciones"}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Legal status</p>
+            <p className="text-xs text-muted-foreground">Estado legal</p>
             <p className="font-medium">{legalStatus.replace(/_/g, " ")}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Risk</p>
-            <p className="font-medium">{risks.length > 0 ? `${risks.length} flagged` : "None flagged"}</p>
+            <p className="text-xs text-muted-foreground">Riesgo</p>
+            <p className="font-medium">{risks.length > 0 ? `${risks.length} señalados` : "Ninguno señalado"}</p>
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground">{formatExpiry(approval.expires_at)}</p>
+        <p className="text-xs text-muted-foreground">{expiryLabel(approval.expires_at)}</p>
 
         {error ? (
           <Alert variant="destructive">
@@ -146,7 +138,7 @@ export function ApprovalCard({
             onClick={() => act("approve")}
           >
             {pending === "approve" ? <Loader2 className="size-4 animate-spin" /> : null}
-            Approve
+            Aprobar
           </Button>
           <Button
             className="flex-1"
@@ -155,14 +147,14 @@ export function ApprovalCard({
             onClick={() => act("reject")}
           >
             {pending === "reject" ? <Loader2 className="size-4 animate-spin" /> : null}
-            Reject
+            Rechazar
           </Button>
           <Button
             variant="ghost"
             className="sm:flex-none"
             onClick={() => setShowEvidence((v) => !v)}
           >
-            More information
+            Más información
             <ChevronDown className={`size-4 transition-transform ${showEvidence ? "rotate-180" : ""}`} />
           </Button>
         </div>
@@ -170,7 +162,7 @@ export function ApprovalCard({
         {showEvidence && decision ? (
           <div>
             <Separator className="mb-3" />
-            <p className="mb-2 text-sm font-medium">Evidence</p>
+            <p className="mb-2 text-sm font-medium">Evidencia</p>
             <ul className="space-y-2">
               {decision.evidence.map((e, i) => (
                 <li key={i} className="rounded-md border bg-muted/30 p-3 text-sm">
@@ -178,7 +170,7 @@ export function ApprovalCard({
                   <p className="text-muted-foreground">{e.summary}</p>
                   {Array.isArray(e.data?.risks) && (e.data!.risks as string[]).length > 0 ? (
                     <p className="mt-1 text-xs text-destructive">
-                      Risks: {(e.data!.risks as string[]).join(", ")}
+                      Riesgos: {(e.data!.risks as string[]).join(", ")}
                     </p>
                   ) : null}
                 </li>

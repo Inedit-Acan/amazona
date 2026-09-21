@@ -1,4 +1,5 @@
 import type { Agent, AgentExecution } from "./api.ts";
+import { parseUtc } from "./dates.ts";
 
 // Los agentes y sus ejecuciones salen del registro y del log de ejecuciones del
 // CEO (AgentExecutionLog). No hay evaluaciones, costes medidos, tokens, versiones
@@ -125,11 +126,6 @@ const WINDOW_MS: Record<Exclude<ActivityWindow, "all">, number> = {
   "7d": 7 * 24 * 60 * 60 * 1000,
   "30d": 30 * 24 * 60 * 60 * 1000,
 };
-
-/** El backend guarda las fechas en UTC sin sufijo de zona; se interpretan como UTC. */
-export function parseUtc(value: string): number {
-  return new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(value) ? value : `${value}Z`).getTime();
-}
 
 export function withinWindow<T extends Pick<AgentExecution, "created_at">>(executions: T[], window: ActivityWindow, now: number): T[] {
   if (window === "all") return executions;

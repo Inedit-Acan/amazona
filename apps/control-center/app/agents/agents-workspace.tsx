@@ -24,12 +24,12 @@ import {
   executionsByAgent,
   fleetSummary,
   groupByTeam,
-  parseUtc,
   runsByTeam,
   teamOf,
   withinWindow,
   type ActivityWindow,
 } from "@/lib/agents";
+import { parseUtc } from "@/lib/dates";
 import { formatDuration, formatInteger, formatPercent } from "@/lib/format";
 import { AgentCard } from "@/components/agent-card";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";

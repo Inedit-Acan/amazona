@@ -1,5 +1,5 @@
 import type { Agent, AgentExecution } from "@/lib/api";
-import { parseUtc } from "@/lib/agents";
+import { parseUtc } from "@/lib/dates";
 import { formatDuration } from "@/lib/format";
 import { StatusChip } from "@/components/status-chip";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";

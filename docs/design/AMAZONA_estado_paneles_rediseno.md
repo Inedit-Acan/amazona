@@ -27,7 +27,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 7 | Finanzas y control | Rediseñado |
 | 8 | Proyectos | Rediseñado |
 | 9 | Agentes | Rediseñado |
-| 10 | Aprobaciones | Pendiente |
+| 10 | Aprobaciones | Rediseñado |
 | 11 | Auditoría | Pendiente |
 | 12 | Estado | Pendiente |
 
@@ -419,3 +419,45 @@ reparto, y versiones vigentes.
 8. Quitar el límite fijo de 100 en `GET /api/agent-executions` (paginación) o añadir
    `GET /api/agents/summary` con agregados por ventana de tiempo (24 h/7 d/30 d) para no
    traer todo el log al cliente.
+
+---
+
+## 10. Aprobaciones y decisiones (`/approvals`)
+
+**Hecho.** KPIs (pendientes, vencen en 24 h, aprobadas hoy), bandeja lista+detalle con
+aprobaciones de gasto y revisiones de pipeline, filtros y búsqueda, detalle con las
+validaciones y el impacto de aprobar/rechazar, y las acciones reales (aprobar, rechazar,
+interruptor de emergencia) intactas. Corrige el manejo de fechas UTC (`isExpired`).
+
+**Fuera de alcance por falta de datos reales.**
+
+- Criticidad, solicitante, fecha de solicitud (antigüedad, tiempo medio), presupuesto visible.
+- Solicitar cambios, motivo de rechazo obligatorio y feedback a agentes.
+- Cadena de aprobación, separación de funciones, guardrails condicionados, reglas de
+  autoaprobación, Workflow Builder, simulador de políticas.
+- Documentos y comentarios; pestaña «Reglas»; sesión de aprobador real.
+- Historial de revisiones de pipeline ya resueltas.
+
+**Backend que faltaría.**
+
+1. Ampliar `Approval` con `requested_by`, `requested_at`, `priority` (crítica/alta/media/baja),
+   `kind` (presupuesto, lanzamiento, proveedor, stock, excepción legal, campaña, canal, pago
+   extraordinario, reembolso, deploy de agente, automatización), `conditions` (guardrails:
+   importe máximo, CAC, mercado, duración) y `project_id`; con `requested_at` salen la
+   antigüedad y el tiempo medio de resolución.
+2. `POST /api/approvals/{id}/request-changes` y `reason`/`reason_code` obligatorio en el
+   rechazo (riesgo, presupuesto, documentación, política, alternativa, otro), con el feedback
+   guardado para los agentes.
+3. Modelo de política de aprobación (`ApprovalPolicy`: tipo, importe, riesgo, canal, proyecto,
+   aprobadores en cadena, autoaprobación) y motor que la evalúe, con separación de funciones
+   (`requested_by != resolved_by`), más un endpoint de simulación de políticas y un editor de
+   workflow.
+4. Autenticación real del aprobador: hoy la interfaz envía siempre `owner@amazona.local`; el
+   backend debería tomar el actor de la sesión (`authenticated_actor`) y validarlo.
+5. Presupuesto en la solicitud: `GET /api/approvals/{id}/budget` con asignado, gastado,
+   comprometido, disponible e impacto, desde el `BudgetEngine`.
+6. Documentos y comentarios de la solicitud (`ApprovalAttachment`, `ApprovalComment`).
+7. `GET /api/pipeline/reviews?status=` para listar también las revisiones resueltas y poder
+   mostrarlas en «Decididas» / historial.
+8. `GET /api/approvals/summary` (pendientes, críticas, vencen pronto, aprobadas hoy, tiempo
+   medio) para no calcular los KPI en el cliente.
