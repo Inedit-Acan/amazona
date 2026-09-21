@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Paneles 2 a 7 (abajo), luego Panel 8 — Proyectos.
+Paneles 2 a 8 (abajo), luego Panel 9 — Agentes.
 
 ---
 
@@ -636,3 +636,88 @@ o forecast se dibuja.
 ### Qué sigue
 
 Panel 8 — Proyectos.
+
+---
+
+## Panel 8 — Proyectos (`/projects` y `/projects/[id]`)
+
+Referencia: `docs/design/proyectos.png` + parte 2 §5. La spec quiere el proyecto como
+«expediente completo» de una oportunidad (del objetivo CEO al aprendizaje, con fases de
+lanzamiento y operación, beneficio real y previsto vs real). Hoy un proyecto es **una
+validación del Director ejecutivo**: nombre, estado, grafo de tareas y decisión con
+evidencias; no está enlazado a producto, mercado, ventas ni fechas. Se construye sobre eso.
+Es uno de los paneles con más datos reales.
+
+### Qué se ve ahora
+
+**Portfolio (`/projects`)**
+
+1. 6 KPIs: proyectos, en validación, activos, rechazados, en riesgo (alguna validación
+   NO_GO) y beneficio previsto del mes (suma de los proyectos vivos).
+2. **Portfolio**: tabla con búsqueda, orden y exportar CSV; filtros por estado (Todos /
+   En validación / Activos / Rechazados / Otros con su contador); columnas de proyecto,
+   estado, salud, score, progreso (tareas completadas) y beneficio previsto. Pulsar una
+   fila abre el expediente.
+3. Proyectos por estado (barra apilada) y tarjeta «pendiente de backend».
+
+**Expediente (`/projects/[id]`)**
+
+1. 6 KPIs: Project Health (riesgo bajo/medio/alto, el peor de las cuatro validaciones),
+   progreso, score de oportunidad, confianza, beneficio previsto (mes, con su margen) y
+   capital expuesto (importe de la solicitud de gasto).
+2. **Pipeline del proyecto**: las cuatro fases que valida el CEO (Investigación,
+   Proveedores, Economía, Legal) con su estado en el grafo y su recomendación real, cada una
+   enlazada a su módulo; Tienda, Marketing, Operaciones y Escala salen como pendientes.
+3. **Próxima decisión**: veredicto de la decisión, su justificación, la solicitud de
+   aprobación (acción, importe, estado) y botones a Aprobaciones y a la trazabilidad.
+4. **Salud y riesgos** (`ProjectHealth` + los riesgos reales que dejó cada especialista),
+   **actividad reciente** (los eventos de auditoría de la decisión con `CorrelationTrace`),
+   **hitos y tareas** (los hitos que se leen del grafo, recuento por situación), grafo de
+   tareas y evidencia de la decisión (los dos que ya existían).
+
+### Componentes nuevos / tocados
+
+- Reutilizados: `KpiCard`, `DataTable`, `StackedBar`, `PendingFeatures`, `VerdictBanner`,
+  `ProjectHealth`, `CorrelationTrace`, `StatusChip`, `DataProvenanceBadge`.
+- `lib/projects.ts` + tests: grupos de estado, progreso, recuentos de tareas, pasos del
+  pipeline, riesgos por fase, hitos, veredicto de la decisión y `projectedFinance` (lee
+  `monthly_profit` y `margin` de la evidencia estructurada `finance_validation`; no
+  parsea el texto del resumen).
+- `/projects` y `/projects/[id]` siguen cargando en servidor; el portfolio pasa a
+  componente de cliente por los filtros.
+
+### Qué se dejó fuera (y por qué)
+
+- **Beneficio real, previsto vs real y aprendizajes**: no hay ventas ni resultados reales
+  enlazados al proyecto. El beneficio previsto es el que calculó el especialista de
+  finanzas con los supuestos del objetivo (estimación, con badge), no un resultado.
+- **Fases de preparación, lanzamiento, operativo y escala**, «Pausado», «Descartado» y el
+  próximo gate: el orquestador solo pasa un proyecto por validando → aprobado / rechazado.
+  Por eso los KPI «Lanzamiento» y «Operativos» del mockup se sustituyen por «Activos».
+- **Beneficio previsto por mercado, mercado, categoría, producto, modelo logístico y
+  fecha de inicio**: el proyecto no guarda producto, mercado ni fecha (`ProjectOut` no trae
+  `created_at`).
+- **Tienda, Marketing, Operaciones y Escala en el pipeline del proyecto** y las
+  dimensiones de salud canal/marketing/operaciones: esas piezas se generan por producto y
+  mercado, sin vínculo con el proyecto.
+- **Score numérico de Project Health**, **CAC máximo** de la solicitud, hitos comerciales
+  (primera venta, 100 ventas, break-even), **agentes trabajando** en vivo (solo se ve el
+  estado de las tareas) y las vistas Pipeline/Timeline, métricas, finanzas y documentos.
+- Los riesgos de los especialistas están en inglés en el backend; se muestran tal cual.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 54/54 (7 nuevos de `lib/projects.ts`); `npm run build`
+  correcto; `eslint` limpio sobre los archivos del panel.
+- **En navegador con datos reales** (stack aislado, sin Supabase; se lanzaron tres objetivos
+  del CEO por la API: uno en REVIEW, uno en HUMAN_APPROVAL y uno NO_GO). Los tres proyectos,
+  sus estados, scores, salud y progreso 5/5 coinciden con la API; el beneficio previsto
+  (4.000,00) coincide con `finance_validation.data.monthly_profit` y el KPI del portfolio
+  suma solo los proyectos vivos. Probado: filtros por estado (contadores y filas), clic en
+  fila (abre el expediente), y en el expediente la aprobación pendiente de 150 (capital
+  expuesto), los 12 eventos de auditoría de la decisión, los hitos y las cuatro fases con
+  su recomendación. Móvil 375 px sin desbordamiento en ambas pantallas.
+
+### Qué sigue
+
+Panel 9 — Agentes.

@@ -25,7 +25,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 5 | Marketing y adquisición | Rediseñado |
 | 6 | Operaciones | Rediseñado |
 | 7 | Finanzas y control | Rediseñado |
-| 8 | Proyectos | Pendiente |
+| 8 | Proyectos | Rediseñado |
 | 9 | Agentes | Pendiente |
 | 10 | Aprobaciones | Pendiente |
 | 11 | Auditoría | Pendiente |
@@ -343,3 +343,40 @@ rentabilidad por producto (estimada), historial de informes.
 8. CFO Copilot con fuente, periodo y cálculo en cada respuesta, y un Financial Health
    score explicable por componentes.
 9. Traducir/normalizar los textos de riesgos y evidencias (hoy en inglés).
+
+---
+
+## 8. Proyectos (`/projects`, `/projects/[id]`)
+
+**Hecho.** Portfolio con KPIs, filtros por estado, tabla con progreso y beneficio
+previsto, y expediente con Project Health, pipeline de las cuatro fases validadas,
+próxima decisión (con la aprobación pendiente), riesgos reales, actividad de auditoría,
+hitos, grafo de tareas y evidencia.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Beneficio real, previsto vs real, aprendizajes del proyecto.
+- Fases de preparación / lanzamiento / operativo / escala, pausado, descartado, próximo gate.
+- Mercado, categoría, producto, modelo logístico, fecha de inicio; beneficio por mercado.
+- Tienda, Marketing, Operaciones y Escala en el pipeline; salud de canal/marketing/
+  operaciones; score numérico de salud; CAC máximo.
+- Hitos comerciales (primera venta, 100 ventas, break-even), agentes trabajando en vivo,
+  vistas Pipeline/Timeline y pestañas de métricas/finanzas/documentos.
+
+**Backend que faltaría.**
+
+1. Enlazar el proyecto con su producto y mercado (`Project.product_id`, `Project.market`)
+   y guardar `created_at` en `ProjectOut`; con eso salen las tablas por producto, mercado y
+   fecha, y los datos de tienda, marketing y operaciones pasan a colgar del proyecto.
+2. Ciclo de vida real (`BORRADOR → VALIDACIÓN → PREPARACIÓN → LANZAMIENTO → OPERATIVO →
+   ESCALA`, más pausado/bloqueado/descartado/cerrado) con las transiciones que hoy no
+   existen; el orquestador solo produce `VALIDATING/APPROVED/REJECTED`.
+3. Project Health como score explicable (`GET /api/projects/{id}/health`) con las ocho
+   dimensiones de la spec y su fuente, en lugar de derivarlo en el cliente de la evidencia.
+4. Resultados reales por proyecto (ventas, ingresos, CAC, margen, devoluciones, entrega) y
+   comparativa previsto vs real; hitos comerciales derivados de pedidos reales.
+5. Aprendizajes del proyecto (`ProjectLearning`) que alimenten la memoria del sistema
+   (`MemoryService`) y un endpoint de lectura.
+6. `GET /api/projects/summary` con conteos y agregados para no hacer una petición de tareas
+   y de decisiones por proyecto al montar el portfolio.
+7. Traducir/normalizar los textos de riesgos de los agentes (hoy en inglés).
