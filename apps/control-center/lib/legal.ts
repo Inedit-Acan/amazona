@@ -1,18 +1,9 @@
 import type { LegalAnalysis } from "./api.ts";
+import { marketLabel } from "./markets.ts";
 
 // El «cumplimiento» lo decide el agente legal del backend sobre un dataset
 // regulatorio simulado (legal_compliance.py). Este módulo NO evalúa requisitos:
 // solo etiqueta, ordena y reexpresa lo que el análisis ya devolvió.
-
-export const MARKET_LABELS: Record<string, string> = {
-  us: "Estados Unidos",
-  eu: "Unión Europea",
-  mx: "México",
-};
-
-export function marketLabel(market: string): string {
-  return MARKET_LABELS[market] ?? market.toUpperCase();
-}
 
 export type Recommendation = LegalAnalysis["recommendation"];
 
@@ -96,9 +87,4 @@ export function gateReasons(
 /** Cambios regulatorios del más reciente al más antiguo. */
 export function changesNewestFirst(changes: { date: string; description: string }[] | undefined) {
   return [...(changes ?? [])].sort((a, b) => b.date.localeCompare(a.date));
-}
-
-/** Último análisis (la API los devuelve del más reciente al más antiguo) del mercado dado. */
-export function latestForMarket<T extends Pick<LegalAnalysis, "market">>(analyses: T[], market: string): T | undefined {
-  return analyses.find((a) => a.market === market);
 }

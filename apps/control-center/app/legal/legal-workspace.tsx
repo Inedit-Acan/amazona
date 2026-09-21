@@ -27,16 +27,14 @@ import {
 } from "lucide-react";
 import { ApiError, api, type LegalAnalysis, type Product, type SupplierQuote } from "@/lib/api";
 import {
-  MARKET_LABELS,
   certificationsDeclared,
   changesNewestFirst,
   gateReasons,
-  latestForMarket,
   legalGate,
-  marketLabel,
   requirementRows,
   type RequirementRow,
 } from "@/lib/legal";
+import { MARKET_LABELS, latestForMarket, marketLabel } from "@/lib/markets";
 import { formatPercent } from "@/lib/format";
 import { regionLabel } from "@/lib/regions";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";

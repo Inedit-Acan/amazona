@@ -21,7 +21,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | 1 | Proveedores y abastecimiento | Rediseñado |
 | 2 | Economía y rentabilidad | Rediseñado |
 | 3 | Legal y cumplimiento | Rediseñado |
-| 4 | Tienda y canales de venta | Pendiente |
+| 4 | Tienda y canales de venta | Rediseñado |
 | 5 | Marketing y adquisición | Pendiente |
 | 6 | Operaciones | Pendiente |
 | 7 | Finanzas y control | Pendiente |
@@ -47,6 +47,8 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `VerdictBanner` | Economía, Legal | Tienda (estado de lanzamiento), Aprobaciones, Estado |
 | `ProductHeader` | Economía, Legal | Tienda, Marketing (cabecera de producto de cada mockup del pipeline) |
 | `KpiCard` `tone` | Legal | Tarjetas KPI cuyo valor es un veredicto |
+| `lib/markets.ts` | Legal, Tienda | Marketing, Operaciones (etiquetas de mercado y «último por mercado») |
+| `lib/product-channels.ts` | Tienda | Marketing, Operaciones (todo lo persistido de un producto) |
 
 ---
 
@@ -170,3 +172,47 @@ borrador de T&C y barra de siguiente paso. Todo sale de `LegalAnalysis`.
 6. `Product.logistics_model` y `Product.channel` (o tomarlos del proyecto) para el
    contexto del producto.
 7. Traducir/normalizar los textos del dataset (hoy en inglés).
+
+---
+
+## 4. Tienda y canales de venta (`/ecommerce`)
+
+**Hecho.** Contexto del producto (precio y proveedor del análisis económico, Legal
+Gate del mercado), tarjetas de canal con estado real, y por canal: tienda propia
+(vista previa Desktop/Mobile del texto generado, checkout y plan de pasarela,
+Launch readiness, configuración por mercado, contenido generado, producto maestro,
+consejos de conversión) y Amazon (contenido, comisiones, competencia, estado,
+inventario, riesgos). Carga el historial guardado del producto.
+
+**Fuera de alcance por falta de datos reales.**
+
+- Imagen, descripción y multimedia del producto; galería.
+- Score de investigación, % de readiness por canal, calidad del escaparate.
+- Funnel de compra (estimado / real) y conversión.
+- Modo de checkout y métodos de pago configurables.
+- Edición de contenido, SEO, diseño, páginas, A/B testing; generación con IA real.
+- Idioma y disponibilidad por mercado; EAN/GTIN, peso, dimensiones, stock proveedor.
+- Analytics, tracking, dominio, emails transaccionales.
+- Google Shopping, TikTok Shop, «Añadir canal».
+- Solicitud de aprobación de lanzamiento.
+
+**Backend que faltaría.**
+
+1. `POST /api/launch-requests` (o equivalente) que cree la solicitud de aprobación
+   de lanzamiento de un producto+mercado y la deje en la bandeja de Aprobaciones,
+   con los checks de Launch Readiness como cuerpo.
+2. Ampliar `EcommerceStorefrontAgent` con: SEO (meta title/description, datos
+   estructurados), FAQ, idioma por mercado y disponibilidad; y persistir el
+   contenido editable (`PATCH /api/storefronts/{id}`).
+3. Modelo de canal (`SalesChannel`: tipo, estado, % readiness calculado, config) y
+   agentes para Google Shopping / TikTok Shop; hoy solo hay tienda propia y Amazon.
+4. Configuración de checkout: modo (embebido / externo / personalizado) y métodos
+   de pago habilitados por mercado, guardados con la tienda.
+5. Media de producto (`ProductMedia`: URL, tipo, orden) y `Product.description`,
+   `Product.image_url`; ficha maestra con EAN/GTIN, peso, dimensiones y stock.
+6. Score de calidad del escaparate (contenido, conversión, SEO, confianza, legal,
+   mobile, velocidad) calculado en el backend, y un funnel estimado con su fuente
+   (mismo criterio «estimado vs real» que Economía).
+7. Integración de analytics/tracking, dominio y email transaccional (o al menos su
+   estado de configuración) para los tres últimos checks de Launch Readiness.
+8. Traducir/normalizar los textos de las plantillas (hoy en inglés).

@@ -5,9 +5,7 @@ import {
   certificationsDeclared,
   changesNewestFirst,
   gateReasons,
-  latestForMarket,
   legalGate,
-  marketLabel,
   requirementRows,
 } from "./legal.ts";
 
@@ -86,16 +84,4 @@ test("changesNewestFirst ordena por fecha descendente sin mutar la entrada", () 
   );
   assert.equal(input[0].description, "a");
   assert.deepEqual(changesNewestFirst(undefined), []);
-});
-
-test("latestForMarket devuelve el primero (más reciente) del mercado y marketLabel cae al código", () => {
-  const list = [
-    analysis({ correlation_id: "new", market: "us" }),
-    analysis({ correlation_id: "old", market: "us" }),
-    analysis({ correlation_id: "eu1" }),
-  ];
-  assert.equal(latestForMarket(list, "us")?.correlation_id, "new");
-  assert.equal(latestForMarket(list, "mx"), undefined);
-  assert.equal(marketLabel("eu"), "Unión Europea");
-  assert.equal(marketLabel("jp"), "JP");
 });

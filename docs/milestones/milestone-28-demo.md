@@ -117,7 +117,7 @@ estáticos, sin claves ni llamadas externas) y sus `@types`.
 
 ### Qué sigue
 
-Panel 2 y Panel 3 (abajo), luego Panel 4 — Tienda y canales de venta.
+Paneles 2 a 4 (abajo), luego Panel 5 — Marketing y adquisición.
 
 ---
 
@@ -287,3 +287,96 @@ Este panel es el segundo en repetir patrones del primero, así que se extrajeron
 ### Qué sigue
 
 Panel 4 — Tienda y canales de venta.
+
+---
+
+## Panel 4 — Tienda y canales de venta (`/ecommerce`)
+
+Referencia: `docs/design/tienda y canales de venta.png` + v0.5 §9. Esta pantalla ya
+fusionaba «Tienda propia» y «Amazon» (Milestone 16); ahora se organiza como el
+mockup: contexto, tarjetas de canal y el detalle del canal elegido.
+
+### Qué se ve ahora
+
+1. **Producto y contexto**: selector de producto y de mercado (EE. UU. / UE / México)
+   y cinco datos de contexto: precio y proveedor del análisis económico más
+   reciente, mercado objetivo, **Legal Gate** del mercado (desde `LegalAnalysis`) y
+   modelo logístico (**pendiente**). Sin análisis económico o legal, enlace directo a
+   Economía / Legal.
+2. **Canales de venta**: tarjetas de Tienda propia y Amazon con el estado real del
+   último borrador del mercado (`launch_status` / `listing_status`) y su botón
+   «Generar / Regenerar»; Google Shopping y TikTok Shop salen como «Pendiente»
+   (sin integración). Se elige el canal pulsando su tarjeta.
+3. **Tienda propia** (`Storefront`): constructor de página con vista previa real del
+   texto generado y conmutador Desktop / Mobile, checkout y pagos (pasarela y pasos
+   hasta salir en vivo del plan del agente), **Launch readiness** (veredicto,
+   riesgos y checklist de la spec §9.10: producto, precio, página, checkout, legal
+   con datos reales; analytics, tracking, dominio y emails como «Pendiente»),
+   configuración por mercado (un borrador por mercado), contenido generado (qué
+   piezas trae el borrador y cuáles no), producto maestro (SKU, categoría, plazo de
+   entrega, categoría restringida) y consejos de conversión.
+4. **Amazon** (`MarketplaceListing`): contenido del listado, comisiones del canal
+   (con margen neto por unidad), análisis de competencia, estado, política de
+   inventario y riesgos, y «Planificar campaña de marketing».
+5. La página carga el historial guardado del producto (tiendas, listados, legal,
+   economía y cotizaciones), así que ya no arranca vacía; `?product_id=&market=`
+   preselecciona producto y mercado (los enlaces desde Economía y Legal siguen
+   funcionando).
+
+### Componentes nuevos / tocados
+
+- Reutilizados de los paneles 1–3: `ProductHeader`, `SectionNav`, `PendingFeatures`,
+  `VerdictBanner`, `DataTable`, `StatusChip`, `RiskList`, `NextStepBar`,
+  `DataProvenanceBadge`.
+- Nuevos módulos compartidos: `lib/markets.ts` (etiquetas de mercado y «último por
+  mercado», movidos de `lib/legal.ts`) y `lib/product-channels.ts` (carga de todo lo
+  persistido de un producto, usable desde servidor y cliente).
+- `lib/ecommerce.ts` + tests: checklist de Launch Readiness, checklist de contenido
+  generado y filas por mercado.
+- La tarjeta de canal es local a la pantalla (`ChannelCard`): Marketing la puede
+  extraer si le hace falta.
+
+### Qué se dejó fuera (y por qué)
+
+- **Imagen y descripción del producto, galería y multimedia**: el backend no guarda
+  ni genera imágenes; la vista previa lo dice en lugar de dibujar una foto.
+- **Score de investigación**, **% de readiness por canal** y **calidad del
+  escaparate** (91/100 con siete sub-scores): el backend no calcula ninguno.
+- **Funnel de compra estimado / real** y conversión: sin tráfico ni datos de
+  mercado (el funnel del mockup no tiene fuente).
+- **Modo de checkout y métodos de pago** elegibles (tarjeta, Apple Pay, Google Pay,
+  PayPal…): el plan de pasarela es un texto por mercado, no una configuración.
+- **Editar contenido, SEO, Diseño, Páginas y A/B testing** del constructor; «Generar
+  con IA» (el generador es una plantilla determinista, no IA): el botón se llama
+  «Generar tienda» y la vista previa lleva el badge de estimación.
+- **Idioma y disponibilidad por mercado**, **EAN/GTIN, peso, dimensiones y stock del
+  proveedor**, **analytics, tracking, dominio y emails**.
+- **Google Shopping, TikTok Shop** y «Añadir canal»: sin integración.
+- **«Solicitar aprobación de lanzamiento»**: no existe un endpoint que cree esa
+  solicitud; el botón sale deshabilitado con badge «Pendiente». La acción real
+  siguiente es «Planificar campaña de marketing».
+- Los textos de la plantilla del agente (titular, viñetas, consejos, riesgos) están en
+  inglés en el backend; se muestran tal cual y se avisa.
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 37/37 (5 nuevos de `lib/ecommerce.ts` y 2 de
+  `lib/markets.ts`, uno de ellos movido desde `lib/legal.test.ts`);
+  `npm run build` correcto; `eslint` limpio sobre los archivos del panel.
+- **En navegador con datos reales** (stack aislado, sin Supabase): «Wireless earbuds
+  pro» en la UE. Contexto correcto (precio 20,00, proveedor Hanoi Circuit Works,
+  Legal Gate «Requiere revisión humana»); generación de la tienda (vista previa con
+  el texto del backend, pasarela Stripe/Adyen en modo prueba, «Requiere revisión»
+  porque el legal pide revisión humana, checklist con Legal «requiere revisión
+  humana»); el conmutador Desktop/Mobile cambia la vista previa (599 → 300 px);
+  generación del listado de Amazon con cifras idénticas a
+  `GET /api/products/{id}/marketplace-listings` (8 %, 3,50, margen neto 8,998 →
+  «9,00», 120 competidores, 22,50, 4,2, buy-box «high»); cambio de mercado (estados
+  vacíos por canal); cambio de producto («Minimalist phone case»: Legal Gate
+  «Preparado», sin análisis económico → el riesgo «no economic analysis found»
+  aparece y «Precio: falta el análisis económico»); el error del backend (alerta
+  legible sin perder lo mostrado). Móvil 375 px sin desbordamiento.
+
+### Qué sigue
+
+Panel 5 — Marketing y adquisición.
