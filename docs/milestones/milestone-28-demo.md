@@ -1462,3 +1462,67 @@ pendiente.
   con el producto que tiene informe real aparece «Estimación»), el modo operativo
   cambia qué reglas están activas; sin desbordamiento ni textos cortados a 1536, 1896
   y 375 px; consola sin errores.
+
+## Segunda pasada — Panel 7: Finanzas y control (`/cfo`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/CFO.png`). Antes la pantalla era el informe agregado del agente CFO
+(salud financiera, conteos GO/REVIEW/NO_GO, presupuesto del BudgetEngine y
+cartera por producto), sin P&L, caja ni forecast.
+
+### Qué se ve ahora
+
+1. Cabecera con «Datos de demostración», selectores de periodo (el mes en curso y
+   los tres anteriores), entidad y escenario, y «Exportar informe» (CSV del P&L).
+2. Seis KPIs con su variación y minigráfico: caja disponible, ingresos del mes,
+   beneficio neto, margen neto, gasto del mes y runway.
+3. Cash Flow mensual (barras de entradas y salidas, saldo real y forecast
+   discontinuo, marca de «Hoy» y aviso de tensión de caja) a 6 o 12 meses.
+4. Cuenta de resultados con ingresos, coste de mercancía, margen bruto, marketing,
+   software, logística, devoluciones, administración, otros, EBITDA, impuestos y
+   resultado neto, con la variación de cada línea frente al mes anterior.
+5. Presupuesto anual con el gasto por categoría y «Solicitar nuevo presupuesto».
+6. Tesorería y próximos 7 días, cuentas a pagar, cuentas a cobrar por plataforma y
+   working capital sin stock.
+7. Forecast financiero por escenario (Base / Conservador / Expansión), rendimiento
+   por dimensión (productos, canales, países, proveedores), desviaciones del mes y
+   Financial Health (siete ejes) con el veredicto del agente.
+8. Fiscalidad, capital y financiación, alertas financieras (incluidos los riesgos
+   del informe del agente) y el CFO Copilot, que guarda la pregunta pero no la
+   envía porque no hay backend conversacional.
+
+### Datos reales y de demostración
+
+- Reales: los análisis económicos de cada producto —la cuenta de resultados se
+  calcula con `lib/economics-model.ts` sobre los mismos supuestos que Economía, así
+  que ingresos, costes, margen y el marketing (CAC × pedidos) cuadran con esa
+  pantalla y con Marketing—, las cotizaciones de proveedor, los escenarios del
+  agente económico en el forecast, y del informe del agente CFO su veredicto de
+  salud financiera, sus reservas y sus riesgos.
+- Demo (`lib/demo/cfo.ts`): la caja y la tesorería, el coste de software y el de
+  asesoría legal, el crecimiento mensual, el presupuesto anual mientras el
+  BudgetEngine no tenga límite, los tipos impositivos, las subvenciones y el
+  copiloto. Las cuentas a cobrar y pagar salen de los pedidos de Operaciones (que
+  son de demostración) y del plan de Marketing.
+- El selector de entidad reparte el negocio por mercado de destino de los pedidos y
+  el de periodo aplica el mismo factor mensual que usa el cash flow.
+
+### Componentes nuevos / tocados
+
+- `lib/cfo-view.ts` con tests (P&L, escalado por mes y entidad, cash flow, aviso de
+  caja, presupuesto, desviaciones, tesorería, cobros, pagos, working capital,
+  forecast, dimensiones, salud, fiscalidad y alertas) y `lib/demo/cfo.ts`.
+- `CashFlowChart` nuevo (barras + línea de saldo con tramo de forecast).
+- `app/cfo/cfo-panels.tsx` con las catorce tarjetas; `lib/finance.ts` se queda solo
+  con `FINANCIAL_VERDICT` (se retiran `portfolioRows`, `budgetBreakdown` y
+  `CFO_RULES`, sustituidos por la nueva vista) y su test se reduce.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 141/141; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario, sin lanzar nada que escriba): el periodo
+  cambia el mes del P&L y todos los KPIs, la entidad reparte ingresos y cobros por
+  mercado, el escenario filtra el cash flow, el rango pasa de 6 a 12 meses, y las
+  pestañas de forecast y de dimensión responden; sin desbordamiento ni textos
+  cortados a 1536, 1896 y 375 px; consola sin errores en pestaña nueva.

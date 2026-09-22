@@ -1,47 +1,52 @@
-import { api, type CFOReport, type EconomicAnalysis, type Product } from "@/lib/api";
+import { api, type CFOReport, type EconomicAnalysis, type Product, type SupplierQuote } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
+import { CFO_DESCRIPTION, CFO_TITLE } from "./copy";
 import { CfoWorkspace } from "./cfo-workspace";
 
-/** Tope de productos de los que se lee la última decisión económica: hoy no hay un
- * endpoint agregado y cada producto cuesta una petición. */
+/** Tope de productos de los que se leen cotizaciones y decisiones económicas: no
+ * hay un endpoint agregado y cada producto cuesta dos peticiones. */
 const PORTFOLIO_PRODUCT_LIMIT = 20;
 
+export interface ProductFinanceData {
+  product: Product;
+  economics: EconomicAnalysis[];
+  quotes: SupplierQuote[];
+}
+
 export default async function CFOPage() {
-  let reports: CFOReport[] = [];
   let products: Product[] = [];
-  let analyses: Record<string, EconomicAnalysis[]> = {};
+  let reports: CFOReport[] = [];
   let error: string | null = null;
 
   try {
-    const [loadedReports, loadedProducts] = await Promise.all([api.listCFORuns(), api.listProducts()]);
-    reports = loadedReports;
-    products = loadedProducts;
-    const entries = await Promise.all(
-      products.slice(0, PORTFOLIO_PRODUCT_LIMIT).map(async (p) => [p.id, await api.listProductEconomics(p.id)] as const),
-    );
-    analyses = Object.fromEntries(entries);
+    products = await api.listProducts();
   } catch (err) {
     error = err instanceof Error ? err.message : "Error desconocido";
   }
+  // El informe del agente es opcional: sin él la pantalla sigue en pie.
+  reports = await api.listCFORuns().catch(() => []);
 
-  return (
-    <div>
-      <PageHeader
-        title="Finanzas y control"
-        description="Consolida las decisiones económicas, las campañas y las reservas del BudgetEngine en un informe de salud financiera de todo el catálogo — no por producto. Es un informe agregado: este agente nunca emite facturas (la facturación real debe pasar por un sistema certificado Verifactu de terceros) y todavía no hay contabilidad, tesorería ni caja reales."
-      />
-
-      {error ? (
-        <ApiErrorAlert message={error} />
-      ) : (
-        <CfoWorkspace
-          initialReports={reports}
-          products={products.slice(0, PORTFOLIO_PRODUCT_LIMIT)}
-          totalProducts={products.length}
-          analysesByProduct={analyses}
-        />
-      )}
-    </div>
+  const data: ProductFinanceData[] = await Promise.all(
+    products.slice(0, PORTFOLIO_PRODUCT_LIMIT).map(async (product) => ({
+      product,
+      economics: await api.listProductEconomics(product.id).catch(() => []),
+      quotes: await api.listProductSuppliers(product.id).catch(() => []),
+    })),
   );
+
+  if (error) {
+    return (
+      <div>
+        <PageHeader title={CFO_TITLE} description={CFO_DESCRIPTION} />
+        <ApiErrorAlert message={error} />
+      </div>
+    );
+  }
+
+  // El día se fija en el servidor: los pedidos y los meses de la demostración son
+  // deterministas a partir de él y el cliente hidrata exactamente lo mismo.
+  const today = new Date().toISOString().slice(0, 10);
+
+  return <CfoWorkspace data={data} report={reports[0]} totalProducts={products.length} today={today} />;
 }

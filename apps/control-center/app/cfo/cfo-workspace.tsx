@@ -1,477 +1,434 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowDown, ArrowUp, BarChart3, Coins, Hourglass, PieChart, Percent, Wallet } from "lucide-react";
+import { DEMO_SALE } from "@/lib/demo/economics";
 import {
-  AlertTriangle,
-  Banknote,
-  Bot,
-  CalendarClock,
-  FileSpreadsheet,
-  Gauge,
-  Landmark,
-  LineChart,
-  Loader2,
-  Megaphone,
-  PiggyBank,
-  Receipt,
-  ShieldCheck,
-  Target,
-  TrendingUp,
-  Wallet,
-  Boxes,
-  Scale,
-  Wallet2,
-} from "lucide-react";
-import { ApiError, api, type CFOReport, type EconomicAnalysis, type Product } from "@/lib/api";
-import { CFO_RULES, FINANCIAL_VERDICT, budgetBreakdown, portfolioRows } from "@/lib/finance";
-import { formatAmount, formatInteger, formatPercent } from "@/lib/format";
+  CASH_FLOW_RANGES,
+  DEMO_CASH,
+  DEMO_TAX_DOCS_READY,
+  ENTITIES,
+  MONTH_LABELS,
+  SCENARIO_VIEWS,
+} from "@/lib/demo/cfo";
+import { demoQuotes } from "@/lib/demo/sourcing";
+import { demoSku } from "@/lib/demo/storefront";
+import {
+  budgetView,
+  buildPnl,
+  cashFlowSeries,
+  cashWarning,
+  deviations,
+  dimensionRows,
+  financialAlerts,
+  financialHealth,
+  forecast,
+  monthFactor,
+  payables,
+  receivables,
+  runwayMonths,
+  scalePnl,
+  taxView,
+  treasury,
+  upcomingWeek,
+  withDeltas,
+  workingCapital,
+  type DimensionKey,
+  type ForecastKey,
+  type ProductFinance,
+} from "@/lib/cfo-view";
+import { downloadCsv, toCsv } from "@/lib/csv";
+import { dedupeQuotesBySupplier } from "@/lib/economics";
+import { buildBaseline } from "@/lib/economics-baseline";
+import { FINANCIAL_VERDICT } from "@/lib/finance";
+import { formatEuro, formatInteger, formatPercent } from "@/lib/format";
+import { marketLabel } from "@/lib/markets";
+import { buildOrders, ordersInPeriod, startOfDay, type ProductInput, type SupplierInput } from "@/lib/operations-view";
+import { rankSuppliers } from "@/lib/sourcing-view";
+import { CashFlowChart } from "@/components/cash-flow-chart";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
-import { KpiCard, type KpiTone } from "@/components/kpi-card";
-import { PendingFeatures, type PendingFeature } from "@/components/pending-features";
-import { RankedBars } from "@/components/ranked-bars";
-import { RiskList } from "@/components/risk-list";
-import { SectionNav } from "@/components/section-nav";
-import { StackedBar } from "@/components/stacked-bar";
-import { StatusChip } from "@/components/status-chip";
-import { VerdictBanner } from "@/components/verdict-banner";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { KpiCard } from "@/components/kpi-card";
+import { PageHeader } from "@/components/page-header";
+import { Sparkline } from "@/components/sparkline";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import type { CFOReport, SupplierQuote } from "@/lib/api";
+import type { ProductFinanceData } from "./page";
+import { CFO_DESCRIPTION, CFO_TITLE } from "./copy";
+import {
+  AlertsCard,
+  BudgetCard,
+  CopilotCard,
+  DeviationsCard,
+  DimensionCard,
+  FinancialHealthCard,
+  ForecastCard,
+  FundingCard,
+  PayablesCard,
+  PnlCard,
+  ReceivablesCard,
+  TaxCard,
+  TreasuryCard,
+  WorkingCapitalCard,
+} from "./cfo-panels";
 
-const VERDICT_KPI_TONE: Record<"ok" | "warn" | "bad", KpiTone> = { ok: "success", warn: "warning", bad: "danger" };
+const DEMO_TOOLTIP =
+  "Incluye datos de demostración: AMAZONA no tiene contabilidad, banco ni facturación, así que la caja, el cash flow, la tesorería, la fiscalidad, las subvenciones y el copiloto son simulados, y el presupuesto anual lo es mientras el BudgetEngine no tenga límite. Real: los análisis económicos de cada producto (de ahí salen ingresos, costes y margen, con los mismos supuestos que Economía), las cotizaciones de proveedor y el informe del agente CFO (veredicto de salud financiera y reservas).";
 
-/** Lo que el mockup y la spec (parte 2 §4) enseñan y no existe: no hay contabilidad,
- * bancos, pasarelas de cobro, facturación ni impuestos en el backend. */
-const PENDING_FINANCE: PendingFeature[] = [
-  {
-    icon: Wallet2,
-    title: "Caja, ingresos, beneficio neto y runway",
-    description: "Caja disponible, ingresos y gasto del mes, margen neto y meses de runway.",
-  },
-  {
-    icon: LineChart,
-    title: "Cash flow y forecast",
-    description: "Entradas, salidas y saldo, con escenarios Base / Conservador / Expansión a 3, 6 y 12 meses.",
-  },
-  {
-    icon: FileSpreadsheet,
-    title: "P&L consolidado y drill-down",
-    description: "Ingresos, coste de mercancía, marketing, software, logística, EBITDA e impuestos hasta el resultado neto.",
-  },
-  {
-    icon: Target,
-    title: "Budget vs Real vs Forecast por áreas",
-    description: "Presupuesto y gasto por área (marketing, software, logística, legal, operaciones) y análisis de desviaciones.",
-  },
-  {
-    icon: Landmark,
-    title: "Tesorería, cuentas a pagar y a cobrar",
-    description: "Cuenta operativa, reserva, pendiente de Stripe/PayPal/Amazon, vencimientos y liquidaciones.",
-  },
-  {
-    icon: PiggyBank,
-    title: "Working Capital (sin stock)",
-    description: "Cobros antes de compra, capital adelantado, cubierto y sin cobertura frente al objetivo 75–90 %.",
-  },
-  {
-    icon: Receipt,
-    title: "Fiscalidad, contabilidad y capital",
-    description: "IVA e impuestos estimados, obligaciones, conciliación, subvenciones y necesidad de capital.",
-  },
-  {
-    icon: Bot,
-    title: "CFO Copilot y Financial Health",
-    description: "Preguntas con fuente, periodo y cálculo, y un score explicable de liquidez, rentabilidad y cobertura.",
-  },
-];
+/** Meses que se pueden mirar hacia atrás en el selector de periodo. */
+const PERIOD_OFFSETS = [0, -1, -2, -3];
 
-const PENDING_NAV = [
-  { label: "Cash flow", icon: LineChart },
-  { label: "P&L", icon: FileSpreadsheet },
-  { label: "Tesorería", icon: Landmark },
-  { label: "Forecast", icon: TrendingUp },
-];
+function quoteToSupplier(quote: SupplierQuote, isDemo: boolean): SupplierInput {
+  return {
+    id: quote.supplier_id,
+    name: quote.data?.name ?? quote.supplier_id,
+    region: quote.data?.region ?? "eu",
+    leadTimeDays: quote.lead_time_days,
+    reliability: quote.reliability_score,
+    verified: quote.verified,
+    isDemo,
+  };
+}
 
-function DlRow({ label, children }: { label: string; children: React.ReactNode }) {
+function Delta({ value, unit = "%" }: { value: number; unit?: "%" | "pp" }) {
+  const Icon = value >= 0 ? ArrowUp : ArrowDown;
+  const text = unit === "pp" ? `${Math.abs(value * 100).toLocaleString("es-ES", { maximumFractionDigits: 1 })} pp` : formatPercent(Math.abs(value), 0);
   return (
-    <div className="flex items-start justify-between gap-3 py-1.5">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="text-right font-medium">{children}</dd>
-    </div>
+    <p className={cn("flex items-center gap-1 text-xs", value >= 0 ? "text-primary" : "text-warning")}>
+      <Icon className="size-3 shrink-0" />
+      {value >= 0 ? "+" : "−"}
+      {text} vs. mes anterior
+    </p>
   );
 }
 
 export function CfoWorkspace({
-  initialReports,
-  products,
+  data,
+  report,
   totalProducts,
-  analysesByProduct,
+  today,
 }: {
-  initialReports: CFOReport[];
-  products: Product[];
+  data: ProductFinanceData[];
+  report?: CFOReport;
   totalProducts: number;
-  analysesByProduct: Record<string, EconomicAnalysis[]>;
+  today: string;
 }) {
-  const [reports, setReports] = useState(initialReports);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const [offset, setOffset] = useState(0);
+  const [entity, setEntity] = useState("all");
+  const [scenarioView, setScenarioView] = useState(SCENARIO_VIEWS[0].value);
+  const [cashRange, setCashRange] = useState(CASH_FLOW_RANGES[0].value);
+  const [forecastScenario, setForecastScenario] = useState<ForecastKey>("base");
+  const [dimension, setDimension] = useState<DimensionKey>("products");
 
-  const report = reports[0];
-  const data = report?.data ?? null;
-  const verdict = report ? FINANCIAL_VERDICT[report.financial_health_status] : undefined;
-  const budget = data ? budgetBreakdown(data) : undefined;
-  const portfolio = useMemo(() => portfolioRows(products, analysesByProduct), [products, analysesByProduct]);
-  const risks = data?.risks ?? [];
-  const evidence = data?.evidence ?? [];
+  const date = new Date(`${today}T00:00:00Z`);
+  const monthIndex = date.getUTCMonth();
+  const year = date.getUTCFullYear();
+  const shownMonth = (((monthIndex + offset) % 12) + 12) % 12;
+  const monthsElapsed = monthIndex + 1 + offset;
 
-  async function handleGenerate() {
-    setError(null);
-    setSubmitting(true);
-    try {
-      await api.createCFORun();
-      setReports(await api.listCFORuns());
-    } catch (err) {
-      setError(err instanceof ApiError ? err.detail : "La generación del informe falló.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  // Mismos supuestos que Economía: cotización real (o la de demostración que
+  // recomienda Proveedores) y último análisis económico de cada producto.
+  const finances = useMemo<ProductFinance[]>(
+    () =>
+      data.map(({ product, economics, quotes }) => {
+        const analysis = economics[0];
+        const options = dedupeQuotesBySupplier(quotes, analysis?.supplier_quote_id);
+        const quote = options.find((q) => q.id === analysis?.supplier_quote_id) ?? options[0];
+        return {
+          id: product.id,
+          name: product.name,
+          category: product.category,
+          inputs: buildBaseline(quote, analysis).inputs,
+          analysis,
+          isDemo: !analysis,
+        };
+      }),
+    [data],
+  );
 
-  const historyColumns: DataTableColumn<CFOReport>[] = [
-    {
-      key: "report",
-      header: "Informe",
-      cell: (row) => (
-        <span className="font-mono text-xs">
-          {row.correlation_id.slice(0, 8)}
-          {row.correlation_id === report?.correlation_id ? (
-            <span className="ml-2 rounded bg-primary px-1.5 py-0.5 font-sans text-[10px] font-medium text-primary-foreground">
-              Actual
-            </span>
-          ) : null}
-        </span>
-      ),
-    },
-    { key: "status", header: "Salud", cell: (row) => <StatusChip status={row.financial_health_status} /> },
-    { key: "products", header: "Productos", cell: (row) => (row.data ? formatInteger(row.data.total_products_analyzed) : "—") },
-    {
-      key: "nogo",
-      header: "NO_GO",
-      cell: (row) => (row.data?.no_go_ratio != null ? formatPercent(row.data.no_go_ratio, 0) : "—"),
-    },
-    {
-      key: "budget",
-      header: "Uso del presupuesto",
-      cell: (row) => (row.data?.budget_utilization != null ? formatPercent(row.data.budget_utilization, 0) : "—"),
-    },
-  ];
+  const orderProducts = useMemo<ProductInput[]>(
+    () =>
+      data.map(({ product, economics, quotes }) => {
+        const real = quotes.length > 0;
+        const ranked = rankSuppliers(real ? dedupeQuotesBySupplier(quotes) : demoQuotes(product.id));
+        return {
+          id: product.id,
+          name: product.name,
+          sku: demoSku(product.category, product.id),
+          price: economics[0]?.sale_price ?? DEMO_SALE.salePrice,
+          suppliers: ranked.slice(0, 3).map((r) => quoteToSupplier(r.quote, !real)),
+        };
+      }),
+    [data],
+  );
 
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Informe de salud financiera</CardTitle>
-          <CardAction>
-            <DataProvenanceBadge
-              status="estimated"
-              tooltip="Agrega las últimas decisiones económicas, las campañas y las reservas del BudgetEngine. No hay contabilidad real."
-            />
-          </CardAction>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            Cada informe toma la última decisión económica de cada producto, las campañas y las reservas de presupuesto en
-            ese momento. {reports.length > 0 ? `Hay ${reports.length} informe${reports.length === 1 ? "" : "s"} guardado${reports.length === 1 ? "" : "s"}; se muestra el más reciente.` : "Todavía no hay ninguno."}
-          </p>
-          <Button type="button" size="lg" onClick={handleGenerate} disabled={submitting} className="shrink-0">
-            {submitting ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-            {submitting ? "Generando…" : report ? "Generar informe nuevo" : "Generar informe de salud financiera"}
-          </Button>
-        </CardContent>
-      </Card>
+  const allOrders = useMemo(() => buildOrders(orderProducts, today), [orderProducts, today]);
+  const entityMarkets = ENTITIES.find((e) => e.value === entity)!.markets;
+  const monthOrders = useMemo(() => ordersInPeriod(allOrders, today, 30).filter((o) => entityMarkets.includes(o.market)), [allOrders, today, entityMarkets]);
 
-      {error ? (
-        <Alert variant="destructive">
-          <AlertTriangle className="size-4" />
-          <AlertTitle>La generación del informe falló</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
+  const basePnl = useMemo(() => buildPnl(finances), [finances]);
+  // Reparto por entidad: la parte de los pedidos del periodo que va a sus mercados.
+  const entityShare = useMemo(() => {
+    const all = ordersInPeriod(allOrders, today, 30);
+    const total = all.reduce((sum, o) => sum + o.amount, 0);
+    if (total === 0 || entity === "all") return 1;
+    return monthOrders.reduce((sum, o) => sum + o.amount, 0) / total;
+  }, [allOrders, monthOrders, today, entity]);
 
-      {!report || !data || !verdict || !budget ? (
+  const previousPnl = useMemo(
+    () => scalePnl(basePnl, monthFactor(offset - 1, "revenue") * entityShare, monthFactor(offset - 1, "costs") * entityShare),
+    [basePnl, offset, entityShare],
+  );
+  const pnl = useMemo(
+    () => withDeltas(scalePnl(basePnl, monthFactor(offset, "revenue") * entityShare, monthFactor(offset, "costs") * entityShare), previousPnl),
+    [basePnl, offset, entityShare, previousPnl],
+  );
+
+  if (data.length === 0) {
+    return (
+      <div>
+        <PageHeader title={CFO_TITLE} description={CFO_DESCRIPTION} />
         <Card>
           <CardContent>
             <EmptyState
               icon={Wallet}
-              title="Sin informes financieros todavía"
-              description="Genera el primer informe para ver aquí el estado agregado del catálogo, el presupuesto y la cartera de productos."
+              title="Aún no hay catálogo que consolidar"
+              description="Las finanzas parten de los productos investigados y de sus análisis económicos."
             />
           </CardContent>
         </Card>
-      ) : (
-        <>
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6" aria-label="Indicadores financieros">
-            <KpiCard
-              label="Salud financiera"
-              value={verdict.title}
-              icon={ShieldCheck}
-              tone={VERDICT_KPI_TONE[verdict.tone]}
-              caption={`Recomendación ${report.recommendation} · confianza ${formatPercent(report.confidence, 0)}`}
-              provenance="estimated"
-              provenanceTooltip="Estado calculado por el agente CFO con reglas fijas sobre las decisiones y el presupuesto."
-            />
-            <KpiCard
-              label="Productos analizados"
-              value={formatInteger(data.total_products_analyzed)}
-              icon={Boxes}
-              caption={`${data.go_count} GO · ${data.review_count} REVISIÓN · ${data.no_go_count} NO_GO`}
-              provenance="estimated"
-              provenanceTooltip="Última decisión económica de cada producto; las cifras son estimaciones simuladas."
-            />
-            <KpiCard
-              label="Decisiones NO_GO"
-              value={data.no_go_ratio !== null ? formatPercent(data.no_go_ratio, 0) : "—"}
-              icon={Scale}
-              caption={data.no_go_ratio !== null ? "Sobre los productos analizados" : "Aún no hay análisis económicos"}
-              provenance="estimated"
-            />
-            <KpiCard
-              label="Uso del presupuesto"
-              value={budget.utilization !== null ? formatPercent(budget.utilization, 0) : "—"}
-              icon={Gauge}
-              caption={budget.utilization !== null ? "Reservado + comprometido + gastado" : "Sin presupuestos registrados"}
-              provenance={budget.utilization !== null ? "verified" : "pending"}
-              provenanceTooltip={
-                budget.utilization !== null
-                  ? "Reservas del BudgetEngine registradas en la base de datos."
-                  : "Ningún objetivo ha pedido todavía aprobación de gasto, así que no hay presupuesto registrado."
+      </div>
+    );
+  }
+
+  const now = startOfDay(today);
+  const receivablesView = receivables(monthOrders, now);
+  const treasuryView = treasury(receivablesView.total);
+  const cash = treasuryView.total;
+  const payableRows = payables(monthOrders, pnl, now);
+  const payableTotal = payableRows.reduce((sum, row) => sum + row.amount, 0);
+  const working = workingCapital(payableTotal, receivablesView.total);
+  const months = CASH_FLOW_RANGES.find((r) => r.value === cashRange)!.months;
+  const fullSeries = cashFlowSeries(pnl, cash, months, shownMonth);
+  const series = scenarioView === "actual" ? fullSeries.filter((m) => !m.forecast) : scenarioView === "forecast" ? fullSeries.filter((m) => m.forecast) : fullSeries;
+  const warning = cashWarning(fullSeries, pnl.spend);
+  const budget = budgetView(pnl, Math.max(1, monthsElapsed), report);
+  const deviationRows = deviations(pnl, budget);
+  const tax = taxView(pnl, shownMonth, DEMO_TAX_DOCS_READY);
+  const health = financialHealth({ pnl, cash, budget, working, cashSeries: fullSeries, taxProvision: pnl.tax });
+  const alerts = financialAlerts({ deviations: deviationRows, budget, receivables: receivablesView, pnl, monthsElapsed: Math.max(1, monthsElapsed), agentRisks: report?.data?.risks });
+  const forecastPoints = forecast(finances, forecastScenario, 6, shownMonth);
+  const hasRealScenarios = finances.some((f) => f.analysis?.data?.scenarios);
+  const runway = runwayMonths(cash, pnl);
+  const verdict = report ? FINANCIAL_VERDICT[report.financial_health_status] : undefined;
+  const balances = fullSeries.map((m) => m.balance);
+  const currentIndex = fullSeries.findIndex((m) => m.offset === 0);
+  const cashDelta = currentIndex > 0 && fullSeries[currentIndex - 1].balance !== 0 ? balances[currentIndex] / fullSeries[currentIndex - 1].balance - 1 : 0;
+  const inflows = fullSeries.map((m) => m.inflow);
+  const outflows = fullSeries.map((m) => m.outflow);
+
+  function exportReport() {
+    const csv = toCsv(
+      ["Concepto", "Importe", "Variación"],
+      pnl.rows.map((row) => [row.label, row.amount, row.delta === null ? "" : formatPercent(row.delta, 1)]),
+    );
+    downloadCsv(`finanzas-${MONTH_LABELS[shownMonth].toLowerCase()}-${year}.csv`, csv);
+  }
+
+  function requestBudget() {
+    const params = new URLSearchParams({
+      title: `Ampliar el presupuesto anual de ${formatEuro(budget.annual, 0)}`,
+      spend_amount: String(Math.round(budget.annual * 0.1)),
+    });
+    router.push(`/ceo?${params.toString()}`);
+  }
+
+  return (
+    <div className="space-y-5">
+      <PageHeader
+        title={CFO_TITLE}
+        description={CFO_DESCRIPTION}
+        actions={
+          <>
+            <DataProvenanceBadge status="demo" tooltip={DEMO_TOOLTIP} />
+            <label className="flex w-40 flex-col rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
+              Periodo
+              <select value={offset} onChange={(e) => setOffset(Number(e.target.value))} className="mt-0.5 bg-transparent text-sm font-medium text-primary outline-none">
+                {PERIOD_OFFSETS.map((value) => {
+                  const index = (((monthIndex + value) % 12) + 12) % 12;
+                  return (
+                    <option key={value} value={value} className="bg-popover text-foreground">
+                      {MONTH_LABELS[index]} {index > monthIndex ? year - 1 : year}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            <label className="flex w-48 flex-col rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
+              Entidad
+              <select value={entity} onChange={(e) => setEntity(e.target.value)} className="mt-0.5 bg-transparent text-sm font-medium text-primary outline-none">
+                {ENTITIES.map((item) => (
+                  <option key={item.value} value={item.value} className="bg-popover text-foreground">
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex w-44 flex-col rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
+              Escenario
+              <select value={scenarioView} onChange={(e) => setScenarioView(e.target.value)} className="mt-0.5 bg-transparent text-sm font-medium text-primary outline-none">
+                {SCENARIO_VIEWS.map((item) => (
+                  <option key={item.value} value={item.value} className="bg-popover text-foreground">
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button variant="outline" onClick={exportReport}>
+              Exportar informe
+            </Button>
+          </>
+        }
+      />
+
+      {/* KPIs */}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6" aria-label="Indicadores financieros">
+        <KpiCard
+          label="Caja disponible"
+          leading={<Coins className="size-8 shrink-0 text-primary" />}
+          value={formatEuro(cash, 0)}
+          footer={
+            <>
+              <Delta value={cashDelta} />
+              <Sparkline values={balances} />
+            </>
+          }
+        />
+        <KpiCard
+          label="Ingresos del mes"
+          leading={<BarChart3 className="size-8 shrink-0 text-primary" />}
+          value={formatEuro(pnl.revenue, 0)}
+          accent
+          footer={
+            <>
+              <Delta value={pnl.rows[0].delta ?? 0} />
+              <Sparkline values={inflows} />
+            </>
+          }
+        />
+        <KpiCard
+          label="Beneficio neto"
+          leading={<PieChart className="size-8 shrink-0 text-primary" />}
+          value={formatEuro(pnl.net, 0)}
+          tone={pnl.net >= 0 ? "success" : "danger"}
+          footer={<Sparkline values={fullSeries.map((m) => m.inflow - m.outflow)} />}
+        />
+        <KpiCard
+          label="Margen neto"
+          leading={<Percent className="size-8 shrink-0 text-primary" />}
+          value={formatPercent(pnl.netMarginPct)}
+          footer={<Delta value={pnl.netMarginPct - previousPnl.netMarginPct} unit="pp" />}
+        />
+        <KpiCard
+          label="Gasto del mes"
+          leading={<Wallet className="size-8 shrink-0 text-primary" />}
+          value={formatEuro(pnl.spend, 0)}
+          footer={
+            <>
+              <Delta value={previousPnl.spend > 0 ? pnl.spend / previousPnl.spend - 1 : 0} />
+              <Sparkline values={outflows} color="var(--danger)" />
+            </>
+          }
+        />
+        <KpiCard
+          label="Runway"
+          leading={<Hourglass className="size-8 shrink-0 text-primary" />}
+          value={pnl.net >= 0 ? "Sin riesgo" : `${runway.toLocaleString("es-ES", { maximumFractionDigits: 1 })} meses`}
+          tone={pnl.net >= 0 ? "success" : runway < 3 ? "danger" : "warning"}
+          caption={
+            pnl.net >= 0
+              ? `Mes en positivo · la caja cubre ${runway.toLocaleString("es-ES", { maximumFractionDigits: 1 })} meses de gastos`
+              : "Con el ritmo de gasto actual"
+          }
+        />
+      </section>
+
+      {/* Cash flow · P&L · Presupuesto */}
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
+        <Card className="min-w-0">
+          <CardHeader>
+            <CardTitle>Cash Flow</CardTitle>
+            <CardAction>
+              <select
+                value={cashRange}
+                onChange={(e) => setCashRange(e.target.value)}
+                aria-label="Meses del cash flow"
+                className="rounded-md border bg-background px-2 py-1 text-xs"
+              >
+                {CASH_FLOW_RANGES.map((range) => (
+                  <option key={range.value} value={range.value}>
+                    {range.label}
+                  </option>
+                ))}
+              </select>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            <CashFlowChart
+              ariaLabel="Entradas, salidas y saldo por mes"
+              points={series}
+              formatValue={(v) => formatEuro(v, 0)}
+              warning={
+                warning
+                  ? {
+                      index: series.findIndex((m) => m.offset === warning.offset),
+                      lines: ["Posible tensión de caja", `prevista en ${warning.label}`],
+                    }
+                  : undefined
               }
             />
-            <KpiCard
-              label="Campañas listas"
-              value={`${data.active_campaigns}/${data.total_campaigns}`}
-              icon={Megaphone}
-              caption="Propuestas en estado READY"
-              provenance="estimated"
-            />
-            <KpiCard
-              label="Presupuesto diario"
-              value={formatAmount(data.total_daily_budget)}
-              icon={Banknote}
-              caption="Suma de las campañas listas"
-              provenance="estimated"
-              provenanceTooltip="Presupuesto diario propuesto en campañas simuladas; no es gasto real."
-            />
-          </section>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Entradas y salidas del mes proyectadas con el crecimiento previsto; el saldo parte de la liquidez actual.
+            </p>
+          </CardContent>
+        </Card>
 
-          <SectionNav
-            label="Secciones del informe financiero"
-            items={[
-              { label: "Presupuesto", href: "#presupuesto", icon: Wallet },
-              { label: "Salud financiera", href: "#salud", icon: ShieldCheck },
-              { label: "Cartera de productos", href: "#cartera", icon: Boxes },
-              { label: "Historial", href: "#historial", icon: CalendarClock },
-              ...PENDING_NAV.map((item) => ({
-                ...item,
-                pendingReason: "Pendiente: el backend no tiene contabilidad ni tesorería",
-              })),
-            ]}
-          />
+        <PnlCard pnl={pnl} monthLabel={`${MONTH_LABELS[shownMonth]} ${year}`} />
+        <BudgetCard budget={budget} year={year} onRequest={requestBudget} />
+      </section>
 
-          <section className="grid gap-4 xl:grid-cols-12">
-            <Card id="presupuesto" className="scroll-mt-4 xl:col-span-6">
-              <CardHeader>
-                <CardTitle>Presupuesto global</CardTitle>
-                <CardAction>
-                  <DataProvenanceBadge
-                    status={budget.limit > 0 ? "verified" : "pending"}
-                    tooltip={
-                      budget.limit > 0
-                        ? "Totales de las reservas del BudgetEngine registradas en la base de datos."
-                        : "Todavía no hay presupuestos registrados."
-                    }
-                  />
-                </CardAction>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {budget.limit > 0 ? (
-                  <>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <p className="text-2xl font-semibold">{formatAmount(budget.limit)}</p>
-                      <p className="text-xs text-muted-foreground">Límite máximo total</p>
-                    </div>
-                    <StackedBar
-                      ariaLabel="Reparto del límite de presupuesto"
-                      total={budget.limit}
-                      segments={[
-                        { key: "spent", label: "Gastado", value: budget.spent, valueLabel: formatAmount(budget.spent), className: "bg-primary" },
-                        { key: "committed", label: "Comprometido", value: budget.committed, valueLabel: formatAmount(budget.committed), className: "bg-sky-500" },
-                        { key: "reserved", label: "Reservado", value: budget.reserved, valueLabel: formatAmount(budget.reserved), className: "bg-amber-500" },
-                        { key: "available", label: "Disponible", value: budget.available, valueLabel: formatAmount(budget.available), className: "bg-muted-foreground/40" },
-                      ]}
-                    />
-                    {budget.overLimit ? (
-                      <p className="text-xs font-medium text-destructive">El uso supera el límite máximo.</p>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-                    No hay presupuestos registrados: ningún objetivo ha pedido todavía una aprobación de gasto, así que
-                    el BudgetEngine no ha guardado reservas.
-                  </p>
-                )}
-                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                  <DataProvenanceBadge
-                    status="pending"
-                    tooltip="El presupuesto se guarda como un total, sin dividirlo por áreas."
-                  />
-                  Distribución por áreas (marketing, operaciones, software, legal…) y solicitud de nuevo presupuesto.
-                </div>
-              </CardContent>
-            </Card>
+      {/* Tesorería · Pagos · Cobros · Working capital */}
+      <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
+        <TreasuryCard treasury={treasuryView} week={upcomingWeek(pnl, receivablesView.total)} />
+        <PayablesCard rows={payableRows} formatDueDay={(days) => `${((date.getUTCDate() + days - 1) % 30) + 1} ${MONTH_LABELS[(shownMonth + (date.getUTCDate() + days > 30 ? 1 : 0)) % 12]}`} />
+        <ReceivablesCard rows={receivablesView.rows} total={receivablesView.total} averageDays={receivablesView.averageDays} />
+        <WorkingCapitalCard view={working} />
+      </section>
 
-            <Card id="salud" className="scroll-mt-4 xl:col-span-6">
-              <CardHeader>
-                <CardTitle>Salud financiera</CardTitle>
-                <CardAction>
-                  <DataProvenanceBadge
-                    status="estimated"
-                    tooltip="El agente clasifica con reglas fijas, no con un score explicable de siete componentes."
-                  />
-                </CardAction>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <VerdictBanner tone={verdict.tone} title={verdict.title} detail={verdict.detail} />
-                <RiskList risks={risks} />
-                {evidence.length > 0 ? (
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">Evidencias del informe</p>
-                    <ul className="mt-1 list-inside list-disc text-sm">
-                      {evidence.map((line) => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                <div>
-                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">Reglas que aplica el agente hoy</p>
-                  <ul className="divide-y rounded-lg border text-sm">
-                    {CFO_RULES.map((item) => (
-                      <li key={item.rule} className="flex items-start justify-between gap-3 px-3 py-2">
-                        <span>{item.rule}</span>
-                        <span
-                          className={cn(
-                            "shrink-0 text-xs font-medium",
-                            item.result === "Crítica" && "text-red-500",
-                            item.result === "En riesgo" && "text-amber-500",
-                            item.result === "Requiere revisión" && "text-amber-500",
-                            item.result === "Saludable" && "text-primary",
-                          )}
-                        >
-                          {item.result}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <p className="text-[11px] text-muted-foreground">Riesgos y evidencias: texto del agente (en inglés).</p>
-              </CardContent>
-            </Card>
-          </section>
+      {/* Forecast · Dimensiones · Desviaciones · Salud */}
+      <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+        <ForecastCard scenario={forecastScenario} onScenarioChange={setForecastScenario} points={forecastPoints} hasReal={hasRealScenarios} />
+        <DimensionCard dimension={dimension} onDimensionChange={setDimension} rows={dimensionRows(monthOrders, dimension, marketLabel)} />
+        <DeviationsCard rows={deviationRows} />
+        <FinancialHealthCard health={health} agentVerdict={verdict} />
+      </section>
 
-          <section className="grid gap-4 xl:grid-cols-12">
-            <Card id="cartera" className="scroll-mt-4 xl:col-span-5">
-              <CardHeader>
-                <CardTitle>Cartera de productos</CardTitle>
-                <CardAction>
-                  <DataProvenanceBadge
-                    status="estimated"
-                    tooltip="Recomendaciones de la última decisión económica de cada producto, sobre supuestos simulados."
-                  />
-                </CardAction>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <StackedBar
-                  ariaLabel="Decisiones económicas por resultado"
-                  segments={[
-                    { key: "go", label: "GO", value: data.go_count, valueLabel: formatInteger(data.go_count), className: "bg-primary" },
-                    { key: "review", label: "Revisión", value: data.review_count, valueLabel: formatInteger(data.review_count), className: "bg-amber-500" },
-                    { key: "nogo", label: "NO_GO", value: data.no_go_count, valueLabel: formatInteger(data.no_go_count), className: "bg-red-500" },
-                  ]}
-                />
-                <dl className="divide-y text-sm">
-                  <DlRow label="Productos con análisis">{formatInteger(data.total_products_analyzed)}</DlRow>
-                  <DlRow label="Productos del catálogo">{formatInteger(totalProducts)}</DlRow>
-                </dl>
-                <p className="text-[11px] text-muted-foreground">
-                  Rentabilidad por canal, país, proveedor, campaña o proyecto: pendiente, no hay datos de ventas
-                  reales que agrupar.
-                </p>
-              </CardContent>
-            </Card>
+      {/* Fiscalidad · Capital · Alertas · Copiloto */}
+      <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+        <TaxCard tax={tax} year={year} />
+        <FundingCard reserve={DEMO_CASH.reserve} capitalNeed={Math.max(0, pnl.spend - pnl.revenue)} />
+        <AlertsCard alerts={alerts} />
+        <CopilotCard />
+      </section>
 
-            <Card className="xl:col-span-7">
-              <CardHeader>
-                <CardTitle>Rentabilidad por producto</CardTitle>
-                <CardAction>
-                  <DataProvenanceBadge
-                    status="estimated"
-                    tooltip="Beneficio mensual del escenario base de la última decisión económica: una estimación simulada, no un resultado real."
-                  />
-                </CardAction>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {portfolio.length > 0 ? (
-                  <RankedBars
-                    ariaLabel="Beneficio mensual estimado por producto"
-                    items={portfolio.map((row) => ({
-                      key: row.productId,
-                      label: row.name,
-                      sublabel: `${row.category} · margen ${formatPercent(row.marginPercent)} · ${row.recommendation}`,
-                      value: row.monthlyProfit,
-                      valueLabel: row.monthlyProfit !== null ? formatAmount(row.monthlyProfit) : "Sin escenario",
-                    }))}
-                  />
-                ) : (
-                  <p className="text-sm text-muted-foreground">Ningún producto tiene todavía un análisis económico.</p>
-                )}
-                <p className="text-[11px] text-muted-foreground">
-                  Beneficio mensual estimado (escenario base) de la última decisión de cada producto.
-                  {totalProducts > products.length
-                    ? ` Se leen los ${products.length} primeros de ${totalProducts} productos: no hay un endpoint agregado.`
-                    : ""}{" "}
-                  Los unit economics se calculan en Economía y rentabilidad; aquí solo se listan.
-                </p>
-              </CardContent>
-            </Card>
-          </section>
-
-          <Card id="historial" className="scroll-mt-4">
-            <CardHeader>
-              <CardTitle>Historial de informes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                columns={historyColumns}
-                rows={reports}
-                getRowId={(row) => row.correlation_id}
-                emptyMessage="Aún no hay informes."
-              />
-            </CardContent>
-          </Card>
-
-          <PendingFeatures
-            title="Finanzas de empresa — pendiente de backend"
-            tooltip="Requieren contabilidad, tesorería, pasarelas de cobro, facturación e impuestos que el backend aún no tiene."
-            items={PENDING_FINANCE}
-            columns={4}
-            note="Hoy el agente CFO solo agrega decisiones económicas, campañas y reservas de presupuesto. No existen movimientos de caja, ingresos reales, cuentas a pagar/cobrar, impuestos ni contabilidad, así que no se muestra ningún dato de caja, P&L ni forecast."
-          />
-        </>
-      )}
+      <p className="text-[11px] text-muted-foreground">
+        Catálogo consolidado: {formatInteger(data.length)} de {formatInteger(totalProducts)} productos
+        {report ? ` · informe del agente CFO con ${formatInteger(report.data?.total_products_analyzed ?? 0)} análisis` : " · sin informe del agente CFO"}.
+      </p>
     </div>
   );
 }

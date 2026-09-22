@@ -80,6 +80,8 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `RouteMap` tono / detalle / leyenda | Operaciones (2.ª pasada) | Cualquier mapa con estado por nodo (Proveedores, Estado) |
 | `lib/operations-view.ts` | Operaciones (2.ª pasada) | Finanzas y Panel (pedidos, entregas e incidencias del periodo) |
 | `demoSku` | Tienda, Operaciones | Cualquier panel que enseñe el SKU mientras no haya catálogo |
+| `CashFlowChart` | Finanzas (2.ª pasada) | Panel y Director ejecutivo (caja y previsión) |
+| `lib/cfo-view.ts` | Finanzas (2.ª pasada) | Panel, Director ejecutivo (P&L, caja y salud financiera) |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -707,3 +709,24 @@ devoluciones, mapa, salud operativa y automatizaciones.
    defectos) en vez de derivarlas de la fiabilidad de la cotización.
 6. Operational Health calculado en el backend, con su explicación por eje.
 7. Motor de automatizaciones (reglas, modo operativo) persistido y auditable.
+
+## 7 (segunda pasada). Finanzas y control
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real: los
+análisis económicos (la cuenta de resultados usa los mismos supuestos que Economía),
+las cotizaciones, los escenarios del agente económico y, del informe del agente CFO,
+el veredicto de salud, las reservas y los riesgos. Demo (`lib/demo/cfo.ts`): caja,
+tesorería, cash flow, presupuesto anual sin límite del BudgetEngine, fiscalidad,
+subvenciones y copiloto; los cobros y pagos vienen de los pedidos de Operaciones.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 7 y además:
+
+1. Contabilidad real: asientos, cuenta de resultados y balance por periodo.
+2. Tesorería conectada (banco y pasarelas) con saldos y movimientos.
+3. Cuentas a cobrar y pagar reales, con vencimientos y estado de cada factura.
+4. Presupuesto anual por categoría en el BudgetEngine (hoy solo hay límite global,
+   reservas y comprometido) y aprobación de ampliaciones.
+5. Fiscalidad: IVA e impuesto de sociedades calculados sobre facturación real
+   (la facturación debe pasar por un sistema certificado Verifactu de terceros).
+6. Forecast financiero del backend, no derivado en el cliente.
+7. Endpoint conversacional del agente CFO para el copiloto.
