@@ -90,7 +90,7 @@ export function RouteMap({
       >
         <g>
           {COUNTRY_PATHS.map((d, i) => (
-            <path key={i} d={d} fill="var(--panel-2)" stroke="var(--border)" strokeWidth={0.5} />
+            <path key={i} d={d} fill="#0a3230" stroke="#16524d" strokeWidth={0.6} />
           ))}
         </g>
 

@@ -6,20 +6,13 @@
 // Sustituir por datos reales cuando existan los endpoints (ver
 // docs/design/AMAZONA_estado_paneles_rediseno.md, sección 2).
 
-/** Proveedor de ejemplo cuando el producto no tiene ninguna cotización. */
-export const DEMO_SUPPLIER = {
-  name: "Shenzhen AudioTech Co.",
-  region: "china",
-  unitPrice: 8.4,
-  logisticsPerUnit: 2.46,
-  moq: 500,
-};
-
 /** Supuestos de venta cuando no hay ningún análisis guardado. */
 export const DEMO_SALE = {
   salePrice: 29.9,
   monthlyFixedCosts: 1000,
   monthlyOrders: 300,
+  /** Unidades del primer pedido de stock (capital inicial comprometido). */
+  firstOrderUnits: 500,
 };
 
 /** Parte de la logística de la cotización que se atribuye a transporte; el
@@ -38,7 +31,6 @@ export const DEMO_UNIT_COSTS = {
 
 /** Ficha del producto que el backend aún no guarda. */
 export const DEMO_PRODUCT_META = {
-  researchScore: 92,
   markets: ["es", "eu"] as const,
   marketLabel: "España + UE",
   logisticsModel: "Envío directo",

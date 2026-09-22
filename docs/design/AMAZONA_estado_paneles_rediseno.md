@@ -596,3 +596,21 @@ productos y las señales del agente de los productos investigados en la sesión
 6. Seguimiento de productos en el backend (hoy «Seguir» es local del navegador) y
    descartes automáticos con motivo.
 7. Insights generados por el agente.
+
+## 1 (segunda pasada). Proveedores y abastecimiento
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real:
+cotizaciones del producto (se cargan al entrar). Demo (`lib/demo/sourcing.ts`):
+proveedores de ejemplo cuando no hay cotizaciones y el perfil de cada proveedor.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 1 y además:
+
+1. `SupplierQuote` con país y ciudad, certificaciones (y su estado), envío directo,
+   plazo de entrega al destino, modo de transporte, Incoterms y métodos de pago.
+2. Scores de calidad, compliance y escalabilidad por proveedor, y un score global
+   calculado en el backend.
+3. Criterios de compatibilidad (packaging neutro, tracking, stock sincronizable,
+   devoluciones UE, SLA, pago tras venta) como campos del proveedor.
+4. Landed cost desglosado (transporte, arancel/IVA, fulfillment, pago/divisa,
+   devoluciones) desde el motor, no con supuestos del cliente.
+5. Búsquedas guardadas en el backend y fecha de cada cotización.

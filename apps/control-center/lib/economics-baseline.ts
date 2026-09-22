@@ -1,5 +1,7 @@
 import type { EconomicAnalysis, SupplierQuote } from "./api.ts";
-import { DEMO_SALE, DEMO_SUPPLIER, DEMO_TRANSPORT_SHARE, DEMO_UNIT_COSTS } from "./demo/economics.ts";
+import { DEMO_SALE, DEMO_TRANSPORT_SHARE, DEMO_UNIT_COSTS } from "./demo/economics.ts";
+import { demoQuotes } from "./demo/sourcing.ts";
+import { rankSuppliers } from "./sourcing-view.ts";
 import type { CostKey, EconomicsInputs } from "./economics-model.ts";
 
 /** De dónde sale cada coste del desglose (badge de la fila). */
@@ -20,9 +22,10 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 export function buildBaseline(quote: SupplierQuote | undefined, analysis: EconomicAnalysis | undefined): EconomicsBaseline {
   const demoFields: string[] = [];
 
-  const unitPrice = quote ? quote.unit_price : DEMO_SUPPLIER.unitPrice;
-  const logistics = quote ? quote.logistics_cost_per_unit : DEMO_SUPPLIER.logisticsPerUnit;
-  const moq = quote ? quote.moq : DEMO_SUPPLIER.moq;
+  // Sin cotización real, el mismo proveedor de ejemplo que Proveedores recomienda.
+  const source = quote ?? rankSuppliers(demoQuotes(analysis?.product_id ?? "demo"))[0].quote;
+  const unitPrice = source.unit_price;
+  const logistics = source.logistics_cost_per_unit;
   if (!quote) demoFields.push("proveedor y su cotización");
 
   const baseOrders = analysis?.data?.scenarios?.base?.monthly_unit_sales;
@@ -40,11 +43,15 @@ export function buildBaseline(quote: SupplierQuote | undefined, analysis: Econom
       ...DEMO_UNIT_COSTS,
       monthlyOrders: baseOrders !== undefined ? Math.round(baseOrders) : DEMO_SALE.monthlyOrders,
       monthlyFixedCosts: analysis ? analysis.monthly_fixed_costs : DEMO_SALE.monthlyFixedCosts,
-      initialInvestment: round2(moq * (unitPrice + logistics)),
+      // Capital del primer pedido de stock (o el MOQ, si es mayor).
+      initialInvestment: round2(Math.max(source.moq, DEMO_SALE.firstOrderUnits) * (unitPrice + logistics)),
     },
-    supplier: quote
-      ? { name: quote.data?.name ?? quote.supplier_id, region: quote.data?.region ?? null, verified: quote.verified, isDemo: false }
-      : { name: DEMO_SUPPLIER.name, region: DEMO_SUPPLIER.region, verified: false, isDemo: true },
+    supplier: {
+      name: source.data?.name ?? source.supplier_id,
+      region: source.data?.region ?? null,
+      verified: quote ? quote.verified : false,
+      isDemo: !quote,
+    },
     costSources: {
       supplier: quote?.verified ? "verified" : "third_party",
       transport: "third_party",

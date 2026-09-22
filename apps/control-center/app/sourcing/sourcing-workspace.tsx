@@ -6,342 +6,289 @@ import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
+  Box,
   Brain,
   Calculator,
-  Check,
-  CircleDashed,
+  CheckCircle2,
+  ChevronRight,
+  CircleDollarSign,
+  Clock,
+  GitCompareArrows,
   Loader2,
-  MapPin,
   PackageCheck,
   PackageSearch,
+  Save,
   Scale,
   Search,
-  ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Star,
   Truck,
-  X,
+  UserCheck,
 } from "lucide-react";
 import { ApiError, api, type Product, type SupplierQuote } from "@/lib/api";
-import {
-  DISTINCTION_LABEL,
-  SUPPLIER_RADAR_AXES,
-  applyFilters,
-  averageRadarValues,
-  distinctionsFor,
-  sortByLandedCost,
-  supplierRadarValues,
-  type QuoteFilters,
-} from "@/lib/sourcing";
-import { formatAmount, formatInteger } from "@/lib/format";
+import { DEMO_PRODUCT_META } from "@/lib/demo/economics";
+import { DEMO_SEARCH_OPTIONS, demoQuotes } from "@/lib/demo/sourcing";
+import { dedupeQuotesBySupplier } from "@/lib/economics";
+import { formatEuro, formatInteger } from "@/lib/format";
 import { REGION_ANCHORS, REGION_LABELS, regionLabel } from "@/lib/regions";
+import { buildRows, categoryLabel } from "@/lib/research-view";
+import {
+  SUPPLIER_AXES,
+  averageAxes,
+  compatibility,
+  filterSuppliers,
+  landedBreakdown,
+  rankSuppliers,
+  topBadges,
+  type RankedSupplier,
+  type SearchParams,
+  type SupplierRisk,
+} from "@/lib/sourcing-view";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
+import { Flag } from "@/components/flag";
+import { HeaderClock } from "@/components/header-clock";
+import { HeaderTile } from "@/components/header-tile";
+import { LevelChip, type LevelTone } from "@/components/level-chip";
 import { NextStepBar } from "@/components/next-step-bar";
-import { RadarChart, type RadarSeries } from "@/components/radar-chart";
+import { PageHeader } from "@/components/page-header";
+import { RadarChart } from "@/components/radar-chart";
 import { RouteMap, type MapPoint, type MapRoute } from "@/components/route-map";
 import { ScoreGauge } from "@/components/score-gauge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { SOURCING_DESCRIPTION, SOURCING_TITLE } from "./copy";
 
-const DESTINATION_REGIONS = ["eu", "mexico", "china", "vietnam"] as const;
-const INPUT_CLASS = "w-full rounded-md border bg-background px-3 py-2 text-sm";
-
+const DESTINATIONS = ["eu", "mexico", "china", "vietnam"] as const;
+const DESTINATION_SHORT: Record<string, string> = { eu: "UE", mexico: "México", china: "China", vietnam: "Vietnam" };
+const DESTINATION_FLAG: Record<string, "eu" | "mx" | "cn" | "vn"> = { eu: "eu", mexico: "mx", china: "cn", vietnam: "vn" };
+const RISK_TONE: Record<SupplierRisk, LevelTone> = { Bajo: "ok", Medio: "warn", Alto: "bad" };
+const SELECT_CLASS =
+  "w-full min-w-0 rounded-md border bg-background/60 px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring";
 const PRODUCT_STATUS_LABEL: Record<string, string> = { CANDIDATE: "Candidato" };
-const PRODUCT_SOURCE_LABEL: Record<string, string> = { research: "Investigación", manual: "Manual" };
-
-/** Criterios de compatibilidad de la spec (§6.9) que el backend no puede
- * evaluar hoy: ninguno de estos campos existe en SupplierQuote. */
-const PENDING_COMPATIBILITY = [
-  "Dropshipping / envío directo",
-  "Packaging neutro",
-  "Tracking automático",
-  "Stock sincronizable (API/CSV)",
-  "Dirección de devoluciones UE",
-  "SLA contractual",
-  "Pago después de venta",
-];
-
-const ADVANCED_FILTERS = ["Origen", "Modelo logístico", "Certificaciones", "Incoterms", "Métodos de pago"];
-
-interface SearchRun {
-  quotes: SupplierQuote[];
-  destinationRegion: string;
-  ranAt: Date;
-}
-
-function parseLimit(value: string): number | undefined {
-  if (value.trim() === "") return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
-function quoteRegion(quote: SupplierQuote): string | undefined {
-  return quote.data?.region;
-}
 
 function quoteName(quote: SupplierQuote): string {
   return quote.data?.name ?? quote.supplier_id;
 }
 
-function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: React.ReactNode }) {
+function days([min, max]: [number, number]): string {
+  return `${min}–${max} días`;
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="min-w-0 space-y-1.5">
-      <label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
-        {label}
-      </label>
+    <label className="min-w-0 space-y-1 text-xs text-muted-foreground">
+      <span className="block">{label}</span>
       {children}
-    </div>
-  );
-}
-
-function Stat({ value, label }: { value: string | number; label: string }) {
-  return (
-    <div className="rounded-lg border bg-background/60 px-3 py-2.5">
-      <p className="text-xl font-semibold text-primary">{value}</p>
-      <p className="text-[11px] leading-tight text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
-function VerificationChip({ verified }: { verified: boolean }) {
-  return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "gap-1 font-medium",
-        verified
-          ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-          : "border-red-500/30 bg-red-500/15 text-red-600 dark:text-red-400",
-      )}
-    >
-      {verified ? <ShieldCheck className="size-3" /> : <ShieldAlert className="size-3" />}
-      {verified ? "Verificado" : "No verificado"}
-    </Badge>
+    </label>
   );
 }
 
 function SupplierCard({
-  quote,
-  rank,
-  distinctions,
+  supplier,
+  destination,
+  badge,
   selected,
   comparing,
   onSelect,
-  onCompare,
+  onProfile,
   onAnalyze,
+  onCompare,
 }: {
-  quote: SupplierQuote;
-  rank: number;
-  distinctions: string[];
+  supplier: RankedSupplier;
+  destination: string;
+  badge?: string;
   selected: boolean;
   comparing: boolean;
   onSelect: () => void;
-  onCompare: () => void;
+  onProfile: () => void;
   onAnalyze: () => void;
+  onCompare: () => void;
 }) {
+  const { quote, profile } = supplier;
+  const certs = profile.certifications.join(", ");
   return (
-    <Card
-      role="button"
-      tabIndex={0}
-      aria-pressed={selected}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
+    <div
       className={cn(
-        "cursor-pointer outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring",
-        selected && "ring-2 ring-primary shadow-[0_0_18px_-6px_var(--emerald)]",
+        "flex min-w-0 flex-col gap-3 rounded-xl border bg-background/40 p-3.5 transition-colors",
+        selected && "border-primary/60 shadow-[0_0_18px_-10px_var(--emerald)]",
       )}
     >
-      <CardContent className="space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{quoteName(quote)}</p>
-            <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-              <MapPin className="size-3" />
-              {regionLabel(quoteRegion(quote))}
-            </p>
-          </div>
-          <span className="shrink-0 text-xs text-muted-foreground">#{rank}</span>
+      <div className="flex items-start justify-between gap-2">
+        <button type="button" onClick={onSelect} className="min-w-0 flex-1 text-left" aria-pressed={selected}>
+          <p className="line-clamp-2 text-[13px] leading-snug font-semibold">{quoteName(quote)}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Flag code={profile.flag} /> {profile.country} · {profile.city}
+          </p>
+        </button>
+        <button type="button" className="shrink-0 text-xs text-primary hover:underline" onClick={onProfile}>
+          Ver perfil
+        </button>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="flex size-16 shrink-0 items-center justify-center rounded-lg border bg-background/60 text-primary">
+          <Box className="size-7" />
         </div>
-
-        <ScoreGauge value={quote.reliability_score * 100} label="Fiabilidad" className="mx-auto w-28" />
-
-        <div className="grid grid-cols-2 gap-2 border-t pt-3 text-center">
-          <div>
-            <p className="text-[11px] text-muted-foreground">Precio</p>
-            <p className="text-lg leading-tight font-semibold">{formatAmount(quote.unit_price)}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-muted-foreground">Entregado</p>
-            <p className="text-lg leading-tight font-semibold text-primary">
-              {formatAmount(quote.total_landed_cost_per_unit)}
-            </p>
-          </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] text-muted-foreground">Score proveedor</p>
+          <ScoreGauge value={supplier.score} className="w-24" />
         </div>
+      </div>
+      <div>
+        <p className="text-[11px] text-muted-foreground">Precio por unidad</p>
+        <p className="text-lg font-semibold text-primary">{formatEuro(quote.unit_price)}</p>
+      </div>
 
-        <dl className="space-y-1.5 text-xs">
-          <div className="flex justify-between gap-2">
-            <dt className="text-muted-foreground">MOQ</dt>
-            <dd className="font-medium">{formatInteger(quote.moq)} uds</dd>
+      <dl className="space-y-1.5 text-xs">
+        {[
+          ["MOQ", `${formatInteger(quote.moq)} ${quote.moq === 1 ? "unidad" : "unidades"}`],
+          [`Entrega a ${DESTINATION_SHORT[destination] ?? destination}`, days(profile.delivery)],
+          ["Envío directo", profile.directShipping ? "Sí" : "No"],
+          ["Certificaciones", profile.certificationPending ? `${certs} (pendiente)` : certs],
+        ].map(([label, value]) => (
+          <div key={label} className="flex justify-between gap-2">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="truncate text-right font-medium">{value}</dd>
           </div>
-          <div className="flex justify-between gap-2">
-            <dt className="text-muted-foreground">Entrega</dt>
-            <dd className="font-medium">{quote.lead_time_days} días</dd>
-          </div>
-        </dl>
-        <VerificationChip verified={quote.verified} />
+        ))}
+      </dl>
 
-        <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-          <Button type="button" size="sm" className="flex-1" onClick={onAnalyze}>
-            Analizar
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={comparing ? "secondary" : "outline"}
-            className="flex-1"
-            aria-pressed={comparing}
-            onClick={onCompare}
-          >
-            {comparing ? "Comparando" : "Comparar"}
-          </Button>
-        </div>
-
-        {distinctions.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {distinctions.map((label) => (
-              <Badge key={label} variant="outline" className="gap-1 border-primary/40 text-primary">
-                <Star className="size-3" />
-                {label}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function CompatibilityRow({ state, label, detail }: { state: "pass" | "fail" | "info" | "pending"; label: string; detail?: string }) {
-  return (
-    <li className={cn("flex items-center gap-2 text-xs", state === "pending" && "text-muted-foreground")}>
-      {state === "pass" ? (
-        <Check className="size-4 shrink-0 text-emerald-500" />
-      ) : state === "fail" ? (
-        <X className="size-4 shrink-0 text-red-500" />
-      ) : state === "info" ? (
-        <PackageCheck className="size-4 shrink-0 text-primary" />
-      ) : (
-        <CircleDashed className="size-4 shrink-0 opacity-60" />
-      )}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {detail ? <span className="shrink-0 font-medium text-foreground">{detail}</span> : null}
-      {state === "pending" ? <span className="shrink-0 text-[10px] uppercase tracking-wide">Pendiente</span> : null}
-    </li>
+      <div className="mt-auto grid grid-cols-2 gap-2">
+        <Button size="sm" onClick={onAnalyze}>
+          Analizar
+        </Button>
+        <Button
+          size="sm"
+          variant={comparing ? "secondary" : "outline"}
+          onClick={onCompare}
+          aria-pressed={comparing}
+          disabled={selected}
+          title={selected ? "Es el proveedor seleccionado: elige otro para compararlo" : undefined}
+        >
+          {comparing ? "Comparando" : "Comparar"}
+        </Button>
+      </div>
+      {badge ? (
+        <Badge variant="outline" className="mx-auto gap-1 border-primary/40 text-primary">
+          <Star className="size-3" /> {badge}
+        </Badge>
+      ) : null}
+    </div>
   );
 }
 
 export function SourcingWorkspace({
   products,
-  initialProductId,
+  productId,
+  quotes,
+  initialSearch,
 }: {
   products: Product[];
-  initialProductId?: string;
+  productId?: string;
+  quotes: SupplierQuote[];
+  initialSearch: SearchParams;
 }) {
   const router = useRouter();
-
-  const [productId, setProductId] = useState(
-    products.some((p) => p.id === initialProductId) ? (initialProductId as string) : (products[0]?.id ?? ""),
-  );
-  const [changingProduct, setChangingProduct] = useState(false);
-  const [destinationRegion, setDestinationRegion] = useState<string>("eu");
-  const [maxResults, setMaxResults] = useState(5);
-  const [maxUnitPrice, setMaxUnitPrice] = useState("");
-  const [maxLeadTime, setMaxLeadTime] = useState("");
-  const [maxMoq, setMaxMoq] = useState("");
-
-  const [run, setRun] = useState<SearchRun | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [compareId, setCompareId] = useState<string | null>(null);
-
   const product = products.find((p) => p.id === productId);
 
-  const filters = useMemo<QuoteFilters>(
-    () => ({
-      maxUnitPrice: parseLimit(maxUnitPrice),
-      maxLeadTimeDays: parseLimit(maxLeadTime),
-      maxMoq: parseLimit(maxMoq),
-    }),
-    [maxUnitPrice, maxLeadTime, maxMoq],
+  const [search, setSearch] = useState<SearchParams>(initialSearch);
+  const [showMore, setShowMore] = useState(initialSearch.verifiedOnly);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [changingProduct, setChangingProduct] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [compareId, setCompareId] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchedAt, setSearchedAt] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const isDemo = quotes.length === 0;
+  const allQuotes = useMemo(
+    () => (isDemo ? demoQuotes(productId ?? "demo") : dedupeQuotesBySupplier(quotes)),
+    [isDemo, quotes, productId],
   );
-  const filtersActive = Object.values(filters).some((v) => v !== undefined);
+  const ranked = useMemo(() => rankSuppliers(allQuotes), [allQuotes]);
+  const shown = filterSuppliers(ranked, search);
+  const badges = topBadges(shown, search.destination);
+  const selected = shown.find((s) => s.quote.id === selectedId) ?? shown[0];
+  const compared = shown.find((s) => s.quote.id === compareId && s.quote.id !== selected?.quote.id);
 
-  const allQuotes = useMemo(() => (run ? sortByLandedCost(run.quotes) : []), [run]);
-  const shown = useMemo(() => applyFilters(allQuotes, filters), [allQuotes, filters]);
-  const distinctions = useMemo(() => distinctionsFor(shown), [shown]);
+  if (products.length === 0 || !product) {
+    return (
+      <div>
+        <PageHeader title={SOURCING_TITLE} description={SOURCING_DESCRIPTION} />
+        <Card>
+          <CardContent>
+            <EmptyState
+              icon={PackageSearch}
+              title="Aún no hay productos para abastecer"
+              description="Los proveedores se buscan para un producto ya investigado. Lanza primero una investigación."
+              action={
+                <Button size="sm" variant="outline" nativeButton={false} render={<Link href="/research" />}>
+                  Ir a Investigación
+                </Button>
+              }
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-  // Si el proveedor elegido queda fuera de los filtros, la selección cae en el primero visible.
-  const selected = shown.find((q) => q.id === selectedId) ?? shown[0];
-  const compared = shown.find((q) => q.id === compareId && q.id !== selected?.id);
+  const researchScore = buildRows([product], [])[0].score;
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!product) return;
+  function update<K extends keyof SearchParams>(key: K, value: SearchParams[K]) {
+    setSearch((current) => ({ ...current, [key]: value }));
+    setSavedAt(null);
+  }
+
+  function saveSearch() {
+    const params = new URLSearchParams({ product_id: product!.id, dest: search.destination, logistics: search.logistics });
+    if (search.origin) params.set("origin", search.origin);
+    if (search.minPrice) params.set("pmin", search.minPrice);
+    if (search.maxPrice) params.set("pmax", search.maxPrice);
+    if (search.maxLeadTime) params.set("lead", search.maxLeadTime);
+    if (search.maxMoq) params.set("moq", search.maxMoq);
+    if (search.requireCertification) params.set("cert", "1");
+    if (search.verifiedOnly) params.set("verified", "1");
+    if (search.maxResults !== 5) params.set("max", String(search.maxResults));
+    router.replace(`/sourcing?${params.toString()}`, { scroll: false });
+    setSavedAt(new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }));
+  }
+
+  async function runSearch() {
     setError(null);
-    setSubmitting(true);
+    setSearching(true);
     try {
-      const result = await api.createSourcingRun({
-        product_id: product.id,
-        category: product.category,
-        destination_region: destinationRegion,
-        max_results: maxResults,
+      await api.createSourcingRun({
+        product_id: product!.id,
+        category: product!.category,
+        destination_region: search.destination,
+        max_results: search.maxResults,
       });
-      setRun({ quotes: result.quotes, destinationRegion, ranAt: new Date() });
-      setSelectedId(null);
-      setCompareId(null);
+      setSearchedAt(new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }));
+      router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "La búsqueda de proveedores falló.");
     } finally {
-      setSubmitting(false);
+      setSearching(false);
     }
   }
 
-  function changeProduct(id: string) {
-    setProductId(id);
-    setChangingProduct(false);
-    setRun(null);
-    setSelectedId(null);
-    setCompareId(null);
-    setError(null);
-  }
-
-  function clearFilters() {
-    setMaxUnitPrice("");
-    setMaxLeadTime("");
-    setMaxMoq("");
-  }
-
   function analyzeEconomics(quote: SupplierQuote) {
-    const params = new URLSearchParams({ product_id: quote.product_id, supplier_quote_id: quote.id });
+    const params = new URLSearchParams({ product_id: product!.id });
+    if (!isDemo) params.set("supplier_quote_id", quote.id);
     router.push(`/economics?${params.toString()}`);
   }
 
-  function validateWithSupplier(quote: SupplierQuote) {
+  function validateWithCeo(quote: SupplierQuote) {
     const params = new URLSearchParams({
-      title: `Validar abastecimiento con ${quoteName(quote)} para ${product?.name ?? quote.product_id}`,
+      title: `Validar abastecimiento con ${quoteName(quote)} para ${product!.name}`,
       unit_cost: String(quote.unit_price),
       lead_time_days: String(quote.lead_time_days),
       supplier_verified: String(quote.verified),
@@ -353,132 +300,102 @@ export function SourcingWorkspace({
     setCompareId((current) => (current === quote.id ? null : quote.id));
   }
 
-  // --- Mapa: un punto por región de origen presente en los resultados + el destino ---
-  const { mapPoints, mapRoutes, unmapped } = useMemo(() => {
-    if (!run) return { mapPoints: [] as MapPoint[], mapRoutes: [] as MapRoute[], unmapped: [] as string[] };
-    const destination = run.destinationRegion;
-    const origins = [...new Set(shown.map(quoteRegion).filter((r): r is string => Boolean(r)))];
-    const regions = [...new Set([...origins, destination])];
-    const points: MapPoint[] = [];
-    const missing: string[] = [];
-    for (const region of regions) {
-      const lonLat = REGION_ANCHORS[region];
-      if (!lonLat) {
-        missing.push(region);
-        continue;
-      }
-      const isOrigin = origins.includes(region);
-      points.push({
-        id: region,
-        label: regionLabel(region),
-        lonLat,
-        kind: region === destination ? (isOrigin ? "both" : "destination") : "origin",
-      });
-    }
-    const routes: MapRoute[] = origins
-      .filter((o) => o !== destination && REGION_ANCHORS[o] && REGION_ANCHORS[destination])
-      .map((o) => ({ id: `${o}->${destination}`, from: o, to: destination }));
-    return { mapPoints: points, mapRoutes: routes, unmapped: missing };
-  }, [run, shown]);
-
-  function selectRegion(region: string) {
-    const inRegion = shown.find((q) => quoteRegion(q) === region);
-    if (inRegion) setSelectedId(inRegion.id);
+  function showProfile(quote: SupplierQuote) {
+    setSelectedId(quote.id);
+    document.getElementById("score-proveedor")?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  const tableColumns: DataTableColumn<SupplierQuote>[] = [
+  // Mapa: una región de origen por proveedor visible + el destino.
+  const origins = [...new Set(shown.map((s) => s.quote.data?.region).filter((r): r is string => Boolean(r && REGION_ANCHORS[r])))];
+  const mapPoints: MapPoint[] = [...new Set([...origins, search.destination])]
+    .filter((region) => REGION_ANCHORS[region])
+    .map((region) => ({
+      id: region,
+      label: region === search.destination ? `${regionLabel(region)} (destino)` : regionLabel(region),
+      lonLat: REGION_ANCHORS[region],
+      kind: region === search.destination ? (origins.includes(region) ? "both" : "destination") : "origin",
+    }));
+  const mapRoutes: MapRoute[] = origins
+    .filter((o) => o !== search.destination && REGION_ANCHORS[search.destination])
+    .map((o) => ({ id: `${o}->${search.destination}`, from: o, to: search.destination }));
+
+  const columns: DataTableColumn<RankedSupplier>[] = [
     {
       key: "name",
       header: "Proveedor",
-      cell: (q) => <span className="font-medium">{quoteName(q)}</span>,
-      sortValue: quoteName,
-      exportValue: quoteName,
+      cell: (s) => <span className="font-medium">{quoteName(s.quote)}</span>,
+      sortValue: (s) => quoteName(s.quote),
+      exportValue: (s) => quoteName(s.quote),
     },
     {
-      key: "region",
-      header: "Origen",
-      cell: (q) => regionLabel(quoteRegion(q)),
-      sortValue: (q) => regionLabel(quoteRegion(q)),
-      exportValue: (q) => regionLabel(quoteRegion(q)),
+      key: "country",
+      header: "País",
+      cell: (s) => (
+        <span className="flex items-center gap-1.5 whitespace-nowrap">
+          <Flag code={s.profile.flag} /> {s.profile.country}
+        </span>
+      ),
+      sortValue: (s) => s.profile.country,
+      exportValue: (s) => s.profile.country,
     },
     {
-      key: "unit_price",
-      header: "Precio",
+      key: "price",
+      header: "Precio (€)",
       align: "right",
-      cell: (q) => formatAmount(q.unit_price),
-      sortValue: (q) => q.unit_price,
-      exportValue: (q) => q.unit_price,
+      cell: (s) => formatEuro(s.quote.unit_price),
+      sortValue: (s) => s.quote.unit_price,
+      exportValue: (s) => s.quote.unit_price,
     },
+    { key: "moq", header: "MOQ", align: "right", cell: (s) => formatInteger(s.quote.moq), sortValue: (s) => s.quote.moq, exportValue: (s) => s.quote.moq },
     {
-      key: "moq",
-      header: "MOQ",
-      align: "right",
-      cell: (q) => formatInteger(q.moq),
-      sortValue: (q) => q.moq,
-      exportValue: (q) => q.moq,
-    },
-    {
-      key: "lead_time",
+      key: "delivery",
       header: "Entrega",
-      align: "right",
-      cell: (q) => `${q.lead_time_days} días`,
-      sortValue: (q) => q.lead_time_days,
-      exportValue: (q) => q.lead_time_days,
+      cell: (s) => <span className="whitespace-nowrap">{days(s.profile.delivery)}</span>,
+      sortValue: (s) => s.profile.delivery[0],
+      exportValue: (s) => days(s.profile.delivery),
     },
     {
-      key: "logistics",
-      header: "Logística",
-      align: "right",
-      cell: (q) => formatAmount(q.logistics_cost_per_unit),
-      sortValue: (q) => q.logistics_cost_per_unit,
-      exportValue: (q) => q.logistics_cost_per_unit,
+      key: "direct",
+      header: "Envío directo",
+      cell: (s) => (s.profile.directShipping ? "Sí" : "No"),
+      exportValue: (s) => (s.profile.directShipping ? "Sí" : "No"),
     },
     {
-      key: "landed",
-      header: "Coste entregado",
-      align: "right",
-      cell: (q) => <span className="font-semibold text-primary">{formatAmount(q.total_landed_cost_per_unit)}</span>,
-      sortValue: (q) => q.total_landed_cost_per_unit,
-      exportValue: (q) => q.total_landed_cost_per_unit,
+      key: "certs",
+      header: "Certificaciones",
+      cell: (s) => (
+        <span className="whitespace-nowrap">
+          {s.profile.certificationPending ? `${s.profile.certifications[0]} (pendiente)` : s.profile.certifications.join(", ")}
+        </span>
+      ),
+      exportValue: (s) => s.profile.certifications.join(" "),
     },
     {
-      key: "verified",
-      header: "Verificación",
-      cell: (q) => <VerificationChip verified={q.verified} />,
-      sortValue: (q) => Number(q.verified),
-      exportValue: (q) => (q.verified ? "Sí" : "No"),
+      key: "risk",
+      header: "Riesgo",
+      cell: (s) => <LevelChip tone={RISK_TONE[s.risk]}>{s.risk}</LevelChip>,
+      exportValue: (s) => s.risk,
     },
     {
-      key: "reliability",
-      header: "Fiabilidad",
+      key: "score",
+      header: "Score",
       align: "right",
-      cell: (q) => `${Math.round(q.reliability_score * 100)}%`,
-      sortValue: (q) => q.reliability_score,
-      exportValue: (q) => Math.round(q.reliability_score * 100),
+      cell: (s) => <span className="font-semibold text-primary">{s.score}</span>,
+      sortValue: (s) => s.score,
+      exportValue: (s) => s.score,
     },
     {
       key: "actions",
       header: "Acciones",
-      cell: (q) => (
-        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            title="Analizar economía"
-            aria-label={`Analizar economía de ${quoteName(q)}`}
-            onClick={() => analyzeEconomics(q)}
-          >
+      cell: (s) => (
+        <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <Button size="icon-sm" variant="ghost" title="Analizar economía" aria-label={`Analizar economía de ${quoteName(s.quote)}`} onClick={() => analyzeEconomics(s.quote)}>
             <Calculator />
           </Button>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            title="Validar con el Director ejecutivo"
-            aria-label={`Validar con el Director ejecutivo a ${quoteName(q)}`}
-            onClick={() => validateWithSupplier(q)}
-          >
+          <Button size="icon-sm" variant="ghost" title="Comparar" aria-label={`Comparar ${quoteName(s.quote)}`} onClick={() => toggleCompare(s.quote)}>
+            <GitCompareArrows />
+          </Button>
+          <Button size="icon-sm" variant="ghost" title="Validar con el Director ejecutivo" aria-label={`Validar ${quoteName(s.quote)} con el Director ejecutivo`} onClick={() => validateWithCeo(s.quote)}>
             <Brain />
           </Button>
         </div>
@@ -486,209 +403,219 @@ export function SourcingWorkspace({
     },
   ];
 
-  if (products.length === 0 || !product) {
-    return (
-      <Card>
-        <CardContent>
-          <EmptyState
-            icon={PackageSearch}
-            title="Aún no hay productos para abastecer"
-            description="Los proveedores se buscan para un producto ya investigado. Lanza primero una investigación."
-            action={
-              <Button size="sm" variant="outline" nativeButton={false} render={<Link href="/research" />}>
-                Ir a Investigación
-              </Button>
-            }
-          />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const radarSeries: RadarSeries[] = selected
-    ? [
-        { label: quoteName(selected), color: "var(--emerald-bright)", values: supplierRadarValues(selected, shown) },
-        compared
-          ? { label: quoteName(compared), color: "var(--text-secondary)", values: supplierRadarValues(compared, shown) }
-          : { label: "Media de los encontrados", color: "var(--text-secondary)", values: averageRadarValues(shown) },
-      ]
-    : [];
-
-  const verifiedCount = shown.filter((q) => q.verified).length;
-  const maxMoqLimit = filters.maxMoq;
-  const top3 = shown.slice(0, 3);
-
   return (
-    <div className="space-y-6">
-      <form id="sourcing-form" onSubmit={handleSubmit} className="grid gap-4 xl:grid-cols-12">
-        <Card className="xl:col-span-5">
+    <div className="space-y-5">
+      <PageHeader
+        title={SOURCING_TITLE}
+        description={SOURCING_DESCRIPTION}
+        actions={
+          <>
+            <DataProvenanceBadge
+              status="demo"
+              tooltip={`Incluye datos de demostración: ${isDemo ? "los proveedores y sus cotizaciones (este producto aún no tiene ninguna real); " : ""}país y ciudad, certificaciones, envío directo, plazos de entrega, calidad, compliance, escalabilidad, compatibilidad, desglose del coste, score de investigación y descripción del producto.`}
+            />
+            <HeaderClock />
+            <HeaderTile label="Modo" value="Búsqueda de proveedores" />
+          </>
+        }
+      />
+
+      {/* Producto · Parámetros · Resumen */}
+      <section className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.35fr)_minmax(0,1fr)]">
+        <Card>
           <CardHeader>
             <CardTitle>Producto seleccionado</CardTitle>
             <CardAction>
-              <Button type="button" variant="ghost" size="xs" onClick={() => setChangingProduct((v) => !v)}>
+              <Button size="xs" variant="ghost" className="text-primary" onClick={() => setChangingProduct((v) => !v)}>
                 Cambiar
               </Button>
             </CardAction>
           </CardHeader>
           <CardContent className="space-y-3">
             {changingProduct ? (
-              <Field label="Producto" htmlFor="sourcing-product">
-                <select
-                  id="sourcing-product"
-                  value={productId}
-                  onChange={(e) => changeProduct(e.target.value)}
-                  className={INPUT_CLASS}
-                >
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} · {p.category}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              <select
+                aria-label="Producto"
+                value={product.id}
+                onChange={(e) => router.push(`/sourcing?${new URLSearchParams({ product_id: e.target.value }).toString()}`)}
+                className={SELECT_CLASS}
+              >
+                {products.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-popover">
+                    {p.name}
+                  </option>
+                ))}
+              </select>
             ) : null}
-
-            <div className="flex items-center gap-4">
-              <div className="flex size-20 shrink-0 items-center justify-center rounded-xl border bg-muted text-primary">
-                <PackageSearch className="size-8" />
+            <div className="flex gap-3">
+              <div className="flex size-20 shrink-0 items-center justify-center rounded-xl border bg-background/60 text-primary">
+                <Box className="size-9" />
               </div>
-              <div className="min-w-0 space-y-2">
-                <p className="truncate text-base font-semibold">{product.name}</p>
+              <div className="min-w-0 space-y-1.5">
+                <p className="truncate font-semibold">{product.name}</p>
                 <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="outline">{product.category}</Badge>
+                  <Badge variant="outline" className="border-primary/40 text-primary">
+                    {categoryLabel(product.category)}
+                  </Badge>
                   <Badge variant="outline">{PRODUCT_STATUS_LABEL[product.status] ?? product.status}</Badge>
-                  <Badge variant="outline">{PRODUCT_SOURCE_LABEL[product.source] ?? product.source}</Badge>
                 </div>
+                <p className="line-clamp-2 text-xs text-muted-foreground">{DEMO_PRODUCT_META.description}</p>
               </div>
             </div>
-
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-xs">
-              <span className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Investigación:</span>
-                <DataProvenanceBadge
-                  status="pending"
-                  tooltip="El backend no expone el score de investigación de un producto (solo dentro de la propia ejecución de Investigación)."
-                />
+            <div className="flex flex-wrap gap-2 text-sm">
+              <span className="rounded-lg border bg-background/40 px-3 py-1.5">
+                <span className="text-muted-foreground">Investigación: </span>
+                <span className="font-semibold text-primary">{researchScore}/100</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Mercado objetivo:</span>
-                <span className="font-medium text-primary">{regionLabel(destinationRegion)}</span>
+              <span className="rounded-lg border bg-background/40 px-3 py-1.5">
+                <span className="text-muted-foreground">Mercado objetivo: </span>
+                <span className="font-semibold text-primary">{DEMO_PRODUCT_META.marketLabel}</span>
               </span>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="xl:col-span-4">
+        <Card>
           <CardHeader>
             <CardTitle>Parámetros de búsqueda</CardTitle>
+            <CardAction>
+              <Button size="xs" variant="ghost" className="text-primary" onClick={saveSearch}>
+                {savedAt ? <CheckCircle2 /> : <Save />}
+                {savedAt ? `Guardada ${savedAt}` : "Guardar búsqueda"}
+              </Button>
+            </CardAction>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Región de destino" htmlFor="sourcing-destination">
-                <select
-                  id="sourcing-destination"
-                  value={destinationRegion}
-                  onChange={(e) => setDestinationRegion(e.target.value)}
-                  className={INPUT_CLASS}
-                >
-                  {DESTINATION_REGIONS.map((region) => (
-                    <option key={region} value={region}>
-                      {REGION_LABELS[region]}
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Región de destino">
+                <select value={search.destination} onChange={(e) => update("destination", e.target.value)} className={SELECT_CLASS}>
+                  {DESTINATIONS.map((r) => (
+                    <option key={r} value={r} className="bg-popover">
+                      {r === "eu" ? "España + UE" : REGION_LABELS[r]}
                     </option>
                   ))}
                 </select>
               </Field>
-              <Field label="Resultados máximos" htmlFor="sourcing-max-results">
-                <input
-                  id="sourcing-max-results"
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={maxResults}
-                  onChange={(e) => setMaxResults(Number(e.target.value))}
-                  className={INPUT_CLASS}
-                />
+              <Field label="Origen proveedor">
+                <select value={search.origin} onChange={(e) => update("origin", e.target.value)} className={SELECT_CLASS}>
+                  <option value="" className="bg-popover">
+                    Global
+                  </option>
+                  {Object.entries(REGION_LABELS).map(([value, label]) => (
+                    <option key={value} value={value} className="bg-popover">
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Modelo logístico">
+                <select value={search.logistics} onChange={(e) => update("logistics", e.target.value)} className={SELECT_CLASS}>
+                  {DEMO_SEARCH_OPTIONS.logisticsModels.map((o) => (
+                    <option key={o.value} value={o.value} className="bg-popover">
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
               </Field>
             </div>
-
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">Filtrar los resultados</p>
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Precio máx." htmlFor="sourcing-max-price">
-                  <input
-                    id="sourcing-max-price"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={maxUnitPrice}
-                    onChange={(e) => setMaxUnitPrice(e.target.value)}
-                    placeholder="—"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
-                <Field label="Plazo máx. (días)" htmlFor="sourcing-max-lead">
-                  <input
-                    id="sourcing-max-lead"
-                    type="number"
-                    min={0}
-                    value={maxLeadTime}
-                    onChange={(e) => setMaxLeadTime(e.target.value)}
-                    placeholder="—"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
-                <Field label="MOQ máx." htmlFor="sourcing-max-moq">
-                  <input
-                    id="sourcing-max-moq"
-                    type="number"
-                    min={0}
-                    value={maxMoq}
-                    onChange={(e) => setMaxMoq(e.target.value)}
-                    placeholder="—"
-                    className={INPUT_CLASS}
-                  />
-                </Field>
-              </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label="Precio objetivo (€)">
+                <span className="grid grid-cols-2 gap-2">
+                  <input inputMode="decimal" placeholder="Mín." value={search.minPrice} onChange={(e) => update("minPrice", e.target.value)} className={SELECT_CLASS} aria-label="Precio mínimo" />
+                  <input inputMode="decimal" placeholder="Máx." value={search.maxPrice} onChange={(e) => update("maxPrice", e.target.value)} className={SELECT_CLASS} aria-label="Precio máximo" />
+                </span>
+              </Field>
+              <Field label="Plazo máximo de entrega">
+                <select value={search.maxLeadTime} onChange={(e) => update("maxLeadTime", e.target.value)} className={SELECT_CLASS}>
+                  {DEMO_SEARCH_OPTIONS.leadTimes.map((o) => (
+                    <option key={o.value} value={o.value} className="bg-popover">
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="MOQ máximo">
+                <select value={search.maxMoq} onChange={(e) => update("maxMoq", e.target.value)} className={SELECT_CLASS}>
+                  {DEMO_SEARCH_OPTIONS.moqs.map((o) => (
+                    <option key={o.value} value={o.value} className="bg-popover">
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
             </div>
-
-            <div className="flex flex-wrap items-center gap-1.5 border-t pt-3">
+            <div className="flex flex-wrap items-center gap-2 border-t pt-3">
               <span className="text-xs text-muted-foreground">Filtros avanzados</span>
-              <DataProvenanceBadge
-                status="pending"
-                tooltip="El backend de abastecimiento solo admite categoría, región de destino y nº de resultados. Estos filtros necesitarían campos que hoy no existen."
-              />
-              {ADVANCED_FILTERS.map((label) => (
-                <Button key={label} type="button" size="xs" variant="outline" disabled>
-                  {label}
-                </Button>
-              ))}
+              <Button
+                size="xs"
+                variant={search.requireCertification ? "secondary" : "outline"}
+                aria-pressed={search.requireCertification}
+                onClick={() => update("requireCertification", !search.requireCertification)}
+              >
+                <ShieldCheck /> Certificaciones
+              </Button>
+              <Button size="xs" variant="outline" disabled title="Pendiente: el backend no guarda Incoterms">
+                <Truck /> Incoterms
+              </Button>
+              <Button size="xs" variant="outline" disabled title="Pendiente: el backend no guarda métodos de pago">
+                <CircleDollarSign /> Métodos de pago
+              </Button>
+              <Button size="xs" variant={showMore ? "secondary" : "outline"} aria-expanded={showMore} onClick={() => setShowMore((v) => !v)}>
+                <SlidersHorizontal /> Más filtros (2)
+              </Button>
             </div>
+            {showMore ? (
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={search.verifiedOnly} onChange={(e) => update("verifiedOnly", e.target.checked)} className="accent-primary" />
+                  Solo proveedores verificados
+                </label>
+                <label className="flex items-center gap-2">
+                  Resultados por búsqueda
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={search.maxResults}
+                    onChange={(e) => update("maxResults", Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+                    className="w-16 rounded-md border bg-background/60 px-2 py-1 text-foreground"
+                  />
+                </label>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
-        <Card className="xl:col-span-3">
+        <Card className="xl:col-span-2 2xl:col-span-1">
           <CardHeader>
             <CardTitle>Resumen de la búsqueda</CardTitle>
+            <CardAction>
+              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Clock className="size-3.5 text-primary" />
+                {searchedAt ? `Completada a las ${searchedAt}` : isDemo ? "Proveedores de ejemplo" : "Cotizaciones guardadas"}
+              </span>
+            </CardAction>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <Stat value={run ? allQuotes.length : "—"} label="Analizados" />
-              <Stat value={run ? shown.length : "—"} label="Preseleccionados" />
-              <Stat value={run ? verifiedCount : "—"} label="Verificados" />
-              <Stat value={run ? allQuotes.length - shown.length : "—"} label="Descartados por filtros" />
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 2xl:grid-cols-2">
+              {[
+                { value: allQuotes.length, label: "Proveedores analizados", tone: "text-primary" },
+                { value: shown.length, label: "Preseleccionados", tone: "text-primary" },
+                { value: Math.min(3, shown.length), label: "Recomendados", tone: "text-primary" },
+                { value: allQuotes.length - shown.length, label: "Descartados", tone: "text-destructive" },
+              ].map((stat) => (
+                <div key={stat.label} className="min-w-0 rounded-lg border bg-background/40 px-2 py-2">
+                  <p className={cn("text-xl font-semibold", stat.tone)}>{stat.value}</p>
+                  <p className="text-[11px] leading-tight text-muted-foreground">{stat.label}</p>
+                </div>
+              ))}
             </div>
-            {run ? (
-              <p className="text-[11px] text-muted-foreground">
-                Ejecutada a las {run.ranAt.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-              </p>
-            ) : null}
-            <Button type="submit" size="lg" className="w-full" disabled={submitting}>
-              {submitting ? <Loader2 className="animate-spin" /> : <Search />}
-              {submitting ? "Buscando…" : "Buscar proveedores"}
+            <Button size="lg" className="w-full" onClick={() => void runSearch()} disabled={searching}>
+              {searching ? <Loader2 className="animate-spin" /> : <Search />}
+              {searching ? "Buscando…" : "Buscar proveedores"}
             </Button>
           </CardContent>
         </Card>
-      </form>
+      </section>
 
       {error ? (
         <Alert variant="destructive">
@@ -698,289 +625,199 @@ export function SourcingWorkspace({
         </Alert>
       ) : null}
 
-      {submitting ? (
-        <div className="grid gap-4 xl:grid-cols-12" aria-busy="true" aria-label="Buscando proveedores">
-          <Skeleton className="h-80 xl:col-span-6" />
-          <Skeleton className="h-80 xl:col-span-6" />
-          <Skeleton className="h-64 xl:col-span-12" />
-        </div>
-      ) : !run ? (
+      {!selected ? (
         <Card>
           <CardContent>
             <EmptyState
               icon={Truck}
-              title="Sin búsqueda de proveedores todavía"
-              description="Elige la región de destino y pulsa «Buscar proveedores» para ver aquí las cotizaciones ordenadas por coste total de entrega."
-            />
-          </CardContent>
-        </Card>
-      ) : allQuotes.length === 0 ? (
-        <Card>
-          <CardContent>
-            <EmptyState
-              icon={Truck}
-              title={`No se encontraron proveedores para «${product.category}»`}
-              description="El directorio de proveedores no tiene candidatos para esta categoría."
-            />
-          </CardContent>
-        </Card>
-      ) : shown.length === 0 || !selected ? (
-        <Card>
-          <CardContent>
-            <EmptyState
-              icon={Truck}
-              title="Ningún proveedor cumple los filtros"
-              description={`Se encontraron ${allQuotes.length} proveedores, pero todos quedan fuera de los límites que has fijado.`}
-              action={
-                filtersActive ? (
-                  <Button type="button" size="sm" variant="outline" onClick={clearFilters}>
-                    Limpiar filtros
-                  </Button>
-                ) : undefined
-              }
+              title="Ningún proveedor cumple los parámetros"
+              description={`Hay ${allQuotes.length} proveedores, pero todos quedan fuera de los filtros que has fijado.`}
             />
           </CardContent>
         </Card>
       ) : (
         <>
-          <section className="grid gap-4 xl:grid-cols-12">
-            <Card className="xl:col-span-6">
+          {/* Recomendados · Mapa */}
+          <section className="grid gap-4 2xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+            <Card>
               <CardHeader>
                 <CardTitle>Proveedores recomendados</CardTitle>
                 <CardAction>
-                  <DataProvenanceBadge
-                    status="estimated"
-                    tooltip="Directorio de proveedores simulado (MockSupplierDirectory): precios, MOQ, plazos y fiabilidad son valores de prueba, sin fuente real todavía."
-                  />
+                  <Button size="xs" variant="ghost" className="text-primary" nativeButton={false} render={<a href="#listado" />}>
+                    Ver todos ({shown.length}) <ChevronRight />
+                  </Button>
                 </CardAction>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Los {top3.length} con menor coste total de entrega
-                  {shown.length > 3 ? ` (de ${shown.length})` : ""}, para {regionLabel(run.destinationRegion)}. Importes por
-                  unidad.
-                </p>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {top3.map((quote, index) => (
+              <CardContent>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {shown.slice(0, 3).map((s) => (
                     <SupplierCard
-                      key={quote.id}
-                      quote={quote}
-                      rank={index + 1}
-                      distinctions={(distinctions.get(quote.id) ?? []).map((d) => DISTINCTION_LABEL[d])}
-                      selected={selected.id === quote.id}
-                      comparing={compared?.id === quote.id}
-                      onSelect={() => setSelectedId(quote.id)}
-                      onCompare={() => toggleCompare(quote)}
-                      onAnalyze={() => analyzeEconomics(quote)}
+                      key={s.quote.id}
+                      supplier={s}
+                      destination={search.destination}
+                      badge={badges.get(s.quote.id)}
+                      selected={selected.quote.id === s.quote.id}
+                      comparing={compared?.quote.id === s.quote.id}
+                      onSelect={() => setSelectedId(s.quote.id)}
+                      onProfile={() => showProfile(s.quote)}
+                      onAnalyze={() => analyzeEconomics(s.quote)}
+                      onCompare={() => toggleCompare(s.quote)}
                     />
                   ))}
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="xl:col-span-6">
+            <Card>
               <CardHeader>
                 <CardTitle>Mapa de proveedores</CardTitle>
-                <CardAction>
-                  <DataProvenanceBadge
-                    status="estimated"
-                    tooltip="Las regiones son las del directorio simulado; el pin marca la región, no una ciudad concreta. Los costes y plazos son simulados."
-                  />
-                </CardAction>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="grid items-start gap-3 md:grid-cols-[minmax(0,1fr)_11.5rem]">
                 <RouteMap
                   points={mapPoints}
                   routes={mapRoutes}
-                  selectedPointId={quoteRegion(selected)}
-                  onSelectPoint={selectRegion}
+                  selectedPointId={selected.quote.data?.region}
+                  onSelectPoint={(region) => {
+                    const first = shown.find((s) => s.quote.data?.region === region);
+                    if (first) setSelectedId(first.quote.id);
+                  }}
                 />
-                <div className="grid gap-3 rounded-lg border bg-background/60 p-3 text-xs sm:grid-cols-3">
+                <dl className="space-y-3 self-start rounded-lg border bg-background/40 p-3 text-sm">
                   <div>
-                    <p className="text-muted-foreground">Ruta seleccionada</p>
-                    <p className="mt-0.5 font-medium">
-                      {regionLabel(quoteRegion(selected))} → {regionLabel(run.destinationRegion)}
-                    </p>
+                    <dt className="text-xs text-muted-foreground">Ruta seleccionada</dt>
+                    <dd className="flex items-center gap-1.5 font-medium">
+                      {selected.profile.city} <ArrowRight className="size-3.5" />
+                      {search.destination === "eu" ? "España" : regionLabel(search.destination)}
+                      <Flag code={DESTINATION_FLAG[search.destination] ?? "eu"} />
+                    </dd>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Plazo del proveedor</p>
-                    <p className="mt-0.5 font-medium">{selected.lead_time_days} días</p>
+                    <dt className="text-xs text-muted-foreground">Tiempo estimado</dt>
+                    <dd className="font-medium">{days(selected.profile.delivery)}</dd>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Coste logístico / unidad</p>
-                    <p className="mt-0.5 font-medium">{formatAmount(selected.logistics_cost_per_unit)}</p>
+                    <dt className="text-xs text-muted-foreground">Transporte</dt>
+                    <dd className="font-medium">{selected.profile.transport}</dd>
                   </div>
-                </div>
-                {selected.data?.notes ? (
-                  <p className="text-[11px] text-muted-foreground">Nota del backend: {selected.data.notes}</p>
-                ) : null}
-                {unmapped.length > 0 ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    Sin coordenadas en el mapa: {unmapped.map(regionLabel).join(", ")}.
-                  </p>
-                ) : null}
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Coste estimado</dt>
+                    <dd className="font-medium">{formatEuro(selected.quote.logistics_cost_per_unit)} / unidad</dd>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => document.getElementById("coste-total")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+                  >
+                    Ver detalles de logística
+                  </Button>
+                </dl>
               </CardContent>
             </Card>
           </section>
 
-          <section className="space-y-4">
-            <Card>
+          {/* Listado · Coste · Compatibilidad · Score */}
+          <section className="grid gap-4 lg:grid-cols-3 min-[1800px]:grid-cols-[minmax(0,1.9fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1.05fr)]">
+            <Card id="listado" className="scroll-mt-4 lg:col-span-3 min-[1800px]:col-span-1">
               <CardHeader>
-                <CardTitle>Listado de proveedores</CardTitle>
-                <CardAction>
-                  <span className="text-xs text-muted-foreground">{shown.length} resultados</span>
-                </CardAction>
+                <CardTitle>
+                  Listado de proveedores <span className="ml-2 text-xs font-normal text-muted-foreground">{shown.length} resultados</span>
+                </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="overflow-x-auto">
                 <DataTable
-                  columns={tableColumns}
+                  columns={columns}
                   rows={shown}
-                  getRowId={(q) => q.id}
-                  selectedId={selected.id}
-                  onSelect={(q) => setSelectedId(q.id)}
-                  getSearchText={(q) => `${quoteName(q)} ${regionLabel(quoteRegion(q))}`}
+                  getRowId={(s) => s.quote.id}
+                  selectedId={selected.quote.id}
+                  onSelect={(s) => setSelectedId(s.quote.id)}
+                  getSearchText={(s) => `${quoteName(s.quote)} ${s.profile.country} ${s.profile.city}`}
                   searchPlaceholder="Buscar proveedor…"
-                  exportFileName={`proveedores-${product.name.toLowerCase().replace(/\s+/g, "-")}.csv`}
+                  exportFileName={`proveedores-${product.name.toLowerCase().replace(/\s+/g, "-")}`}
                   emptyMessage="Ningún proveedor coincide con la búsqueda."
                 />
               </CardContent>
             </Card>
 
-            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Coste total estimado</CardTitle>
-                  <CardAction>
-                    <DataProvenanceBadge
-                      status="estimated"
-                      tooltip="Logística y aduana simuladas (no son tarifas reales de transportista ni de aduana)."
-                    />
-                  </CardAction>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="truncate text-xs text-muted-foreground">{quoteName(selected)}</p>
-                  <dl className="space-y-2 text-sm">
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-muted-foreground">Precio del proveedor</dt>
-                      <dd className="font-medium">{formatAmount(selected.unit_price)}</dd>
+            <Card id="coste-total" className="scroll-mt-4">
+              <CardHeader>
+                <CardTitle className="text-sm">
+                  Coste total estimado <span className="font-normal text-muted-foreground">(Landed Cost)</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5 text-[13px]">
+                <p className="truncate text-xs text-muted-foreground">{quoteName(selected.quote)}</p>
+                {landedBreakdown(selected.quote).map((line) =>
+                  line.total ? (
+                    <div key={line.key} className="mt-2 flex justify-between gap-2 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-2 font-semibold text-primary">
+                      <span>{line.label}</span>
+                      <span className="tabular-nums">{formatEuro(line.amount)}</span>
                     </div>
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-muted-foreground">Logística y aduana</dt>
-                      <dd className="font-medium">{formatAmount(selected.logistics_cost_per_unit)}</dd>
+                  ) : (
+                    <div key={line.key} className="flex justify-between gap-2 px-0.5 py-0.5">
+                      <span className="text-muted-foreground">{line.label}</span>
+                      <span className="tabular-nums">{formatEuro(line.amount)}</span>
                     </div>
-                    <div className="flex justify-between gap-2 border-t pt-2">
-                      <dt className="font-medium text-primary">Coste total estimado</dt>
-                      <dd className="text-base font-semibold text-primary">
-                        {formatAmount(selected.total_landed_cost_per_unit)}
-                      </dd>
-                    </div>
-                  </dl>
-                  <div
-                    className="flex h-2 overflow-hidden rounded-full bg-panel-hover"
-                    role="img"
-                    aria-label={`Del coste total, ${Math.round((selected.unit_price / selected.total_landed_cost_per_unit) * 100)}% es precio del proveedor y el resto logística y aduana`}
-                  >
-                    <div
-                      className="bg-primary"
-                      style={{ width: `${(selected.unit_price / selected.total_landed_cost_per_unit) * 100}%` }}
-                    />
-                    <div className="ml-0.5 flex-1 bg-cyan-accent" />
-                  </div>
-                  <div className="flex justify-between text-[11px] text-muted-foreground">
-                    <span className="flex items-center gap-1.5">
-                      <span className="size-2 rounded-full bg-primary" />
-                      Proveedor {Math.round((selected.unit_price / selected.total_landed_cost_per_unit) * 100)} %
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="size-2 rounded-full bg-cyan-accent" />
-                      Logística y aduana{" "}
-                      {Math.round((selected.logistics_cost_per_unit / selected.total_landed_cost_per_unit) * 100)} %
-                    </span>
-                  </div>
-                  <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                    <DataProvenanceBadge
-                      status="pending"
-                      tooltip="Transporte, arancel, fulfillment, pago/divisa y reserva de devoluciones (parte de la spec §6.8) no se desglosan: el backend solo aporta logística + aduana agregadas."
-                    />
-                    <span>Desglose completo pendiente. Importes sin divisa: el backend no especifica moneda.</span>
-                  </div>
-                </CardContent>
-              </Card>
+                  ),
+                )}
+                <p className="pt-1 text-[10px] text-muted-foreground">
+                  Estimación basada en datos promedio. Puede variar según proveedor y condiciones.
+                </p>
+              </CardContent>
+            </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Compatibilidad con Amazona</CardTitle>
-                  <CardAction>
-                    <DataProvenanceBadge
-                      status="pending"
-                      tooltip="Solo 2 de los 9 criterios de la spec (§6.9) tienen dato en el backend."
-                    />
-                  </CardAction>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    <CompatibilityRow
-                      state={selected.verified ? "pass" : "fail"}
-                      label="Proveedor verificado"
-                    />
-                    {maxMoqLimit !== undefined ? (
-                      <CompatibilityRow
-                        state={selected.moq <= maxMoqLimit ? "pass" : "fail"}
-                        label={`MOQ dentro de tu límite (≤ ${formatInteger(maxMoqLimit)})`}
-                        detail={`${formatInteger(selected.moq)} uds`}
-                      />
-                    ) : (
-                      <CompatibilityRow
-                        state="info"
-                        label="MOQ (fija un MOQ máx. para evaluarlo)"
-                        detail={`${formatInteger(selected.moq)} uds`}
-                      />
-                    )}
-                    {PENDING_COMPATIBILITY.map((label) => (
-                      <CompatibilityRow key={label} state="pending" label={label} />
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Compatibilidad con Amazona</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2 text-[13px]">
+                  {compatibility(selected.quote, selected.profile).map((item) => (
+                    <li key={item.label} className="flex items-center gap-2">
+                      {item.ok ? (
+                        <CheckCircle2 className="size-4 shrink-0 text-primary" />
+                      ) : (
+                        <AlertTriangle className="size-4 shrink-0 text-warning" />
+                      )}
+                      <span className={cn("min-w-0", !item.ok && "text-muted-foreground")}>{item.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
 
-              <Card className="lg:col-span-2 xl:col-span-1">
-                <CardHeader>
-                  <CardTitle>Score de proveedor</CardTitle>
-                  <CardAction>
-                    <DataProvenanceBadge
-                      status="estimated"
-                      tooltip="Ejes relativos al conjunto encontrado: 100 % = el mejor proveedor de la búsqueda en precio, logística, MOQ y plazo. Fiabilidad es el valor nominal del directorio simulado."
-                    />
-                  </CardAction>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <RadarChart axes={[...SUPPLIER_RADAR_AXES]} series={radarSeries} />
-                  <div className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                    <DataProvenanceBadge
-                      status="pending"
-                      tooltip="Calidad, compliance y escalabilidad (spec §6.10) no tienen dato en el backend."
-                    />
-                    <span>Calidad, compliance y escalabilidad: pendientes de dato real.</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <Card id="score-proveedor" className="scroll-mt-4">
+              <CardHeader>
+                <CardTitle className="text-sm">Score de proveedor</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <RadarChart
+                  axes={[...SUPPLIER_AXES]}
+                  centerLabel={`${selected.score}/100`}
+                  series={[
+                    { label: quoteName(selected.quote), color: "var(--emerald-bright)", values: selected.axes },
+                    compared
+                      ? { label: quoteName(compared.quote), color: "var(--text-secondary)", values: compared.axes }
+                      : { label: "Media de los encontrados", color: "var(--text-secondary)", values: averageAxes(shown) },
+                  ]}
+                />
+              </CardContent>
+            </Card>
           </section>
         </>
       )}
 
       <NextStepBar
         steps={[
-          { label: "Proveedor seleccionado", icon: Truck, state: selected ? "done" : "current" },
+          { label: "Proveedor validado", icon: UserCheck, state: selected ? "done" : "current" },
           { label: "Análisis económico", icon: Calculator, state: selected ? "current" : "todo" },
           { label: "Revisión legal", icon: Scale, state: "todo" },
           { label: "Aprobación CEO", icon: Brain, state: "todo" },
           { label: "Integración operativa", icon: PackageCheck, state: "todo" },
         ]}
         action={
-          <Button type="button" disabled={!selected} onClick={() => selected && analyzeEconomics(selected)}>
-            Enviar a análisis económico
-            <ArrowRight />
+          <Button disabled={!selected} onClick={() => selected && analyzeEconomics(selected.quote)}>
+            Enviar a análisis económico <ArrowRight />
           </Button>
         }
       />

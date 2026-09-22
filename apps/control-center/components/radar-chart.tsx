@@ -28,7 +28,9 @@ const PAD_X = 44;
 function pointFor(axisIndex: number, axisCount: number, value: number): { x: number; y: number } {
   const angle = -Math.PI / 2 + axisIndex * ((2 * Math.PI) / axisCount);
   const r = Math.max(0, Math.min(1, value)) * MAX_RADIUS;
-  return { x: CENTER + r * Math.cos(angle), y: CENTER + r * Math.sin(angle) };
+  // Redondeado para que servidor y navegador generen exactamente el mismo SVG (hidratación).
+  const round = (n: number) => Math.round(n * 100) / 100;
+  return { x: round(CENTER + r * Math.cos(angle)), y: round(CENTER + r * Math.sin(angle)) };
 }
 
 function polygonPoints(axes: RadarAxis[], values: Record<string, number>): string {
@@ -39,7 +41,16 @@ function polygonPoints(axes: RadarAxis[], values: Record<string, number>): strin
  * "emphasis" pattern from the dataviz skill: one accent series (the
  * story), one de-emphasis series (context), never a generated
  * categorical ramp. Always ships with a table view. */
-export function RadarChart({ axes, series }: { axes: RadarAxis[]; series: RadarSeries[] }) {
+export function RadarChart({
+  axes,
+  series,
+  centerLabel,
+}: {
+  axes: RadarAxis[];
+  series: RadarSeries[];
+  /** Texto en el centro del radar (p. ej. el score global «91/100»). */
+  centerLabel?: string;
+}) {
   const clipId = useId();
   const [hoveredAxis, setHoveredAxis] = useState<number | null>(null);
   const [showTable, setShowTable] = useState(false);
@@ -184,6 +195,23 @@ export function RadarChart({ axes, series }: { axes: RadarAxis[]; series: RadarS
               );
             }),
           )}
+
+          {centerLabel ? (
+            <text
+              x={CENTER}
+              y={CENTER}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize={18}
+              fontWeight={600}
+              fill="var(--text-primary)"
+              stroke="var(--panel)"
+              strokeWidth={4}
+              paintOrder="stroke"
+            >
+              {centerLabel}
+            </text>
+          ) : null}
         </svg>
       )}
 

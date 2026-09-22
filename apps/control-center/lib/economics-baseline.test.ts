@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { EconomicAnalysis, SupplierQuote } from "./api.ts";
 import { buildBaseline } from "./economics-baseline.ts";
-import { DEMO_SALE, DEMO_SUPPLIER, DEMO_UNIT_COSTS } from "./demo/economics.ts";
+import { DEMO_SALE, DEMO_UNIT_COSTS } from "./demo/economics.ts";
+import { demoQuotes } from "./demo/sourcing.ts";
+import { rankSuppliers } from "./sourcing-view.ts";
 
 const quote: SupplierQuote = {
   id: "q1",
@@ -41,7 +43,7 @@ test("buildBaseline: con cotización y análisis reales solo los costes sin back
   assert.equal(b.inputs.monthlyOrders, 210);
   assert.equal(b.inputs.supplierCost, 5);
   assert.equal(b.inputs.transport + b.inputs.tariff, 2);
-  assert.equal(b.inputs.initialInvestment, 200 * 7);
+  assert.equal(b.inputs.initialInvestment, DEMO_SALE.firstOrderUnits * 7);
   assert.equal(b.inputs.cac, DEMO_UNIT_COSTS.cac);
   assert.deepEqual(b.supplier, { name: "Proveedor Real", region: "vietnam", verified: true, isDemo: false });
   assert.equal(b.costSources.supplier, "verified");
@@ -52,7 +54,9 @@ test("buildBaseline: sin datos reales todo sale de la demo y se declara", () => 
   const b = buildBaseline(undefined, undefined);
   assert.equal(b.inputs.salePrice, DEMO_SALE.salePrice);
   assert.equal(b.inputs.monthlyOrders, DEMO_SALE.monthlyOrders);
-  assert.equal(b.inputs.supplierCost, DEMO_SUPPLIER.unitPrice);
+  const first = rankSuppliers(demoQuotes("demo"))[0].quote;
+  assert.equal(b.inputs.supplierCost, first.unit_price);
+  assert.equal(b.supplier.name, first.data?.name);
   assert.equal(b.supplier.isDemo, true);
   assert.equal(b.costSources.supplier, "third_party");
   assert.equal(b.demoFields.length, 4);

@@ -1151,3 +1151,69 @@ Antes era un formulario con una lista de candidatos que se perdía al recargar.
   gráfico; categoría sin productos muestra el vacío; seleccionar una fila cambia el
   radar; 375 px sin desbordamiento; consola sin errores. El camino con señales reales
   lo cubren los tests de `lib/research-view.ts`.
+
+## Segunda pasada — Panel 1: Proveedores y abastecimiento (`/sourcing`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/panel proveedores.png`). Antes todo quedaba vacío hasta pulsar
+«Buscar proveedores» y el score, las certificaciones, el envío directo, el
+desglose del coste y la compatibilidad salían como «pendiente».
+
+### Qué se ve ahora
+
+1. Cabecera con fecha y hora, «Datos de demostración» y «Modo: Búsqueda de
+   proveedores».
+2. Producto seleccionado (con «Cambiar»), su score de investigación y mercado
+   objetivo; parámetros de búsqueda (destino, origen, modelo logístico, precio
+   mín./máx., plazo, MOQ, certificaciones, «Más filtros»: solo verificados y
+   resultados por búsqueda) con «Guardar búsqueda» (queda en la URL); resumen
+   (analizados, preseleccionados, recomendados, descartados) y «Buscar proveedores»
+   (agente real, `POST /api/sourcing/runs`).
+3. Tres proveedores recomendados: país y ciudad con bandera, «Ver perfil», score
+   (medidor), precio, MOQ, entrega, envío directo, certificaciones, «Analizar»
+   (Economía con esa cotización), «Comparar» y distintivo (recomendado, mejor
+   opción UE, mejor precio).
+4. Mapa con rutas y panel de ruta (tiempo, transporte, coste, «Ver detalles de
+   logística»).
+5. Listado con país, precio, MOQ, entrega, envío directo, certificaciones, riesgo,
+   score y acciones (economía, comparar, Director ejecutivo), búsqueda, orden y CSV.
+6. Coste total estimado (landed cost en 6 partidas, con los mismos supuestos que
+   Economía), compatibilidad con Amazona (8 criterios) y score de proveedor (radar
+   de 7 ejes con el score en el centro, frente a la media o al comparado).
+7. Barra final con «Enviar a análisis económico».
+
+### Datos reales y de demostración
+
+- Reales: productos y cotizaciones del producto (precio, logística, MOQ, plazo,
+  fiabilidad, verificación). Se cargan al entrar; antes solo tras buscar.
+- Demo (`lib/demo/sourcing.ts`): 5 proveedores de ejemplo si el producto no tiene
+  cotizaciones, y para todos los proveedores país/ciudad, certificaciones, envío
+  directo, plazo de entrega al destino, transporte, calidad, compliance,
+  escalabilidad y compatibilidad; el desglose del landed cost usa los supuestos de
+  `lib/demo/economics.ts`.
+- Coherencia entre pantallas: el score de investigación es el mismo en
+  Investigación, Proveedores y Economía, y el proveedor de ejemplo de Economía es
+  el que Proveedores recomienda.
+
+### Componentes nuevos / tocados
+
+- `lib/sourcing-view.ts` con tests (ranking por score de 7 ejes, riesgo,
+  distintivos, landed cost, compatibilidad, filtros); `lib/demo/sourcing.ts`;
+  `lib/demo/random.ts` compartido con Investigación.
+- `lib/sourcing.ts`: queda solo `supplierRadarValues`; se retiraron las funciones
+  (y sus tests) que usaba la versión anterior de la pantalla.
+- `RadarChart` (`centerLabel`) y `ScoreGauge`/`RadarChart` redondean coordenadas
+  (antes el SVG podía diferir entre servidor y navegador y romper la hidratación);
+  `RouteMap`: países visibles con la paleta nueva; `Flag`: Polonia y Hong Kong.
+- Economía: el capital inicial es el del primer pedido de stock (500 uds o el MOQ).
+
+### Verificación
+
+- `tsc` limpio; `npm test` 96/96; `eslint` limpio en los archivos tocados (el único
+  error es el previo de `top-header.tsx`); `next build` correcto (copia temporal).
+- En navegador (entorno del propietario, sin pulsar «Buscar proveedores» para no
+  escribir en su base): estructura del mockup a 1536 px; origen UE deja 2
+  proveedores y el resumen cuadra (5 analizados, 3 descartados); «Comparar» pone al
+  comparado en el radar; «Guardar búsqueda» escribe los parámetros en la URL; 375 px
+  sin desbordamiento; consola sin errores. Economía e Investigación siguen bien y
+  muestran el mismo score (61) para el mismo producto.

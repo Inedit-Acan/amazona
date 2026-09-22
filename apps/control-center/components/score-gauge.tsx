@@ -32,8 +32,10 @@ export function ScoreGauge({
   const clamped = Math.max(0, Math.min(max, value));
   const fraction = clamped / max;
   const angle = Math.PI - fraction * Math.PI;
-  const endX = CX + RADIUS * Math.cos(angle);
-  const endY = CY - RADIUS * Math.sin(angle);
+  // Redondeado: el seno/coseno puede diferir en el último decimal entre servidor y
+  // navegador, y eso rompe la hidratación.
+  const endX = (CX + RADIUS * Math.cos(angle)).toFixed(2);
+  const endY = (CY - RADIUS * Math.sin(angle)).toFixed(2);
   const tone = toneFor(clamped, max);
   const rounded = Math.round(clamped);
 

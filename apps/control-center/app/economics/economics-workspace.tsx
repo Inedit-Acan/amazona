@@ -58,6 +58,7 @@ import {
   type ScenarioKey,
 } from "@/lib/economics-model";
 import { formatEuro, formatInteger, formatPercent } from "@/lib/format";
+import { buildRows } from "@/lib/research-view";
 import { regionLabel } from "@/lib/regions";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
@@ -200,6 +201,8 @@ export function EconomicsWorkspace({
     );
   }
 
+  // El mismo score que muestra Investigación para este producto.
+  const researchScore = buildRows([product], [])[0].score;
   const result = evaluate(inputs);
   const scenarioResults = buildScenarios(inputs);
   const lines = costLines(inputs);
@@ -367,7 +370,7 @@ export function EconomicsWorkspace({
           </div>
           <InfoTile label="Score investigación" icon={FileSearch}>
             <p className="text-2xl font-semibold text-primary">
-              {DEMO_PRODUCT_META.researchScore}
+              {researchScore}
               <span className="text-base">/100</span>
             </p>
           </InfoTile>
