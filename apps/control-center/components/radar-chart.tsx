@@ -22,6 +22,8 @@ const SIZE = 220;
 const CENTER = SIZE / 2;
 const MAX_RADIUS = SIZE / 2 - 36;
 const RINGS = [0.25, 0.5, 0.75, 1];
+/** Margen lateral del lienzo para que las etiquetas largas de los ejes no se corten. */
+const PAD_X = 44;
 
 function pointFor(axisIndex: number, axisCount: number, value: number): { x: number; y: number } {
   const angle = -Math.PI / 2 + axisIndex * ((2 * Math.PI) / axisCount);
@@ -86,8 +88,8 @@ export function RadarChart({ axes, series }: { axes: RadarAxis[]; series: RadarS
         </div>
       ) : (
         <svg
-          viewBox={`0 0 ${SIZE} ${SIZE}`}
-          className="mx-auto h-[260px] w-[260px]"
+          viewBox={`${-PAD_X} 0 ${SIZE + 2 * PAD_X} ${SIZE}`}
+          className="mx-auto h-auto w-full max-w-[340px]"
           role="img"
           aria-label={`Radar de ${axes.map((a) => a.label).join(", ")}`}
         >
@@ -133,13 +135,15 @@ export function RadarChart({ axes, series }: { axes: RadarAxis[]; series: RadarS
           ))}
 
           {axes.map((axis, i) => {
-            const vertexPoint = pointFor(i, axes.length, 1.18);
+            const vertexPoint = pointFor(i, axes.length, 1.14);
+            // Las etiquetas laterales se alinean hacia fuera para no pisar el polígono.
+            const side = vertexPoint.x - CENTER;
             return (
               <text
                 key={axis.key}
                 x={vertexPoint.x}
                 y={vertexPoint.y}
-                textAnchor="middle"
+                textAnchor={side > 4 ? "start" : side < -4 ? "end" : "middle"}
                 dominantBaseline="middle"
                 fontSize={10}
                 fill="var(--text-secondary)"

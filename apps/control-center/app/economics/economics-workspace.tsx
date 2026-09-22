@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Menu } from "@base-ui/react/menu";
@@ -62,6 +62,8 @@ import { regionLabel } from "@/lib/regions";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
 import { Flag, regionFlag } from "@/components/flag";
+import { HeaderClock } from "@/components/header-clock";
+import { HeaderTile } from "@/components/header-tile";
 import { KpiCard } from "@/components/kpi-card";
 import { LineChart } from "@/components/line-chart";
 import { NextStepBar } from "@/components/next-step-bar";
@@ -113,18 +115,6 @@ const SECTIONS = [
 
 const TONE_TEXT = { ok: "text-primary", warn: "text-warning", bad: "text-destructive" } as const;
 
-/** Minuto actual; en el servidor null, para no desajustar la hidratación. */
-function useMinute(): number | null {
-  return useSyncExternalStore(
-    (onChange) => {
-      const id = window.setInterval(onChange, 15_000);
-      return () => window.clearInterval(id);
-    },
-    () => Math.floor(Date.now() / 60_000),
-    () => null,
-  );
-}
-
 function niceCeil(value: number): number {
   if (value <= 0) return 1;
   const magnitude = 10 ** Math.floor(Math.log10(value));
@@ -170,7 +160,6 @@ export function EconomicsWorkspace({
   requestedQuoteId?: string;
 }) {
   const router = useRouter();
-  const minute = useMinute();
   const priceInputRef = useRef<HTMLInputElement>(null);
   const simulatorRef = useRef<HTMLDivElement>(null);
 
@@ -344,29 +333,13 @@ export function EconomicsWorkspace({
               status="demo"
               tooltip={`Incluye datos de demostración hasta que el backend los proporcione: ${demoFields.join("; ")}.`}
             />
-            <div className="text-sm leading-tight">
-              <p className="text-muted-foreground">
-                {minute === null ? "—" : new Date(minute * 60_000).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
-              </p>
-              <p className="font-medium tabular-nums">
-                {minute === null ? "" : new Date(minute * 60_000).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-              </p>
-            </div>
-            <label className="relative flex w-64 max-w-full flex-col rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
-              Producto activo
-              <select
-                value={product.id}
-                onChange={(e) => changeProduct(e.target.value)}
-                className="mt-0.5 appearance-none bg-transparent pr-6 text-sm font-medium text-primary outline-none"
-              >
-                {products.map((p) => (
-                  <option key={p.id} value={p.id} className="bg-popover text-foreground">
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 bottom-2.5 size-4 text-foreground" />
-            </label>
+            <HeaderClock />
+            <HeaderTile
+              label="Producto activo"
+              value={product.id}
+              options={products.map((p) => ({ value: p.id, label: p.name }))}
+              onChange={changeProduct}
+            />
           </>
         }
       />

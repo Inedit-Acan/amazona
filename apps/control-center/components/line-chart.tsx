@@ -34,6 +34,7 @@ export function LineChart({
   series,
   ariaLabel,
   formatY,
+  formatX = (x) => String(x),
   xLabel,
   yLabel,
   hoverTitle = (x) => String(x),
@@ -45,6 +46,8 @@ export function LineChart({
   series: LineSeries[];
   ariaLabel: string;
   formatY: (value: number) => string;
+  /** Etiqueta de cada x en el eje (p. ej. el nombre del mes). */
+  formatX?: (x: number) => string;
   xLabel?: string;
   yLabel?: string;
   hoverTitle?: (x: number) => string;
@@ -125,7 +128,7 @@ export function LineChart({
         ))}
         {xs.map((x) => (
           <text key={x} x={sx(x)} y={H - PAD.bottom + 14} textAnchor="middle" className="fill-muted-foreground text-[10px]">
-            {x}
+            {formatX(x)}
           </text>
         ))}
         {xLabel ? (

@@ -582,6 +582,7 @@ export const api = {
     }),
   createResearchRun: (payload: { category: string; keywords?: string[]; max_results?: number }) =>
     request<ResearchRun>("/api/research/runs", { method: "POST", body: JSON.stringify(payload) }),
+  getResearchRun: (correlationId: string) => request<ResearchRun>(`/api/research/runs/${correlationId}`),
   createSourcingRun: (payload: {
     product_id: string;
     category: string;

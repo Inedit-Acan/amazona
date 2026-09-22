@@ -1097,3 +1097,57 @@ de los mockups.
   productos de esa base no tienen cotizaciones ni análisis, así que se vio el
   camino demo; el camino con datos reales lo cubren los tests de
   `lib/economics-baseline.ts`.
+
+## Segunda pasada — Investigación (`/research`)
+
+Referencia: `docs/design/investigacion.png` (enviada por el propietario el 22-09-2026).
+Antes era un formulario con una lista de candidatos que se perdía al recargar.
+
+### Qué se ve ahora
+
+1. Cabecera con fecha y hora, etiqueta «Datos de demostración» y el recuadro «Modo»
+   (Simulación: el agente usa señales de fixtures).
+2. Buscador grande con «Analizar mercado» (lanza el agente real,
+   `POST /api/research/runs`, en la categoría elegida o en las tres) y filtros:
+   mercado, categoría, periodo, modelo de negocio y «Filtros avanzados» (score mínimo
+   y resultados por categoría).
+3. «Radar de oportunidades»: los tres mejores candidatos con score, barra,
+   minigráfico de crecimiento, demanda / competencia / margen, cuatro ideas clave y
+   los botones «Analizar» (va a Economía) y «Seguir».
+4. «Radar de oportunidad AMAZONA» (6 ejes) del producto seleccionado frente a la media.
+5. «Resultados»: tabla con demanda, tendencia, competencia, margen, riesgo y score,
+   orden, exportación CSV, selección de fila y menú «…» (economía, proveedores,
+   Director ejecutivo, seguir).
+6. «Resumen de investigación» (encontradas, tras filtros, en seguimiento,
+   descartadas), «Tendencia de interés por fuente» e «Insight AMAZONA».
+7. Las investigaciones lanzadas se guardan en la URL (`?runs=`), así que sus señales
+   reales sobreviven a una recarga.
+
+### Datos reales y de demostración
+
+- Reales: productos, y las cinco señales del agente (demanda, competencia, futuro,
+  riesgo regulatorio, escalabilidad) de los productos investigados en la sesión.
+- Demo (`lib/demo/research.ts`, deterministas por producto): señales de los productos
+  no investigados, tendencia y crecimiento, margen preliminar, subcategoría, ideas
+  clave, eje de logística, interés por fuente y los filtros de mercado y modelo de
+  negocio (aún no se envían al agente).
+- El score 0–100 es una media ponderada de las cinco señales (el `opportunity_score`
+  del agente solo combina demanda y competencia).
+
+### Componentes nuevos / tocados
+
+- Nuevos: `Sparkline`, `LevelChip`, `HeaderClock`, `HeaderTile` (los dos últimos
+  también en Economía); `lib/research-view.ts` con tests; `api.getResearchRun`.
+- `RadarChart`: etiquetas laterales alineadas hacia fuera y lienzo con margen (antes
+  se montaban sobre el polígono). `LineChart`: `formatX`.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 95/95 (6 nuevos); `eslint` limpio; `next build` correcto
+  (copia temporal).
+- En navegador (entorno del propietario, sin lanzar «Analizar mercado» para no
+  escribir en su base): estructura del mockup a 1672 px; «Seguir» se guarda y cuenta
+  en el resumen; periodo 6 meses cambia minigráficos, crecimiento y meses del
+  gráfico; categoría sin productos muestra el vacío; seleccionar una fila cambia el
+  radar; 375 px sin desbordamiento; consola sin errores. El camino con señales reales
+  lo cubren los tests de `lib/research-view.ts`.

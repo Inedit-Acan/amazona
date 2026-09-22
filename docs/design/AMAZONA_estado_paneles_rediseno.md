@@ -67,6 +67,9 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `DataProvenanceBadge` `demo` / `compact` | Economía (2.ª pasada) | Todo panel con datos de demostración o filas densas |
 | `KpiCard` `accent` / `footer` | Economía (2.ª pasada) | KPIs con importe en verde o con chip/barra inferior |
 | `PageHeader` `actions` | Economía (2.ª pasada) | Cabeceras con fecha, selector o acciones a la derecha |
+| `HeaderClock` / `HeaderTile` | Economía, Investigación | Cabecera de todos los paneles (fecha y selector/modo) |
+| `Sparkline` | Investigación | Tablas con tendencia (Marketing, Tienda, Proveedores) |
+| `LevelChip` | Investigación | Niveles Alta/Media/Baja o Bajo/Medio/Alto (Proveedores, Legal, Riesgos) |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -573,3 +576,23 @@ ejecuciones de agentes y el estado «backend caído» sin cifras inventadas.
 10. Logs técnicos consultables por servicio, nivel, request y correlación.
 11. Incidentes con causa, impacto, servicios afectados, duración y responsable; apertura
     automática cuando un chequeo falla y cierre enlazado a la recuperación.
+
+## Investigación (`/research`) — segunda pasada
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real:
+productos y las señales del agente de los productos investigados en la sesión
+(persistidas en la URL con `?runs=`). Demo (`lib/demo/research.ts`): el resto.
+
+**Backend que faltaría (para sustituir la demo).**
+
+1. `GET /api/research/runs` (o `GET /api/products/{id}/research`) para listar las
+   investigaciones pasadas y no depender de la URL.
+2. Señales reales (sustituir `MockTrendsProvider`): demanda, competencia, futuro,
+   riesgo regulatorio, escalabilidad y logística por mercado.
+3. Serie temporal de interés por producto y por fuente (Google, marketplaces,
+   e-commerce, redes) y crecimiento a 3/6/12 meses.
+4. Margen preliminar estimado, subcategoría, imagen y descripción del producto.
+5. Filtros de mercado y modelo de negocio en `POST /api/research/runs`.
+6. Seguimiento de productos en el backend (hoy «Seguir» es local del navegador) y
+   descartes automáticos con motivo.
+7. Insights generados por el agente.
