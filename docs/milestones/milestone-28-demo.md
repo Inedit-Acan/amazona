@@ -1217,3 +1217,61 @@ desglose del coste y la compatibilidad salían como «pendiente».
   comparado en el radar; «Guardar búsqueda» escribe los parámetros en la URL; 375 px
   sin desbordamiento; consola sin errores. Economía e Investigación siguen bien y
   muestran el mismo score (61) para el mismo producto.
+
+## Segunda pasada — Panel 3: Legal y cumplimiento (`/legal`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/legal y cumplimiento.png`). Antes solo había datos tras pulsar
+«Ejecutar análisis», y fuentes, roles, responsabilidades, documentos y la matriz
+de riesgos eran «pendiente de backend».
+
+### Qué se ve ahora
+
+1. Cabecera con fecha y hora, «Datos de demostración» y selector «Producto activo».
+2. Franja de producto: ficha, proveedor (el del análisis o el que recomienda
+   Proveedores), mercado objetivo (selector UE / EE. UU. / México), modelo logístico
+   y canal previsto.
+3. Seis KPIs: cumplimiento general (anillo y requisitos cumplidos), riesgo legal,
+   certificaciones, evidencias documentales, cambios regulatorios y Legal Gate.
+4. Pestañas-ancla de las siete secciones.
+5. Matriz de requisitos con filtros (todos, abiertos, por criticidad), estado,
+   evidencia, fuente, criticidad, acciones y CSV; las que exige el agente van marcadas.
+6. Fuentes regulatorias, rol en la operación (con aviso de importador) y mapa de
+   responsabilidades proveedor → AMAZONA → cliente.
+7. Riesgos legales en matriz probabilidad × impacto con riesgos prioritarios.
+8. Inteligencia regulatoria (cambios, con los del agente traducidos), documentos
+   del producto, evaluación legal (con «Ejecutar / Reanalizar con el agente legal»)
+   y recuadro de decisión (no apto / revisión humana / preparado) con las acciones
+   pendientes, «Ver acciones» y «Revisión humana» o «Generar tienda».
+
+### Datos reales y de demostración
+
+- Reales (agente legal sobre el dataset simulado del backend): certificaciones
+  exigidas y si se declararon, restricción, riesgos conocidos, cambios recientes y
+  recomendación; si el agente exige una certificación no declarada, esa fila pasa a
+  «Pendiente» y el Legal Gate se bloquea. Los textos del dataset se traducen.
+- Demo (`lib/demo/legal.ts`): matriz de requisitos por mercado con estados y
+  evidencias, fuentes, roles, responsabilidades, riesgos con probabilidad × impacto,
+  documentos, cambios adicionales, modelo logístico y canal. No es asesoría legal.
+
+### Componentes nuevos / tocados
+
+- Nuevos: `RingGauge`, `RiskMatrix`, `InfoTile` y `ProductSummary` (extraídos de
+  Economía y reutilizados en ambas); `lib/legal-view.ts` con tests.
+- `KpiCard`: `leading` (icono o gráfico a la izquierda del valor).
+- `lib/legal.ts`: quedan `legalGate` y `certificationsDeclared`; se retiraron las
+  funciones que solo usaba la versión anterior.
+- Proveedores: el breakpoint de 4 columnas pasa de `min-[1800px]` a
+  `min-[112.5rem]`; con `px` Tailwind v4 lo ordenaba antes que `lg:` y nunca se
+  aplicaba.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 99/99; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal).
+- En navegador (entorno del propietario, sin lanzar el agente legal): KPIs 7/10
+  (70 %), riesgo Medio, 3 certificaciones verificadas, 9/12 evidencias, Legal Gate
+  bloqueado por 1 crítico, y las 3 acciones pendientes en el recuadro de decisión;
+  «Ver acciones» filtra 3 requisitos abiertos; «Ver todas» muestra las 5 fuentes;
+  cambiar a EE. UU. recalcula matriz (6), KPIs y documentos; 3 columnas a 1896 px,
+  sin desbordamiento a 1536 y 375 px; consola sin errores.

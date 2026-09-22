@@ -65,21 +65,20 @@ import { EmptyState } from "@/components/empty-state";
 import { Flag, regionFlag } from "@/components/flag";
 import { HeaderClock } from "@/components/header-clock";
 import { HeaderTile } from "@/components/header-tile";
+import { InfoTile } from "@/components/info-tile";
 import { KpiCard } from "@/components/kpi-card";
 import { LineChart } from "@/components/line-chart";
 import { NextStepBar } from "@/components/next-step-bar";
 import { PageHeader } from "@/components/page-header";
+import { ProductSummary } from "@/components/product-summary";
 import { ScenarioCard } from "@/components/scenario-card";
 import { SectionNav } from "@/components/section-nav";
 import { SensitivityBars } from "@/components/sensitivity-bars";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ECONOMICS_DESCRIPTION, ECONOMICS_TITLE } from "./copy";
-
-const PRODUCT_STATUS_LABEL: Record<string, string> = { CANDIDATE: "Candidato" };
 
 const COST_ICON: Record<CostKey, LucideIcon> = {
   supplier: Package,
@@ -124,18 +123,6 @@ function niceCeil(value: number): number {
 
 function compactEuro(value: number): string {
   return formatEuro(value, 0);
-}
-
-function InfoTile({ label, icon: Icon, children }: { label: string; icon?: LucideIcon; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0 rounded-lg border bg-background/40 p-3">
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        {Icon ? <Icon className="size-3.5 shrink-0" /> : null}
-        {label}
-      </p>
-      <div className="mt-1.5">{children}</div>
-    </div>
-  );
 }
 
 interface SliderField {
@@ -350,23 +337,8 @@ export function EconomicsWorkspace({
       {/* Producto activo y contexto */}
       <Card>
         <CardContent className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-[minmax(0,1.9fr)_repeat(4,minmax(0,1fr))]">
-          <div className="flex min-w-0 gap-4 lg:col-span-2 2xl:col-span-1">
-            <div className="flex size-24 shrink-0 items-center justify-center rounded-xl border bg-background/60 text-primary">
-              <Package className="size-10" />
-            </div>
-            <div className="min-w-0 space-y-1.5">
-              <p className="truncate text-base font-semibold">{product.name}</p>
-              <div className="flex flex-wrap gap-1.5">
-                <Badge variant="outline" className="border-primary/40 text-primary">
-                  {product.category}
-                </Badge>
-                <Badge variant="outline">{PRODUCT_STATUS_LABEL[product.status] ?? product.status}</Badge>
-              </div>
-              <p className="line-clamp-2 text-xs text-muted-foreground">{DEMO_PRODUCT_META.description}</p>
-              <Button size="xs" variant="outline" nativeButton={false} render={<Link href="/research" />}>
-                Ver detalles del producto <ArrowRight />
-              </Button>
-            </div>
+          <div className="lg:col-span-2 2xl:col-span-1">
+            <ProductSummary product={product} />
           </div>
           <InfoTile label="Score investigación" icon={FileSearch}>
             <p className="text-2xl font-semibold text-primary">

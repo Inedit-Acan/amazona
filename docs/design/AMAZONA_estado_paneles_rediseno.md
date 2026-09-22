@@ -70,6 +70,10 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `HeaderClock` / `HeaderTile` | Economía, Investigación | Cabecera de todos los paneles (fecha y selector/modo) |
 | `Sparkline` | Investigación | Tablas con tendencia (Marketing, Tienda, Proveedores) |
 | `LevelChip` | Investigación | Niveles Alta/Media/Baja o Bajo/Medio/Alto (Proveedores, Legal, Riesgos) |
+| `InfoTile` / `ProductSummary` | Economía, Legal | Franja de producto de Tienda, Marketing, Operaciones |
+| `RingGauge` | Legal | Porcentajes de cumplimiento o avance (Proyectos, Operaciones) |
+| `RiskMatrix` | Legal | Riesgos probabilidad × impacto (Finanzas, Proyectos, Operaciones) |
+| `KpiCard` `leading` | Legal | KPIs con icono o gráfico a la izquierda |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -614,3 +618,21 @@ proveedores de ejemplo cuando no hay cotizaciones y el perfil de cada proveedor.
 4. Landed cost desglosado (transporte, arancel/IVA, fulfillment, pago/divisa,
    devoluciones) desde el motor, no con supuestos del cliente.
 5. Búsquedas guardadas en el backend y fecha de cada cotización.
+
+## 3 (segunda pasada). Legal y cumplimiento
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real: lo que
+devuelve el agente legal (certificaciones exigidas, restricción, riesgos, cambios,
+recomendación). Demo (`lib/demo/legal.ts`): el resto.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 3 y además:
+
+1. Catálogo de requisitos por categoría y mercado con criticidad, fuente y estado
+   por producto (verificado, revisar, incompleto, no aplica, pendiente).
+2. Almacén de documentos y evidencias por requisito (versión, fecha, hash, estado).
+3. Consulta real y fecha de las fuentes regulatorias (Comisión Europea,
+   Access2Markets, ECHA, Safety Gate, legislación nacional).
+4. Rol de AMAZONA en la operación y mapa de responsabilidades por actor.
+5. Riesgos legales con probabilidad e impacto.
+6. Cambios normativos con relevancia (crítico, relevante, informativo).
+7. Modelo logístico y canal previsto del producto.

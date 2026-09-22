@@ -1,6 +1,7 @@
 import { api, type LegalAnalysis, type Product, type SupplierQuote } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
+import { LEGAL_DESCRIPTION, LEGAL_TITLE } from "./copy";
 import { LegalWorkspace } from "./legal-workspace";
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -21,29 +22,33 @@ export default async function LegalPage({ searchParams }: PageProps<"/legal">) {
     products = await api.listProducts();
     productId = products.find((p) => p.id === requestedProductId)?.id ?? products[0]?.id;
     if (productId) {
-      [analyses, quotes] = await Promise.all([api.listProductLegal(productId), api.listProductSuppliers(productId)]);
+      [analyses, quotes] = await Promise.all([
+        api.listProductLegal(productId).catch(() => [] as LegalAnalysis[]),
+        api.listProductSuppliers(productId).catch(() => [] as SupplierQuote[]),
+      ]);
     }
   } catch (err) {
     error = err instanceof Error ? err.message : "Error desconocido";
   }
 
-  return (
-    <div>
-      <PageHeader
-        title="Legal y cumplimiento"
-        description="Analiza los requisitos regulatorios, certificaciones y riesgos legales para vender un producto en el mercado elegido — Fase 3, Agente 4. El dataset regulatorio es simulado: no es asesoría ni investigación legal real."
-      />
-
-      {error ? (
+  if (error) {
+    return (
+      <div>
+        <PageHeader title={LEGAL_TITLE} description={LEGAL_DESCRIPTION} />
         <ApiErrorAlert message={error} />
-      ) : (
-        <LegalWorkspace
-          products={products}
-          initialProductId={productId}
-          initialAnalyses={analyses}
-          initialQuotes={quotes}
-        />
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  return (
+    <LegalWorkspace
+      key={productId}
+      products={products}
+      productId={productId}
+      // El backend los devuelve del más reciente al más antiguo.
+      analyses={analyses}
+      quotes={quotes}
+      initialMarket={first(params.market) ?? analyses[0]?.market ?? "eu"}
+    />
   );
 }

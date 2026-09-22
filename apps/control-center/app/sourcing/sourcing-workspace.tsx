@@ -717,8 +717,8 @@ export function SourcingWorkspace({
           </section>
 
           {/* Listado · Coste · Compatibilidad · Score */}
-          <section className="grid gap-4 lg:grid-cols-3 min-[1800px]:grid-cols-[minmax(0,1.9fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1.05fr)]">
-            <Card id="listado" className="scroll-mt-4 lg:col-span-3 min-[1800px]:col-span-1">
+          <section className="grid gap-4 lg:grid-cols-3 min-[112.5rem]:grid-cols-[minmax(0,1.9fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1.05fr)]">
+            <Card id="listado" className="scroll-mt-4 lg:col-span-3 min-[112.5rem]:col-span-1">
               <CardHeader>
                 <CardTitle>
                   Listado de proveedores <span className="ml-2 text-xs font-normal text-muted-foreground">{shown.length} resultados</span>

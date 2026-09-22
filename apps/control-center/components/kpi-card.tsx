@@ -15,6 +15,7 @@ export function KpiCard({
   tone = "default",
   accent = false,
   footer,
+  leading,
 }: {
   label: string;
   value: string | number;
@@ -30,6 +31,8 @@ export function KpiCard({
   accent?: boolean;
   /** Línea inferior libre (chip «Editable», barra de riesgo…), bajo el caption. */
   footer?: ReactNode;
+  /** Icono grande o gráfico a la izquierda del valor (KPIs de Legal). */
+  leading?: ReactNode;
 }) {
   return (
     <Card
@@ -43,20 +46,23 @@ export function KpiCard({
         <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
         {Icon ? <Icon className="size-4 shrink-0 text-primary" /> : null}
       </CardHeader>
-      <CardContent className="space-y-1.5">
-        <p
-          className={cn(
-            "text-2xl leading-tight font-semibold",
-            (tone === "success" || accent) && "text-primary",
-            tone === "warning" && "text-amber-500",
-            tone === "danger" && "text-red-500",
-          )}
-        >
-          {value}
-        </p>
-        {caption ? <p className="text-xs text-muted-foreground">{caption}</p> : null}
-        {footer}
-        {provenance ? <DataProvenanceBadge status={provenance} tooltip={provenanceTooltip} /> : null}
+      <CardContent className={cn("space-y-1.5", leading && "flex items-center gap-3 space-y-0")}>
+        {leading}
+        <div className={leading ? "min-w-0 space-y-0.5" : "contents"}>
+          <p
+            className={cn(
+              leading ? "text-lg leading-tight font-semibold" : "text-2xl leading-tight font-semibold",
+              (tone === "success" || accent) && "text-primary",
+              tone === "warning" && "text-amber-500",
+              tone === "danger" && "text-red-500",
+            )}
+          >
+            {value}
+          </p>
+          {caption ? <p className="text-xs text-muted-foreground">{caption}</p> : null}
+          {footer}
+          {provenance ? <DataProvenanceBadge status={provenance} tooltip={provenanceTooltip} /> : null}
+        </div>
       </CardContent>
     </Card>
   );

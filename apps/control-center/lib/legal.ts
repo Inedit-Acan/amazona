@@ -1,5 +1,4 @@
 import type { LegalAnalysis } from "./api.ts";
-import { marketLabel } from "./markets.ts";
 
 // El «cumplimiento» lo decide el agente legal del backend sobre un dataset
 // regulatorio simulado (legal_compliance.py). Este módulo NO evalúa requisitos:
@@ -45,46 +44,4 @@ export function legalGate(recommendation: Recommendation): LegalGate {
 export function certificationsDeclared(analysis: Pick<LegalAnalysis, "recommendation" | "data">): boolean {
   const required = analysis.data?.required_certifications ?? [];
   return required.length > 0 && analysis.recommendation === "GO";
-}
-
-export interface RequirementRow {
-  id: string;
-  name: string;
-  market: string;
-  /** declared = el usuario dijo tenerla (sin documento que lo pruebe); pending = sin acreditar. */
-  status: "declared" | "pending";
-}
-
-/** Un requisito por certificación exigida en el mercado del análisis. */
-export function requirementRows(analysis: Pick<LegalAnalysis, "market" | "recommendation" | "data">): RequirementRow[] {
-  const declared = certificationsDeclared(analysis);
-  return (analysis.data?.required_certifications ?? []).map((name) => ({
-    id: `${analysis.market}:${name}`,
-    name,
-    market: analysis.market,
-    status: declared ? "declared" : "pending",
-  }));
-}
-
-/** Motivos legibles del estado del Legal Gate, sacados de los datos del análisis. */
-export function gateReasons(
-  analysis: Pick<LegalAnalysis, "market" | "restricted" | "recommendation" | "data">,
-): string[] {
-  if (analysis.restricted === null) {
-    return ["Sin datos regulatorios modelados para esta categoría y mercado: hace falta revisión manual."];
-  }
-  const reasons: string[] = [];
-  const required = analysis.data?.required_certifications ?? [];
-  if (analysis.restricted) {
-    reasons.push(`Categoría restringida en ${marketLabel(analysis.market)}.`);
-  }
-  if (required.length > 0 && !certificationsDeclared(analysis)) {
-    reasons.push(`Certificaciones sin acreditar: ${required.join(", ")}.`);
-  }
-  return reasons;
-}
-
-/** Cambios regulatorios del más reciente al más antiguo. */
-export function changesNewestFirst(changes: { date: string; description: string }[] | undefined) {
-  return [...(changes ?? [])].sort((a, b) => b.date.localeCompare(a.date));
 }
