@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Storefront } from "./api.ts";
-import { contentChecklist, launchReadiness, marketRows } from "./ecommerce.ts";
+import { contentChecklist, launchReadiness } from "./ecommerce.ts";
 
 function storefront(overrides: Partial<Storefront> = {}): Storefront {
   return {
@@ -77,24 +77,4 @@ test("contentChecklist: solo cuenta como generado lo que trae el borrador", () =
   ]);
   assert.equal(items.length, 8);
   assert.ok(contentChecklist(storefront({ data: null })).every((i) => !i.generated));
-});
-
-test("marketRows: la más reciente de cada mercado, mercados conocidos en su orden", () => {
-  const rows = marketRows([
-    storefront({ market: "mx", store_slug: "mx-new", launch_status: "READY" }),
-    storefront({ market: "eu", store_slug: "eu-new", launch_status: "BLOCKED" }),
-    storefront({ market: "eu", store_slug: "eu-old", launch_status: "READY" }),
-    storefront({ market: "jp", store_slug: "jp", data: null }),
-  ]);
-  assert.deepEqual(
-    rows.map((r) => [r.market, r.slug, r.launchStatus]),
-    [
-      ["eu", "eu-new", "BLOCKED"],
-      ["mx", "mx-new", "READY"],
-      ["jp", "jp", "NEEDS_REVIEW"],
-    ],
-  );
-  assert.equal(rows[0].price, 29.9);
-  assert.equal(rows[2].price, null);
-  assert.deepEqual(marketRows([]), []);
 });

@@ -1,5 +1,4 @@
 import type { EconomicAnalysis, LegalAnalysis, Storefront } from "./api.ts";
-import { MARKET_LABELS } from "./markets.ts";
 
 // La tienda la genera el agente de e-commerce a partir de los análisis previos
 // (economía, legal, proveedor). Este módulo NO decide si algo está listo: solo
@@ -83,33 +82,4 @@ export function contentChecklist(storefront: Pick<Storefront, "data">): ContentI
     { label: "Meta title y meta description", generated: false },
     { label: "Datos estructurados (schema.org)", generated: false },
   ];
-}
-
-export interface MarketRow {
-  market: string;
-  price: number | null;
-  launchStatus: Storefront["launch_status"];
-  slug: string;
-}
-
-/** Una fila por mercado con el borrador de tienda más reciente (la API los
- * devuelve del más reciente al más antiguo). Primero los mercados conocidos, en
- * su orden habitual, y luego el resto. */
-export function marketRows(storefronts: Pick<Storefront, "market" | "launch_status" | "store_slug" | "data">[]): MarketRow[] {
-  const seen = new Map<string, MarketRow>();
-  for (const storefront of storefronts) {
-    if (seen.has(storefront.market)) continue;
-    seen.set(storefront.market, {
-      market: storefront.market,
-      price: storefront.data?.catalog_entry?.price ?? null,
-      launchStatus: storefront.launch_status,
-      slug: storefront.store_slug,
-    });
-  }
-  const known = Object.keys(MARKET_LABELS);
-  const rank = (market: string) => {
-    const index = known.indexOf(market);
-    return index === -1 ? known.length : index;
-  };
-  return [...seen.values()].sort((a, b) => rank(a.market) - rank(b.market) || a.market.localeCompare(b.market));
 }

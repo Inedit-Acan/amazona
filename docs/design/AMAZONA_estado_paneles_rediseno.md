@@ -636,3 +636,22 @@ recomendación). Demo (`lib/demo/legal.ts`): el resto.
 5. Riesgos legales con probabilidad e impacto.
 6. Cambios normativos con relevancia (crítico, relevante, informativo).
 7. Modelo logístico y canal previsto del producto.
+
+## 4 (segunda pasada). Tienda y canales de venta
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real:
+borradores de tienda y de Amazon, análisis económico y legal. Demo
+(`lib/demo/storefront.ts`): el resto.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 4 y además:
+
+1. Integraciones de Google Shopping y TikTok Shop, y alta de canales.
+2. Readiness por canal calculado en el backend.
+3. Configuración de checkout persistida (modo y métodos de pago) y conexión real con
+   la pasarela.
+4. Analítica de la tienda: visitas, embudo y conversión reales; puntuaciones de SEO,
+   rendimiento y mobile.
+5. Contenido completo del generador: FAQ, multimedia, meta title/description y
+   schema.org; páginas del sitio y experimentos A/B.
+6. Mercados por país (precio, idioma, estado) y ficha maestra del producto (EAN,
+   peso, dimensiones, stock del proveedor).

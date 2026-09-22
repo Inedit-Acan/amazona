@@ -1275,3 +1275,55 @@ de riesgos eran «pendiente de backend».
   «Ver acciones» filtra 3 requisitos abiertos; «Ver todas» muestra las 5 fuentes;
   cambiar a EE. UU. recalcula matriz (6), KPIs y documentos; 3 columnas a 1896 px,
   sin desbordamiento a 1536 y 375 px; consola sin errores.
+
+## Segunda pasada — Panel 4: Tienda y canales de venta (`/ecommerce`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/tienda y canales de venta.png`). Antes todo dependía de pulsar
+«Generar tienda» y los canales, el embudo y la calidad salían como pendientes.
+
+### Qué se ve ahora
+
+1. Cabecera con fecha y hora, «Datos de demostración» y «Producto activo».
+2. Franja: ficha, score de investigación, precio aprobado, proveedor, mercado
+   (selector), Legal Gate (el mismo cálculo que la pantalla de Legal) y modelo logístico.
+3. Constructor de página con pestañas: vista previa del escaparate (navegador,
+   Desktop/Mobile, galería, valoración, características, precio con descuento,
+   «Comprar ahora», sellos de confianza), editar contenido (se ve al instante en la
+   vista previa), SEO (snippet de Google y longitudes), diseño (color principal),
+   páginas y A/B testing; «Generar con IA» lanza el agente de tienda real.
+4. Canales de venta (tienda propia, Amazon, Google Shopping, TikTok Shop) con estado y
+   % de preparación; «Configurar» de Amazon abre sus paneles (contenido, comisiones,
+   competencia) o permite generar el listado.
+5. Checkout y pagos (modo y métodos), embudo de compra estimado con los supuestos de
+   Economía, calidad del escaparate, contenido generado por IA (con «Revisar» y
+   «Regenerar»), configuración por mercado y producto maestro.
+6. Barra final con «Plan de marketing» y «Solicitar aprobación de lanzamiento».
+
+### Datos reales y de demostración
+
+- Reales: borradores de tienda y de Amazon (estado, copy, plan de pasarela, catálogo,
+  SKU, precio), análisis económico (precio, pedidos) y legal (Legal Gate), y el
+  checklist de lanzamiento para el % de la tienda propia.
+- Demo (`lib/demo/storefront.ts`): Google Shopping y TikTok Shop, Amazon sin
+  listado, valoraciones, precio tachado, páginas, A/B, métodos de pago, proporciones
+  del embudo, calidad salvo la información legal, mercados europeos y la ficha
+  maestra (EAN, peso, dimensiones).
+
+### Componentes nuevos / tocados
+
+- `app/ecommerce/store-builder.tsx` (constructor y vista previa); `lib/storefront-view.ts`
+  con tests; `RingGauge` admite texto central y leyenda; `Flag`: Francia, Alemania e
+  Italia.
+- Se retira `store-panels.tsx` y `marketRows` de `lib/ecommerce.ts` (sustituidos);
+  se reutilizan `amazon-panels.tsx`, `launchReadiness` y `contentChecklist`.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 103/103; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal).
+- En navegador (entorno del propietario, sin lanzar los agentes para no escribir en su
+  base): editar el título cambia la vista previa; Mobile la estrecha a 384 px;
+  «Configurar» de Amazon abre su sección; cambiar de mercado restablece el contenido
+  y recalcula el Legal Gate; sin textos cortados ni desbordamiento a 1536, 1896 y
+  375 px; consola sin errores.

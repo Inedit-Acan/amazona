@@ -2,6 +2,7 @@ import { api, type Product } from "@/lib/api";
 import { EMPTY_PRODUCT_CHANNEL_DATA, loadProductChannelData } from "@/lib/product-channels";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
+import { ECOMMERCE_DESCRIPTION, ECOMMERCE_TITLE } from "./copy";
 import { EcommerceWorkspace } from "./ecommerce-workspace";
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -26,31 +27,16 @@ export default async function EcommercePage({ searchParams }: PageProps<"/ecomme
     error = err instanceof Error ? err.message : "Error desconocido";
   }
 
-  // El mercado pedido manda; si no, el de lo último generado; si no, EE. UU.
-  const market = requestedMarket ?? data.storefronts[0]?.market ?? data.listings[0]?.market ?? "us";
-  // Con un listado de Amazon pero sin tienda en ese mercado, se abre directamente Amazon.
-  const hasStorefront = data.storefronts.some((s) => s.market === market);
-  const hasListing = data.listings.some((l) => l.market === market);
-  const channel = !hasStorefront && hasListing ? "amazon" : "own-store";
-
-  return (
-    <div>
-      <PageHeader
-        title="Tienda y canales de venta"
-        description="Genera y gestiona la oferta comercial por canal — tienda propia y marketplaces — para un mismo producto, precio, proveedor y Legal Gate. Fase 3, Agentes 5-6. Son borradores simulados: todavía no hay tienda, dominio ni procesamiento de pagos reales."
-      />
-
-      {error ? (
+  if (error) {
+    return (
+      <div>
+        <PageHeader title={ECOMMERCE_TITLE} description={ECOMMERCE_DESCRIPTION} />
         <ApiErrorAlert message={error} />
-      ) : (
-        <EcommerceWorkspace
-          products={products}
-          initialProductId={productId}
-          initialData={data}
-          initialMarket={market}
-          initialChannel={channel}
-        />
-      )}
-    </div>
-  );
+      </div>
+    );
+  }
+
+  // El mercado pedido manda; si no, el de la última tienda generada; si no, la UE.
+  const market = requestedMarket ?? data.storefronts[0]?.market ?? data.listings[0]?.market ?? "eu";
+  return <EcommerceWorkspace key={productId} products={products} productId={productId} data={data} initialMarket={market} />;
 }

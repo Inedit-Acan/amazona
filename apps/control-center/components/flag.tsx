@@ -1,5 +1,5 @@
 /** Banderas simplificadas en SVG (Windows no dibuja los emojis de bandera). */
-export type FlagCode = "es" | "eu" | "cn" | "vn" | "mx" | "pl" | "hk";
+export type FlagCode = "es" | "eu" | "cn" | "vn" | "mx" | "pl" | "hk" | "fr" | "de" | "it";
 
 const REGION_FLAG: Record<string, FlagCode> = { china: "cn", vietnam: "vn", mexico: "mx", eu: "eu" };
 
@@ -37,6 +37,18 @@ export function Flag({ code, className }: { code: FlagCode; className?: string }
         <>
           <rect width="30" height="20" fill="#fff" />
           <rect y="10" width="30" height="10" fill="#dc143c" />
+        </>
+      ) : code === "fr" || code === "it" ? (
+        <>
+          <rect width="10" height="20" fill={code === "fr" ? "#002395" : "#009246"} />
+          <rect x="10" width="10" height="20" fill="#fff" />
+          <rect x="20" width="10" height="20" fill={code === "fr" ? "#ed2939" : "#ce2b37"} />
+        </>
+      ) : code === "de" ? (
+        <>
+          <rect width="30" height="7" fill="#000" />
+          <rect y="6.67" width="30" height="6.67" fill="#dd0000" />
+          <rect y="13.33" width="30" height="6.67" fill="#ffce00" />
         </>
       ) : code === "hk" ? (
         <>
