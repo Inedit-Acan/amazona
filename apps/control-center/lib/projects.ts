@@ -1,40 +1,10 @@
-import type { Decision, DecisionStatus, Project, ProjectStatus, Task } from "./api.ts";
+import type { Decision, DecisionStatus, Task } from "./api.ts";
 
-// Un proyecto es una validación de producto orquestada por el CEO: un grafo de
-// tareas de especialistas y una decisión con evidencias (ceo/orchestrator.py).
-// No está enlazado a producto, mercado, ventas ni beneficio. Este módulo solo
-// ordena, agrupa y reexpresa lo que ya devolvió el backend.
-
-export type ProjectGroup = "validation" | "active" | "rejected" | "other";
-
-const GROUP_BY_STATUS: Record<ProjectStatus, ProjectGroup> = {
-  DRAFT: "validation",
-  VALIDATING: "validation",
-  APPROVED: "active",
-  EXECUTING: "active",
-  MONITORING: "active",
-  REJECTED: "rejected",
-  FAILED: "rejected",
-  PAUSED: "other",
-  COMPLETED: "other",
-};
-
-export function projectGroup(status: ProjectStatus): ProjectGroup {
-  return GROUP_BY_STATUS[status] ?? "other";
-}
-
-export const GROUP_LABELS: Record<ProjectGroup, string> = {
-  validation: "En validación",
-  active: "Activos",
-  rejected: "Rechazados",
-  other: "Otros",
-};
-
-export function countByGroup(projects: Pick<Project, "status">[]): Record<ProjectGroup, number> {
-  const counts: Record<ProjectGroup, number> = { validation: 0, active: 0, rejected: 0, other: 0 };
-  for (const project of projects) counts[projectGroup(project.status)] += 1;
-  return counts;
-}
+// Un proyecto del backend es una validación de producto orquestada por el CEO: un
+// grafo de tareas de especialistas y una decisión con evidencias
+// (ceo/orchestrator.py). No está enlazado a producto, mercado, ventas ni
+// beneficio; la cartera que enseña la pantalla la construye lib/projects-view.ts.
+// Aquí queda lo que sí sale del grafo de tareas y de la decisión.
 
 export interface TaskProgress {
   done: number;
@@ -48,27 +18,6 @@ export function taskProgress(tasks: Pick<Task, "status">[]): TaskProgress {
   const total = tasks.length;
   const done = tasks.filter((t) => t.status === "COMPLETED").length;
   return { done, total, ratio: total > 0 ? done / total : 0 };
-}
-
-export interface TaskCounts {
-  running: number;
-  waiting: number;
-  pending: number;
-  completed: number;
-  failed: number;
-}
-
-/** Tareas por situación: ejecutando, en espera, pendientes, completadas y fallidas o bloqueadas. */
-export function taskCounts(tasks: Pick<Task, "status">[]): TaskCounts {
-  const counts: TaskCounts = { running: 0, waiting: 0, pending: 0, completed: 0, failed: 0 };
-  for (const { status } of tasks) {
-    if (status === "RUNNING" || status === "QUEUED") counts.running += 1;
-    else if (status === "WAITING" || status === "WAITING_APPROVAL") counts.waiting += 1;
-    else if (status === "COMPLETED") counts.completed += 1;
-    else if (status === "FAILED" || status === "BLOCKED" || status === "CANCELLED") counts.failed += 1;
-    else counts.pending += 1;
-  }
-  return counts;
 }
 
 export interface PipelineStage {
@@ -86,8 +35,6 @@ export const PIPELINE_STAGES: PipelineStage[] = [
   { task: "finance_validation", label: "Economía", href: "/economics" },
   { task: "legal_validation", label: "Legal", href: "/legal" },
 ];
-
-export const UNLINKED_STAGES = ["Tienda", "Marketing", "Operaciones", "Escala"];
 
 export type StageState = "done" | "current" | "blocked" | "todo";
 
@@ -150,23 +97,6 @@ export function projectedFinance(decision: Pick<Decision, "evidence"> | null): P
   if (typeof monthlyProfit !== "number") return null;
   const margin = data?.margin;
   return { monthlyProfit, margin: typeof margin === "number" ? margin : null };
-}
-
-export interface Milestone {
-  label: string;
-  done: boolean;
-}
-
-/** Hitos que sí se pueden leer del grafo de tareas del proyecto. */
-export function milestones(tasks: Pick<Task, "name" | "status">[]): Milestone[] {
-  const done = (name: string) => tasks.find((t) => t.name === name)?.status === "COMPLETED";
-  return [
-    { label: "Producto validado", done: done("product_validation") },
-    { label: "Proveedor seleccionado", done: done("supplier_sourcing") },
-    { label: "Viabilidad económica", done: done("finance_validation") },
-    { label: "Legal Gate", done: done("legal_validation") },
-    { label: "Decisión del director ejecutivo", done: done("decision_synthesis") },
-  ];
 }
 
 export interface DecisionVerdict {

@@ -1526,3 +1526,65 @@ cartera por producto), sin P&L, caja ni forecast.
   mercado, el escenario filtra el cash flow, el rango pasa de 6 a 12 meses, y las
   pestañas de forecast y de dimensión responden; sin desbordamiento ni textos
   cortados a 1536, 1896 y 375 px; consola sin errores en pestaña nueva.
+
+## Segunda pasada — Panel 8: Proyectos (`/projects`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/proyectos.png`). Antes eran dos pantallas: una cartera con los
+proyectos del Director ejecutivo (grafo de tareas y decisión) y un detalle en
+`/projects/[id]`. Hoy el backend no tiene ningún proyecto creado.
+
+### Qué se ve ahora
+
+1. Una sola pantalla maestro-detalle: cartera a la izquierda, proyecto a la derecha.
+   `/projects/[id]` redirige a `/projects?proyecto=<id>`, así que los enlaces de
+   Auditoría, Aprobaciones y Director ejecutivo siguen funcionando.
+2. Ocho contadores de cartera: activos, validación, lanzamiento, operativos, en
+   riesgo, bloqueados, beneficio previsto y beneficio real.
+3. Lista con pestañas (Todos / Validación / Lanzamiento / Operativos / Cerrados),
+   búsqueda y filtros de mercado, categoría y estado; cada fila abre el proyecto.
+4. Proyectos por fase (donut) y beneficio previsto por mercado.
+5. Detalle: cabecera con código, producto, mercado y estado; pestañas Resumen,
+   Pipeline, Hitos, Métricas, Finanzas, Documentos y Actividad; cinco indicadores
+   (Project Health, fase actual, progreso, beneficio previsto y capital expuesto) y
+   el pipeline de ocho fases enlazado a su pantalla.
+6. Resumen: próxima decisión con sus puertas, métricas clave, agentes registrados,
+   riesgos, actividad de auditoría, hitos, previsto vs real y aprendizajes.
+
+### Datos reales y de demostración
+
+- Reales: cada producto del catálogo se presenta como un proyecto con su score de
+  Investigación (`buildRows`), su proveedor (`rankSuppliers`), su análisis económico
+  (margen y beneficio con `lib/economics-model.ts`), su Legal Gate (`buildLegalView`,
+  el mismo que la pantalla de Legal), su tienda (`launchReadiness`), su campaña, su
+  simulación de operaciones, la actividad de auditoría (fechas de los hitos) y los
+  agentes registrados. Los proyectos del Director ejecutivo, si los hubiera, salen
+  con sus tareas y su decisión.
+- Demo (`lib/demo/projects.ts`): nueve proyectos de ejemplo más dos cerrados para que
+  la cartera tenga volumen, los documentos, el tiempo de la decisión pendiente y el
+  reparto del capital adelantado. El beneficio real y el capital expuesto se calculan
+  sobre los pedidos de demostración de Operaciones.
+
+### Componentes nuevos / tocados
+
+- `lib/projects-view.ts` con tests (proyecto desde producto, proyectos demo, cartera,
+  filtros, donut, beneficio por mercado, próxima decisión, hitos, previsto vs real,
+  aprendizajes y riesgos) y `lib/demo/projects.ts`.
+- `app/projects/projects-workspace.tsx` y `projects-panels.tsx` sustituyen a
+  `projects-portfolio.tsx` y a la página de detalle; `app/projects/[id]/page.tsx`
+  queda como redirección.
+- `lib/projects.ts` se queda con lo que sale del grafo de tareas y de la decisión
+  (`taskProgress`, `pipelineSteps`, `projectRisks`, `projectedFinance`,
+  `DECISION_VERDICT`); se retiran los grupos de estado, `taskCounts`, `milestones` y
+  `UNLINKED_STAGES` con sus tests.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 149/149; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario, sin lanzar nada que escriba): elegir una
+  fila abre su detalle y guarda la selección en la URL, las pestañas del detalle
+  cambian el contenido, el pipeline enseña los scores reales de cada fase y la
+  actividad los eventos de auditoría del producto; `/projects/<id>` redirige al
+  proyecto seleccionado; sin desbordamiento ni textos cortados a 1536, 1896 y 375 px;
+  consola sin errores en pestaña nueva.

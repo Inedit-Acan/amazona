@@ -82,6 +82,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `demoSku` | Tienda, Operaciones | Cualquier panel que enseñe el SKU mientras no haya catálogo |
 | `CashFlowChart` | Finanzas (2.ª pasada) | Panel y Director ejecutivo (caja y previsión) |
 | `lib/cfo-view.ts` | Finanzas (2.ª pasada) | Panel, Director ejecutivo (P&L, caja y salud financiera) |
+| `lib/projects-view.ts` | Proyectos (2.ª pasada) | Panel y Director ejecutivo (cartera y fases por producto) |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -730,3 +731,24 @@ subvenciones y copiloto; los cobros y pagos vienen de los pedidos de Operaciones
    (la facturación debe pasar por un sistema certificado Verifactu de terceros).
 6. Forecast financiero del backend, no derivado en el cliente.
 7. Endpoint conversacional del agente CFO para el copiloto.
+
+## 8 (segunda pasada). Proyectos
+
+**Hecho.** Estructura completa del mockup en una sola pantalla maestro-detalle (ver
+milestone-28-demo.md); `/projects/[id]` redirige a la selección. Real: cada producto
+del catálogo como proyecto con sus fases (Investigación, Proveedores, Economía,
+Legal, Tienda, Marketing, Operaciones), la auditoría y los agentes; también los
+proyectos del Director ejecutivo si existen. Demo (`lib/demo/projects.ts`): los
+proyectos de ejemplo que dan volumen a la cartera, los documentos y el capital
+adelantado; el beneficio real sale de los pedidos de Operaciones.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 8 y además:
+
+1. Enlazar el proyecto con su producto, mercado y modelo logístico, y guardar su
+   fase de negocio (no solo el grafo de tareas).
+2. Salud del proyecto, progreso y capital expuesto calculados en el backend.
+3. Beneficio real del proyecto a partir de ventas reales.
+4. Hitos con fecha propia (hoy se leen de la auditoría) y documentos del proyecto.
+5. Decisiones pendientes accionables desde el proyecto (aprobar o rechazar) y su
+   trazabilidad.
+6. Aprendizajes guardados y aplicables al sistema.
