@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export interface SectionNavItem {
   label: string;
@@ -8,6 +9,9 @@ export interface SectionNavItem {
   icon?: LucideIcon;
   /** Por qué está deshabilitado (tooltip nativo). */
   pendingReason?: string;
+  /** Sección seleccionada (resaltada como la pestaña activa del mockup). */
+  active?: boolean;
+  onClick?: () => void;
 }
 
 /** Pestañas-ancla de un panel largo (las «tabs» de los mockups): las secciones
@@ -19,7 +23,14 @@ export function SectionNav({ label, items }: { label: string; items: SectionNavI
       {items.map((item) => {
         const Icon = item.icon;
         return item.href ? (
-          <Button key={item.label} size="sm" variant="outline" nativeButton={false} render={<a href={item.href} />}>
+          <Button
+            key={item.label}
+            size="sm"
+            variant="outline"
+            nativeButton={false}
+            render={<a href={item.href} onClick={item.onClick} aria-current={item.active ? "true" : undefined} />}
+            className={cn(item.active && "border-primary/70 bg-panel-hover text-foreground")}
+          >
             {Icon ? <Icon /> : null}
             {item.label}
           </Button>

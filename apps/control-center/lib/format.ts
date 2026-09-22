@@ -7,6 +7,16 @@ export function formatAmount(value: number): string {
   return value.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true });
 }
 
+/** Importe en euros como en los mockups ("2.180 €", "29,90 €"). `digits` = decimales. */
+export function formatEuro(value: number, digits = 2): string {
+  const text = value.toLocaleString("es-ES", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+    useGrouping: true,
+  });
+  return `${text} €`;
+}
+
 /** Entero con separador de miles. */
 export function formatInteger(value: number): string {
   return Math.round(value).toLocaleString("es-ES", { useGrouping: true });

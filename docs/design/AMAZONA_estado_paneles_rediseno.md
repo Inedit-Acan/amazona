@@ -12,6 +12,16 @@ Regla que gobierna todo el documento (`AMAZONA_sistema_de_diseno_visual.md` §3)
 nunca presentar como dato real algo que el backend no proporciona. Lo pendiente
 se muestra con `DataProvenanceBadge status="pending"`.
 
+**Cambio de criterio (22-09-2026, decisión del propietario).** En la segunda
+pasada, pantalla a pantalla, cada panel debe verse como su mockup aunque haya que
+usar **datos de demostración** donde el backend aún no los da; se sustituirán por
+los reales cuando el sistema esté completo. Reglas para que sigan siendo
+reemplazables: los valores inventados viven en `lib/demo/<panel>.ts` (nunca
+sueltos en los componentes), lo real se usa siempre que exista, y la pantalla
+lleva la etiqueta `DataProvenanceBadge status="demo"` («Datos de demostración»)
+con la lista de lo que es demo en su tooltip. Los apartados «Backend que
+faltaría» siguen siendo la lista de lo que hay que sustituir.
+
 Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 
 ## Resumen
@@ -51,6 +61,12 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `RankedBars` | Finanzas | Agentes (rendimiento), Proyectos, Auditoría |
 | `lib/markets.ts` | Legal, Tienda | Marketing, Operaciones (etiquetas de mercado y «último por mercado») |
 | `lib/product-channels.ts` | Tienda | Marketing, Operaciones (todo lo persistido de un producto) |
+| `LineChart` | Economía (2.ª pasada) | Estado (latencia, requests), Marketing, Finanzas (series temporales) |
+| `SensitivityBars` | Economía (2.ª pasada) | Finanzas, Legal (impacto por variable con nivel) |
+| `Flag` | Economía (2.ª pasada) | Proveedores, Legal, Tienda (mercados y orígenes) |
+| `DataProvenanceBadge` `demo` / `compact` | Economía (2.ª pasada) | Todo panel con datos de demostración o filas densas |
+| `KpiCard` `accent` / `footer` | Economía (2.ª pasada) | KPIs con importe en verde o con chip/barra inferior |
+| `PageHeader` `actions` | Economía (2.ª pasada) | Cabeceras con fecha, selector o acciones a la derecha |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -106,7 +122,24 @@ resultados reales.
 
 ## 2. Economía y rentabilidad (`/economics`)
 
-**Hecho.** Selector de producto y de cotización real, supuestos (precio de venta,
+**Segunda pasada (22-09-2026), fiel al mockup.** Estructura del mockup completa:
+cabecera con fecha y selector de producto, franja de producto (score, proveedor,
+mercado, modelo logístico), 6 KPIs, pestañas-ancla, escenarios con gráfico de
+evolución, desglose de 8 costes por unidad con su origen, simulador interactivo,
+sensibilidad, punto de equilibrio con gráfico y tabla, viabilidad y barra final
+con «Guardar análisis» (real, `POST /api/economics/runs`) y menú «…». Todo se
+calcula en `lib/economics-model.ts` a partir de un único conjunto de supuestos,
+así que las cifras son coherentes y el simulador las recalcula en vivo. Real:
+producto, cotización (proveedor, precio, logística, MOQ), último análisis
+guardado (precio, costes fijos, pedidos del escenario base; antes se perdía al
+recargar). Demo (`lib/demo/economics.ts`): proveedor si no hay cotización,
+reparto transporte/arancel, fulfillment, pasarela, devoluciones, CAC, otros
+costes, conversión, variación de precio de los escenarios, score, mercado,
+modelo logístico y descripción. Lo de abajo describe la primera pasada; su
+«Backend que faltaría» sigue vigente y además hace falta que el motor del
+backend calcule lo que hoy hace `lib/economics-model.ts`.
+
+**Primera pasada — Hecho.** Selector de producto y de cotización real, supuestos (precio de venta,
 costes fijos), y — tras ejecutar el análisis — 6 KPIs, comparativa de los 3
 escenarios del backend con gráfico de beneficio, desglose unitario, veredicto de
 viabilidad con riesgos, CTAs a Legal y al Director ejecutivo, y barra de siguiente

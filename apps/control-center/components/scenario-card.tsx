@@ -1,3 +1,4 @@
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ScenarioMetric {
@@ -10,12 +11,14 @@ export interface ScenarioMetric {
  * usa decide qué escenario es el "actual" (`highlighted`) y qué valores muestra. */
 export function ScenarioCard({
   title,
+  icon: Icon,
   badge,
   highlighted = false,
   headline,
   metrics,
 }: {
   title: string;
+  icon?: LucideIcon;
   /** Etiqueta pequeña junto al título (p. ej. «Actual»). */
   badge?: string;
   highlighted?: boolean;
@@ -30,7 +33,10 @@ export function ScenarioCard({
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className={cn("text-sm font-semibold", highlighted && "text-primary")}>{title}</p>
+        <p className={cn("flex items-center gap-1.5 text-sm font-semibold", highlighted && "text-primary")}>
+          {Icon ? <Icon className="size-4 shrink-0" /> : null}
+          {title}
+        </p>
         {badge ? (
           <span className="rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">
             {badge}

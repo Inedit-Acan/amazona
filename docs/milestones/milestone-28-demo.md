@@ -1041,3 +1041,59 @@ página, y deja todo lo demás como pendiente: no aparece ningún uptime, percen
 
 Los doce paneles están rediseñados. Lo siguiente es el backend que falta por panel
 (`docs/design/AMAZONA_estado_paneles_rediseno.md`).
+
+## Segunda pasada — Panel 2: Economía y rentabilidad (`/economics`)
+
+Tras los 12 paneles, el propietario revisa pantalla a pantalla contra su mockup.
+Nuevo criterio (22-09-2026): cada pantalla debe verse como el mockup, con datos
+de demostración donde el backend aún no los da (en `lib/demo/`, señalados con la
+etiqueta «Datos de demostración»). Antes de esta pasada se corrigió el tema
+global (commit `4e1f09f`): la fuente caía a Times New Roman y la paleta no era la
+de los mockups.
+
+### Qué se ve ahora
+
+1. Cabecera con fecha y hora, etiqueta «Datos de demostración» (el tooltip dice
+   qué es demo) y selector «Producto activo».
+2. Franja de producto: ficha, score de investigación, proveedor seleccionado (con
+   selector si hay varias cotizaciones reales), mercado objetivo y modelo logístico.
+3. Seis KPIs: precio (chip «Editable» que lleva al simulador), coste total por
+   unidad, margen de contribución, beneficio del mes, punto de equilibrio con meses
+   de recuperación, y riesgo con barra de nivel.
+4. Pestañas-ancla de las siete secciones.
+5. Escenarios conservador/base/optimista con precio, pedidos, margen y beneficio,
+   y el gráfico «Evolución del beneficio estimado» con tooltip.
+6. Desglose de los 8 costes por unidad con su origen (Verificado / Proveedor /
+   Estimación) y el margen de contribución.
+7. Simulador (precio, coste proveedor, CAC, devoluciones, conversión, pedidos) con
+   resultados en tiempo real y «Restablecer». Toda la pantalla se recalcula con él.
+8. Sensibilidad (6 variables, nivel Alto/Medio/Bajo), punto de equilibrio (gráfico
+   con el punto marcado y tabla: unidades, facturación, recuperación, CAC máximo,
+   precio mínimo) y viabilidad con veredicto «bajo estas hipótesis».
+9. Barra final con «Guardar análisis» (real) y menú «…» (validar con el Director
+   ejecutivo, buscar más proveedores).
+10. Carga el último análisis guardado del producto (antes se perdía al recargar).
+
+### Componentes nuevos / tocados
+
+- Nuevos: `LineChart`, `SensitivityBars`, `Flag`; `lib/economics-model.ts`,
+  `lib/economics-baseline.ts` (real + demo) y `lib/demo/economics.ts`, con tests;
+  `formatEuro` en `lib/format.ts`.
+- Ampliados sin romper a los demás paneles: `DataProvenanceBadge` (`demo`,
+  `compact`), `KpiCard` (`accent`, `footer`, icono opcional), `SectionNav`
+  (`active`, `onClick`), `ScenarioCard` (`icon`), `PageHeader` (`actions`).
+
+### Verificación
+
+- `tsc --noEmit` limpio; `npm test` 90/90 (11 nuevos); `eslint` limpio en los
+  archivos tocados; `next build` correcto (en copia temporal, sin tocar el `.next`
+  del entorno del propietario).
+- En navegador (entorno del propietario, solo lectura): a 1536 y 1896 px la
+  estructura coincide con el mockup; el simulador recalcula KPIs, escenarios,
+  punto de equilibrio y viabilidad (precio 35 € → 10.500 € de ingresos y 4.213 €
+  de beneficio; precio 12 € → margen negativo, «No se alcanza», riesgo Alto y
+  «No rentable bajo estas hipótesis»); «Restablecer», menú «…» y cambio de
+  producto funcionan; 375 px sin desbordamiento; consola sin errores. Los tres
+  productos de esa base no tienen cotizaciones ni análisis, así que se vio el
+  camino demo; el camino con datos reales lo cubren los tests de
+  `lib/economics-baseline.ts`.
