@@ -13,7 +13,18 @@ export interface MapPoint {
   lonLat: [number, number];
   /** both = el mismo punto es origen y destino (p. ej. proveedor en la UE con destino UE). */
   kind: "origin" | "destination" | "both";
+  /** Estado del punto (Operaciones: normal, retraso, incidencia). Sin tono, el
+   * color depende solo de si es origen o destino. */
+  tone?: "ok" | "warn" | "bad";
+  /** Líneas pequeñas bajo la etiqueta (p. ej. «124 pedidos»). */
+  caption?: string[];
 }
+
+const TONE_COLOR: Record<"ok" | "warn" | "bad", string> = {
+  ok: "var(--emerald-bright)",
+  warn: "var(--warning)",
+  bad: "var(--danger)",
+};
 
 export interface MapRoute {
   id: string;
@@ -60,12 +71,17 @@ export function RouteMap({
   routes,
   selectedPointId,
   onSelectPoint,
+  legend,
+  ariaLabel = "Mapa de rutas de abastecimiento",
   className,
 }: {
   points: MapPoint[];
   routes: MapRoute[];
   selectedPointId?: string | null;
   onSelectPoint?: (id: string) => void;
+  /** Sustituye la leyenda por defecto (origen / ruta / destino). */
+  legend?: { color: string; label: string }[];
+  ariaLabel?: string;
   className?: string;
 }) {
   const byId = new Map(points.map((p) => [p.id, p]));
@@ -86,7 +102,7 @@ export function RouteMap({
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="h-auto w-full"
         role="group"
-        aria-label="Mapa de rutas de abastecimiento"
+        aria-label={ariaLabel}
       >
         <g>
           {COUNTRY_PATHS.map((d, i) => (
@@ -113,6 +129,7 @@ export function RouteMap({
           if (!xy) return null;
           const [x, y] = xy;
           const isDestination = point.kind !== "origin";
+          const color = point.tone ? TONE_COLOR[point.tone] : isDestination ? "var(--cyan-accent)" : "var(--emerald-bright)";
           const selected = point.id === selectedPointId;
           const clickable = Boolean(onSelectPoint) && point.kind !== "destination";
           const labelOnLeft = x > WIDTH - 130;
@@ -141,13 +158,13 @@ export function RouteMap({
                 cx={x}
                 cy={y}
                 r={selected ? 13 : 10}
-                fill={isDestination ? "var(--cyan-accent)" : "var(--emerald-bright)"}
+                fill={color}
                 opacity={selected ? 0.35 : 0.18}
               />
               {isDestination ? (
-                <circle cx={x} cy={y} r={6.5} fill="var(--panel)" stroke="var(--cyan-accent)" strokeWidth={2.5} />
+                <circle cx={x} cy={y} r={6.5} fill="var(--panel)" stroke={color} strokeWidth={2.5} />
               ) : (
-                <circle cx={x} cy={y} r={5} fill="var(--emerald-bright)" stroke="var(--panel)" strokeWidth={2} />
+                <circle cx={x} cy={y} r={5} fill={color} stroke="var(--panel)" strokeWidth={2} />
               )}
               {point.kind === "both" ? <circle cx={x} cy={y} r={2.5} fill="var(--emerald-bright)" /> : null}
               {clickable ? <circle cx={x} cy={y} r={18} fill="transparent" /> : null}
@@ -165,12 +182,36 @@ export function RouteMap({
               >
                 {point.label}
               </text>
+              {(point.caption ?? []).map((line, k) => (
+                <text
+                  key={line}
+                  x={labelOnLeft ? x - 12 : x + 12}
+                  y={y + 17 + k * 12}
+                  textAnchor={labelOnLeft ? "end" : "start"}
+                  fontSize={10}
+                  fill="var(--text-secondary)"
+                  stroke="var(--background)"
+                  strokeWidth={3}
+                  paintOrder="stroke"
+                  pointerEvents="none"
+                >
+                  {line}
+                </text>
+              ))}
             </g>
           );
         })}
       </svg>
 
       <ul className="pointer-events-none absolute bottom-2 left-2 space-y-1 rounded-md border bg-card/85 px-2.5 py-2 text-[11px] text-muted-foreground backdrop-blur-sm">
+        {legend ? (
+          legend.map((item) => (
+            <li key={item.label} className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full" style={{ background: item.color }} /> {item.label}
+            </li>
+          ))
+        ) : (
+          <>
         <li className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-emerald-bright" /> Origen del proveedor
         </li>
@@ -180,6 +221,8 @@ export function RouteMap({
         <li className="flex items-center gap-1.5">
           <span className="size-2 rounded-full border-2 border-cyan-accent" /> Destino
         </li>
+          </>
+        )}
       </ul>
     </div>
   );

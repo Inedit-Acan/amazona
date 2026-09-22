@@ -77,6 +77,9 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `DonutChart` | Marketing (2.ª pasada) | Finanzas (reparto de ingresos/gastos), Operaciones, Estado |
 | `LineChart` `xTicks` / `dots` | Marketing (2.ª pasada) | Series largas (30 días) sin saturar el eje ni los puntos |
 | `lib/marketing-view.ts` | Marketing (2.ª pasada) | Operaciones y Finanzas (CAC, ROAS y funnel del mismo periodo) |
+| `RouteMap` tono / detalle / leyenda | Operaciones (2.ª pasada) | Cualquier mapa con estado por nodo (Proveedores, Estado) |
+| `lib/operations-view.ts` | Operaciones (2.ª pasada) | Finanzas y Panel (pedidos, entregas e incidencias del periodo) |
+| `demoSku` | Tienda, Operaciones | Cualquier panel que enseñe el SKU mientras no haya catálogo |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -682,3 +685,25 @@ que exige gasto real en plataformas y el resto del panel.
 6. Presupuesto asignado y gasto real del periodo, con pacing y guardrails activos
    (pausar por CAC o ROAS, limitar subidas de presupuesto).
 7. `POST /api/marketing/investment-requests` para la aprobación de inversión.
+
+## 6 (segunda pasada). Operaciones
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real: catálogo,
+cotizaciones de proveedor, precio de Economía y, si existe, el informe del agente de
+operaciones (seguimiento, política de devoluciones y ticket de soporte). Demo
+(`lib/demo/operations.ts`): pedidos, clientes, canales, transportistas, incidencias,
+devoluciones, mapa, salud operativa y automatizaciones.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 6 y además:
+
+1. Pedidos reales (cliente, canal, importe, estado, fechas prometida y real) y su
+   histórico, que es de donde saldrían KPIs, pipeline y tabla.
+2. Incidencias con prioridad, responsable, SLA y acciones (resolver, investigar,
+   gestionar) que hoy no tienen endpoint.
+3. Tracking real del transportista por pedido y catálogo de transportistas con
+   puntualidad y tiempos medidos.
+4. Devoluciones con motivo y estado, y su tasa sobre pedidos entregados.
+5. Métricas de proveedor operativas (aceptación, despacho en SLA, cancelaciones,
+   defectos) en vez de derivarlas de la fiabilidad de la cotización.
+6. Operational Health calculado en el backend, con su explicación por eje.
+7. Motor de automatizaciones (reglas, modo operativo) persistido y auditable.

@@ -1,390 +1,521 @@
 "use client";
 
+import Link from "next/link";
 import {
-  Activity,
+  AlertTriangle,
+  ArrowRight,
   Bot,
-  CalendarClock,
-  Check,
-  ClipboardList,
-  FileWarning,
-  Gauge,
-  Map as MapIcon,
-  PackageCheck,
-  PackageSearch,
-  Percent,
-  ReceiptText,
+  CheckCircle2,
+  CircleDot,
+  Clock,
+  ExternalLink,
+  Headset,
   RotateCcw,
-  ShieldCheck,
-  Timer,
+  Settings2,
   Truck,
-  UserRound,
-  Wallet,
-  Workflow,
 } from "lucide-react";
-import type { EconomicAnalysis, OperationsRecord, SupplierQuote } from "@/lib/api";
-import { formatAmount, formatInteger, formatPercent } from "@/lib/format";
-import { OPERATIONS_VERDICT, stageDurations, stageLabel, ticketTypeLabel } from "@/lib/operations";
-import { regionLabel } from "@/lib/regions";
+import {
+  DEMO_AUTOMATIONS,
+  DEMO_RETURN_TARGET,
+  OPERATING_MODES,
+  type OperatingMode,
+} from "@/lib/demo/operations";
+import { formatEuro, formatInteger, formatPercent } from "@/lib/format";
+import {
+  ORDER_STATUS_LABEL,
+  orderDurations,
+  orderTimeline,
+  type CarrierRow,
+  type IncidentView,
+  type MapNode,
+  type Order,
+  type ReturnsView,
+  type SupplierPerformanceRow,
+} from "@/lib/operations-view";
+import type { OperationsRecord, ReturnPolicy, SupportTicketExample } from "@/lib/api";
+import { ticketTriage } from "@/lib/operations";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
-import { KpiCard, type KpiTone } from "@/components/kpi-card";
-import { PendingFeatures, type PendingFeature } from "@/components/pending-features";
-import { RiskList } from "@/components/risk-list";
-import { VerdictBanner } from "@/components/verdict-banner";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Flag, regionFlag } from "@/components/flag";
+import { LevelChip, type LevelTone } from "@/components/level-chip";
+import { RingGauge } from "@/components/ring-gauge";
+import { RouteMap } from "@/components/route-map";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-const STATUS_KPI_TONE: Record<"ok" | "warn" | "bad", KpiTone> = { ok: "success", warn: "warning", bad: "danger" };
+const SEVERITY_TONE: Record<IncidentView["severity"], LevelTone> = { "Crítica": "bad", Alta: "warn", Media: "neutral" };
 
-/** Lo que el mockup y la spec (parte 2 §3) enseñan y el backend no puede dar: hoy
- * no existen pedidos, clientes, transportistas ni ticketing reales. */
-const PENDING_CONTROL_TOWER: PendingFeature[] = [
-  {
-    icon: Gauge,
-    title: "KPIs de la operación",
-    description: "Pedidos activos, en tránsito, entregados hoy, % a tiempo, entrega media, tasa de devoluciones y SLA.",
-  },
-  {
-    icon: Workflow,
-    title: "Pipeline de pedidos",
-    description: "Confirmado → proveedor → preparación → despachado → en tránsito → entregado, con conteos y cuellos de botella.",
-  },
-  {
-    icon: ClipboardList,
-    title: "Pedidos recientes",
-    description: "Tabla con canal, producto, proveedor, estado, entrega estimada, SLA, riesgo y filtros.",
-  },
-  {
-    icon: FileWarning,
-    title: "Centro de incidencias",
-    description: "Incidencias de pedido con prioridad, proveedor, tiempo, SLA, responsable y acción recomendada.",
-  },
-  {
-    icon: UserRound,
-    title: "Rendimiento de proveedores",
-    description: "Aceptación, despacho en SLA, entrega a tiempo, cancelaciones, defectos, tracking válido y score operativo.",
-  },
-  {
-    icon: Truck,
-    title: "Transportistas",
-    description: "Entrega a tiempo, tiempo medio e incidencias por transportista.",
-  },
-  {
-    icon: RotateCcw,
-    title: "Devoluciones reales",
-    description: "Abiertas, en revisión, en tránsito y recibidas, tasa y principales motivos.",
-  },
-  {
-    icon: Bot,
-    title: "Automatizaciones operativas",
-    description: "Reglas (pago → pedido al proveedor, recordatorios, escalados) y modo operativo.",
-  },
-  {
-    icon: Activity,
-    title: "Operational Health",
-    description: "Score explicable de pedidos, proveedores, logística, entregas, devoluciones e incidencias.",
-  },
-  {
-    icon: MapIcon,
-    title: "Mapa logístico",
-    description: "Pedidos y tiempos de entrega por región, con retrasos e incidencias.",
-  },
+/** Fecha corta en UTC: los pedidos se generan a medianoche UTC, así que el
+ * servidor y el navegador escriben exactamente el mismo día. */
+export function formatDay(ts: number): string {
+  return new Date(ts).toLocaleDateString("es-ES", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+function formatSpan(ms: number): string {
+  const hours = ms / 3_600_000;
+  if (hours < 24) return `${Math.round(hours)} h`;
+  const days = hours / 24;
+  return `${days.toLocaleString("es-ES", { maximumFractionDigits: 1 })} días`;
+}
+
+// --- Centro de incidencias -----------------------------------------------------
+
+export function IncidentsCard({
+  incidents,
+  selectedId,
+  onSelect,
+  ticket,
+}: {
+  incidents: IncidentView[];
+  selectedId: string | null;
+  onSelect: (orderId: string) => void;
+  /** Ticket de ejemplo del agente de operaciones, si guardó alguno (dato real). */
+  ticket?: SupportTicketExample;
+}) {
+  const triage = ticket ? ticketTriage(ticket) : null;
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          Centro de incidencias
+          <LevelChip tone={incidents.length > 0 ? "bad" : "ok"}>
+            {incidents.length} {incidents.length === 1 ? "abierta" : "abiertas"}
+          </LevelChip>
+        </CardTitle>
+        <CardAction>
+          <DataProvenanceBadge status="demo" compact tooltip="No hay incidencias reales: se derivan de los pedidos de demostración." />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {incidents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Ninguna incidencia abierta en el periodo.</p>
+        ) : (
+          <ul className="space-y-2">
+            {incidents.slice(0, 5).map((incident) => (
+              <li key={incident.order.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(incident.order.id)}
+                  aria-pressed={selectedId === incident.order.id}
+                  className={cn(
+                    "grid w-full grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg border p-2 text-left transition",
+                    selectedId === incident.order.id ? "border-primary/60 bg-primary/5" : "hover:border-primary/40",
+                  )}
+                >
+                  <LevelChip tone={SEVERITY_TONE[incident.severity]} className="uppercase">
+                    {incident.severity}
+                  </LevelChip>
+                  <span className="min-w-0">
+                    <span className="block text-[13px] leading-tight font-medium">{incident.title}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      #{incident.order.id} · {incident.detail}
+                    </span>
+                  </span>
+                  <span
+                    className="rounded-md border px-2 py-1 text-xs text-muted-foreground"
+                    title={`Pendiente: no existe gestión de incidencias en el backend (${incident.action.toLowerCase()})`}
+                  >
+                    {incident.action}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {triage ? (
+          <p className="flex flex-wrap items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 p-2 text-[11px]">
+            <Headset className="size-3.5 shrink-0 text-primary" />
+            <span className="font-medium text-primary">Triaje de soporte del agente:</span>
+            <span className="text-muted-foreground">
+              {triage.detail} · {triage.label}
+            </span>
+            <DataProvenanceBadge status="estimated" compact tooltip="Ticket de ejemplo que generó el agente de operaciones para este producto." />
+          </p>
+        ) : null}
+        <p className="text-[11px] text-muted-foreground">
+          Al elegir una incidencia se abre su pedido en «Seguimiento del pedido». Resolver, investigar o gestionar
+          necesita backend.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Mapa logístico ------------------------------------------------------------
+
+const MAP_TONE_LABEL: { tone: "ok" | "warn" | "bad"; color: string; label: string }[] = [
+  { tone: "ok", color: "var(--emerald-bright)", label: "Normal" },
+  { tone: "warn", color: "var(--warning)", label: "Retraso" },
+  { tone: "bad", color: "var(--danger)", label: "Incidencia" },
 ];
 
-function DlRow({ label, children }: { label: string; children: React.ReactNode }) {
+export function LogisticsMapCard({ nodes, routes }: { nodes: MapNode[]; routes: { id: string; from: string; to: string }[] }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-1.5">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="text-right font-medium">{children}</dd>
-    </div>
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle>Mapa logístico</CardTitle>
+        <CardAction>
+          <DataProvenanceBadge status="demo" compact tooltip="Pedidos y tiempos por región derivados de los pedidos de demostración; el origen del proveedor sí es real." />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <RouteMap
+          ariaLabel="Mapa de pedidos por origen y destino"
+          points={nodes.map((n) => ({
+            id: n.id,
+            label: n.label,
+            lonLat: n.lonLat,
+            kind: n.kind,
+            tone: n.tone,
+            caption: [`${formatInteger(n.orders)} pedidos`, `${n.avgDays.toLocaleString("es-ES", { maximumFractionDigits: 1 })} días de media`],
+          }))}
+          routes={routes}
+          legend={MAP_TONE_LABEL.map((t) => ({ color: t.color, label: t.label }))}
+          className="overflow-hidden rounded-xl border bg-background/40"
+        />
+      </CardContent>
+    </Card>
   );
 }
 
-function Days({ value }: { value: number | null }) {
-  return <>{value === null ? "—" : `${formatInteger(value)} día${value === 1 ? "" : "s"}`}</>;
-}
+// --- Seguimiento del pedido -----------------------------------------------------
 
-export function OperationsPanels({
-  record,
-  economic,
-  quote,
-}: {
-  record: OperationsRecord;
-  economic?: Pick<EconomicAnalysis, "sale_price">;
-  quote?: SupplierQuote;
-}) {
-  const verdict = OPERATIONS_VERDICT[record.operations_status];
-  const order = record.data?.order;
-  const coordination = record.data?.supplier_coordination;
-  const returns = record.data?.return_policy;
-  const ticket = record.data?.support_ticket_example;
-  const risks = record.data?.risks ?? [];
-  const durations = order ? stageDurations(order.tracking.stages) : undefined;
-
+export function OrderTrackingCard({ order, record }: { order: Order | undefined; record?: OperationsRecord }) {
+  if (!order) {
+    return (
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle>Seguimiento del pedido</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Elige un pedido en la tabla o en una incidencia.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+  const steps = orderTimeline(order, record);
+  const durations = orderDurations(steps);
   return (
-    <div className="space-y-4">
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6" aria-label="Indicadores de la simulación">
-        <KpiCard
-          label="Estado de la operación"
-          value={verdict.title}
-          icon={ShieldCheck}
-          tone={STATUS_KPI_TONE[verdict.tone]}
-          caption={`Recomendación del agente · confianza ${formatPercent(record.confidence, 0)}`}
-          provenance="estimated"
-          provenanceTooltip="Estado calculado por el agente de operaciones a partir de los análisis económico y legal."
-        />
-        <KpiCard
-          label="Pedido de muestra"
-          value={order ? order.order_id : "—"}
-          icon={PackageCheck}
-          caption={order ? `${formatInteger(order.quantity)} unidad${order.quantity === 1 ? "" : "es"}` : "Sin pedido simulado"}
-          provenance="estimated"
-          provenanceTooltip="Un único pedido ilustrativo: no hay pedidos reales."
-        />
-        <KpiCard
-          label="Entrega prevista"
-          value={durations?.total != null ? `día ${durations.total}` : "—"}
-          icon={CalendarClock}
-          caption="Días desde el pedido, según el plazo del proveedor"
-          provenance="estimated"
-          provenanceTooltip="Se apoya en el plazo de entrega real de la cotización más otros tiempos fijos de simulación."
-        />
-        <KpiCard
-          label="Ventana de devolución"
-          value={returns ? `${formatInteger(returns.eligibility_window_days)} días` : "—"}
-          icon={RotateCcw}
-          caption="Política por mercado"
-          provenance="estimated"
-          provenanceTooltip="Política de devoluciones simulada por mercado."
-        />
-        <KpiCard
-          label="Cargo de reposición"
-          value={returns ? formatPercent(returns.restocking_fee_percent, 0) : "—"}
-          icon={Percent}
-          caption="Sobre el precio de venta"
-          provenance="estimated"
-          provenanceTooltip="Política de devoluciones simulada por mercado."
-        />
-        <KpiCard
-          label="Reembolso estimado"
-          value={returns?.refund_estimate != null ? formatAmount(returns.refund_estimate) : "—"}
-          icon={ReceiptText}
-          caption={returns?.refund_estimate != null ? "Precio de venta menos el cargo" : "Falta el análisis económico"}
-          provenance="estimated"
-          provenanceTooltip="Calculado por el agente a partir del precio de venta del análisis económico."
-        />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-12">
-        <Card className="xl:col-span-7">
-          <CardHeader>
-            <CardTitle>Seguimiento del pedido de muestra</CardTitle>
-            <CardAction>
-              <DataProvenanceBadge
-                status="estimated"
-                tooltip="Línea de tiempo simulada: los días son relativos al pedido y usan el plazo de entrega real de la cotización."
-              />
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {order ? (
-              <>
-                <ol className="space-y-0">
-                  {order.tracking.stages.map((stage, index, all) => (
-                    <li key={stage.stage} className="relative flex gap-3 pb-4 last:pb-0">
-                      {index < all.length - 1 ? (
-                        <span className="absolute top-5 left-[7px] h-full w-px bg-border" aria-hidden />
-                      ) : null}
-                      <span
-                        className={cn(
-                          "relative mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
-                          index === all.length - 1 ? "border-primary bg-primary text-primary-foreground" : "border-primary/60 bg-background",
-                        )}
-                      >
-                        {index === all.length - 1 ? <Check className="size-2.5" /> : null}
-                      </span>
-                      <div className="flex flex-1 items-baseline justify-between gap-3">
-                        <p className="text-sm font-medium">{stageLabel(stage.stage)}</p>
-                        <p className="shrink-0 text-xs tabular-nums text-muted-foreground">día {stage.day_offset}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-                {durations ? (
-                  <dl className="grid grid-cols-2 gap-3 border-t pt-4 text-xs sm:grid-cols-4">
-                    <div>
-                      <dt className="text-muted-foreground">Procesamiento</dt>
-                      <dd className="mt-0.5 text-sm font-medium">
-                        <Days value={durations.processing} />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Hasta el despacho</dt>
-                      <dd className="mt-0.5 text-sm font-medium">
-                        <Days value={durations.toShip} />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Tránsito</dt>
-                      <dd className="mt-0.5 text-sm font-medium">
-                        <Days value={durations.transit} />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Total</dt>
-                      <dd className="mt-0.5 text-sm font-medium text-primary">
-                        <Days value={durations.total} />
-                      </dd>
-                    </div>
-                  </dl>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">El informe no incluye pedido de muestra.</p>
-            )}
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              <DataProvenanceBadge
-                status="pending"
-                tooltip="No hay transportistas ni tracking real: no existen horas de recogida ni números de seguimiento."
-              />
-              Fechas y horas reales, transportista y número de tracking: sin datos.
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle>Seguimiento del pedido</CardTitle>
+        <CardAction>
+          <DataProvenanceBadge
+            status={record ? "estimated" : "demo"}
+            compact
+            tooltip={
+              record
+                ? "Los hitos vienen del seguimiento simulado que guardó el agente de operaciones para este producto y mercado."
+                : "Pedido de demostración: no hay seguimiento real del transportista."
+            }
+          />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="grid gap-4 lg:grid-cols-2">
+        <div className="min-w-0 space-y-3">
+          <div>
+            <p className="text-lg font-semibold">#{order.id}</p>
+            <p className="text-xs text-muted-foreground">
+              {order.channel} · {order.units} {order.units === 1 ? "artículo" : "artículos"} · {formatEuro(order.amount)}
+            </p>
+          </div>
+          <div className="flex gap-3 rounded-lg border bg-background/40 p-3">
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-lg border bg-background/60 text-primary">
+              <Truck className="size-6" />
+            </span>
+            <div className="min-w-0 text-xs">
+              <p className="text-[13px] font-medium">{order.productName}</p>
+              <p className="text-muted-foreground">SKU: {order.sku}</p>
+              <p className="text-muted-foreground">Cliente: {order.customer}</p>
+              <p className="flex items-center gap-1.5 text-muted-foreground">
+                {regionFlag(order.supplierRegion) ? <Flag code={regionFlag(order.supplierRegion)!} /> : null}
+                {order.supplierName}
+              </p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="xl:col-span-5">
-          <CardHeader>
-            <CardTitle>Proveedor y modelo sin stock</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <dl className="divide-y text-sm">
-              <DlRow label="Proveedor">
-                {quote ? (
-                  <>
-                    {quote.data?.name ?? quote.supplier_id}
-                    <span className="block text-xs font-normal text-muted-foreground">{regionLabel(quote.data?.region)}</span>
-                  </>
-                ) : (
-                  "—"
-                )}
-              </DlRow>
-              <DlRow label="Plazo de entrega usado">
-                {order ? `${formatInteger(order.tracking.lead_time_days_used)} días` : "—"}
-              </DlRow>
-              <DlRow label="Plazo real del proveedor">
-                {coordination?.lead_time_days != null ? `${formatInteger(coordination.lead_time_days)} días` : "Desconocido"}
-              </DlRow>
-              <DlRow label="Proveedor verificado">
-                {coordination?.supplier_verified == null ? "Sin dato" : coordination.supplier_verified ? "Sí" : "No"}
-              </DlRow>
-            </dl>
-
+          </div>
+          <dl className="grid grid-cols-3 gap-2 rounded-lg border bg-background/40 p-3 text-xs">
             <div>
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground">Pedido de muestra: cobro y pago</p>
-              <dl className="divide-y rounded-lg border px-3 text-sm">
-                <DlRow label="Cobro al cliente">{economic ? formatAmount(economic.sale_price) : "—"}</DlRow>
-                <DlRow label="Pago al proveedor (precio unitario)">{quote ? formatAmount(quote.unit_price) : "—"}</DlRow>
-                <DlRow label="Logística y aduana">{quote ? formatAmount(quote.logistics_cost_per_unit) : "—"}</DlRow>
-              </dl>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <DataProvenanceBadge
-                  status="pending"
-                  tooltip="No hay fechas de cobro y pago reales, así que no se puede calcular el capital adelantado ni el desfase."
-                />
-                Capital adelantado, desfase entre cobro y pago y cobertura.
-              </div>
+              <dt className="text-muted-foreground">Procesamiento</dt>
+              <dd className="mt-0.5 font-medium">{formatSpan(durations.processing)}</dd>
             </div>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-12">
-        <Card className="xl:col-span-4">
-          <CardHeader>
-            <CardTitle>Devoluciones</CardTitle>
-            <CardAction>
-              <RotateCcw className="size-4 text-primary" />
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {returns ? (
-              <dl className="divide-y text-sm">
-                <DlRow label="Ventana de devolución">{formatInteger(returns.eligibility_window_days)} días</DlRow>
-                <DlRow label="Cargo de reposición">{formatPercent(returns.restocking_fee_percent, 0)}</DlRow>
-                <DlRow label="Reembolso estimado">
-                  {returns.refund_estimate != null ? formatAmount(returns.refund_estimate) : "Desconocido"}
-                </DlRow>
-              </dl>
-            ) : (
-              <p className="text-sm text-muted-foreground">El informe no incluye política de devoluciones.</p>
-            )}
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-              <DataProvenanceBadge status="pending" tooltip="No hay devoluciones reales que contar." />
-              Tasa de devolución, abiertas/en revisión/recibidas y principales motivos.
+            <div>
+              <dt className="text-muted-foreground">Recogida</dt>
+              <dd className="mt-0.5 font-medium">{formatSpan(durations.pickup)}</dd>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="xl:col-span-4">
-          <CardHeader>
-            <CardTitle>Soporte postventa</CardTitle>
-            <CardAction>
-              <PackageSearch className="size-4 text-primary" />
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {ticket ? (
-              <>
-                <div className="rounded-lg border bg-background/50 p-3">
-                  <p className="text-xs text-muted-foreground">Ticket de ejemplo</p>
-                  <p className="mt-1 text-sm font-medium">{ticketTypeLabel(ticket.ticket_type)}</p>
-                  <p className={cn("mt-2 text-sm font-medium", ticket.ai_resolvable ? "text-primary" : "text-amber-500")}>
-                    {ticket.ai_resolvable ? "Lo resuelve la IA" : "Se escala a una persona"}
-                  </p>
-                  {ticket.escalation_reason ? (
-                    <p className="mt-1 text-xs text-muted-foreground">{ticket.escalation_reason}</p>
-                  ) : null}
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Triaje IA/humano de un único ticket ilustrativo (motivo en inglés, tal cual el backend); no hay
-                  sistema de tickets.
-                </p>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">El informe no incluye ticket de soporte.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="xl:col-span-4">
-          <CardHeader>
-            <CardTitle>Estado y riesgos</CardTitle>
-            <CardAction>
-              <Timer className="size-4 text-primary" />
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <VerdictBanner tone={verdict.tone} title={verdict.title} detail={verdict.detail} />
-            <RiskList risks={risks} />
-            {risks.length > 0 ? (
-              <p className="text-[11px] text-muted-foreground">Textos de la plantilla del agente (en inglés).</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">El agente no registra riesgos.</p>
-            )}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Wallet className="size-3.5" />
-              Siguiente: Finanzas y control.
+            <div>
+              <dt className="text-muted-foreground">Tránsito estimado</dt>
+              <dd className="mt-0.5 font-medium">{formatSpan(durations.transit)}</dd>
             </div>
-          </CardContent>
-        </Card>
-      </section>
+          </dl>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" nativeButton={false} render={<Link href={`/audit?q=${order.productId}`} />}>
+              Ver historial completo <ArrowRight />
+            </Button>
+            <Button size="sm" variant="ghost" disabled title="Pendiente: no hay integración con transportistas">
+              Ver en transportista <ExternalLink />
+            </Button>
+          </div>
+        </div>
 
-      <PendingFeatures
-        title="Control Tower — pendiente de backend"
-        tooltip="Requieren pedidos, clientes, transportistas y ticketing reales; hoy el agente solo simula un pedido."
-        items={PENDING_CONTROL_TOWER}
-        columns={4}
-        note="La spec define Operaciones como el Control Tower de AMAZONA, no como un generador de informes. Hoy solo existe un agente que simula un pedido de muestra; sin pedidos reales no hay KPIs, pipeline, incidencias, proveedores ni transportistas que medir."
-      />
-    </div>
+        <ol className="min-w-0 space-y-3">
+          {steps.map((step) => (
+            <li key={step.key} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 text-xs">
+              {step.done ? (
+                <CheckCircle2 className="size-4 shrink-0 text-primary" />
+              ) : step.current ? (
+                <CircleDot className="size-4 shrink-0 text-primary" />
+              ) : (
+                <Clock className="size-4 shrink-0 text-muted-foreground" />
+              )}
+              <span className={cn("min-w-0 leading-tight", step.current ? "font-semibold text-primary" : step.done ? "" : "text-muted-foreground")}>
+                {step.label}
+              </span>
+              <span className="text-right text-muted-foreground tabular-nums">{formatDay(step.at)}</span>
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
   );
 }
+
+// --- Rendimiento de proveedores y transportistas ---------------------------------
+
+export function SupplierPerformanceCard({ rows }: { rows: SupplierPerformanceRow[] }) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle>Rendimiento de proveedores</CardTitle>
+        <CardAction>
+          <Button size="xs" variant="outline" className="text-primary" nativeButton={false} render={<Link href="/sourcing" />}>
+            Ver todos
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <table className="w-full text-xs">
+          <thead className="text-muted-foreground">
+            <tr>
+              <th className="pb-2 text-left font-normal">Proveedor</th>
+              <th className="pb-2 text-right font-normal">Pedidos</th>
+              <th className="pb-2 text-right font-normal">A tiempo</th>
+              <th className="pb-2 text-right font-normal">Defectos</th>
+              <th className="pb-2 text-right font-normal">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id} className="border-t">
+                <td className="py-1.5">
+                  <span className="flex items-center gap-1.5">
+                    {regionFlag(row.region) ? <Flag code={regionFlag(row.region)!} /> : null}
+                    <span className="leading-tight">{row.name}</span>
+                  </span>
+                </td>
+                <td className="text-right tabular-nums">{formatInteger(row.orders)}</td>
+                <td className="text-right tabular-nums">{formatPercent(row.onTimeRate)}</td>
+                <td className="text-right tabular-nums">{formatPercent(row.defectRate)}</td>
+                <td className="py-1.5 text-right">
+                  <LevelChip tone={row.score >= 90 ? "ok" : row.score >= 75 ? "warn" : "bad"}>{row.score}</LevelChip>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Origen y fiabilidad salen de la cotización real; los pedidos, la puntualidad y los defectos son de demostración.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function CarriersCard({ rows }: { rows: CarrierRow[] }) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle>Rendimiento de transportistas</CardTitle>
+        <CardAction>
+          <DataProvenanceBadge status="demo" compact tooltip="No hay integración con transportistas: puntualidad y tiempos son de demostración." />
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <table className="w-full text-xs">
+          <thead className="text-muted-foreground">
+            <tr>
+              <th className="pb-2 text-left font-normal">Transportista</th>
+              <th className="pb-2 text-right font-normal">Pedidos</th>
+              <th className="pb-2 text-right font-normal">Entrega a tiempo</th>
+              <th className="pb-2 text-right font-normal">Tiempo medio</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.name} className="border-t">
+                <td className="py-1.5">{row.name}</td>
+                <td className="text-right tabular-nums">{formatInteger(row.orders)}</td>
+                <td className={cn("text-right tabular-nums", row.onTimeRate < 0.9 && "text-destructive")}>{formatPercent(row.onTimeRate)}</td>
+                <td className="text-right tabular-nums">{row.avgDays.toLocaleString("es-ES", { maximumFractionDigits: 1 })} días</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Devoluciones ----------------------------------------------------------------
+
+export function ReturnsCard({ view, policy }: { view: ReturnsView; policy?: ReturnPolicy }) {
+  const max = Math.max(...view.reasons.map((r) => r.share), 0.01);
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle>Devoluciones</CardTitle>
+        <CardAction>
+          <DataProvenanceBadge status="demo" compact tooltip="No hay devoluciones reales: motivos y estados son de demostración." />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="text-center">
+            <RingGauge
+              value={Math.min(1, view.rate / (DEMO_RETURN_TARGET * 2))}
+              size={96}
+              centerLabel={formatPercent(view.rate)}
+              caption={view.rate <= DEMO_RETURN_TARGET ? "En objetivo" : "Sobre objetivo"}
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">Objetivo &lt; {formatPercent(DEMO_RETURN_TARGET, 0)}</p>
+          </div>
+          <ul className="min-w-40 flex-1 space-y-1.5 text-xs">
+            {view.reasons.map((reason) => (
+              <li key={reason.label} className="grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-2">
+                <span className="min-w-0">
+                  <span className="block truncate">{reason.label}</span>
+                  <span className="mt-0.5 block h-1.5 rounded-full bg-muted">
+                    <span className="block h-full rounded-full bg-destructive/70" style={{ width: `${Math.round((reason.share / max) * 100)}%` }} />
+                  </span>
+                </span>
+                <span className="text-right tabular-nums">{formatPercent(reason.share, 0)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {policy ? (
+          <p className="flex flex-wrap items-center gap-1.5 rounded-lg border p-2 text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground">Política del agente:</span>
+            {policy.eligibility_window_days} días para devolver · comisión de reposición {formatPercent(policy.restocking_fee_percent / 100, 0)}
+            {policy.refund_estimate !== null ? ` · reembolso estimado ${formatEuro(policy.refund_estimate)}` : ""}
+            <DataProvenanceBadge status="estimated" compact tooltip="Política que calculó el agente de operaciones para este producto." />
+          </p>
+        ) : null}
+        <dl className="grid grid-cols-4 gap-2 border-t pt-3 text-center text-xs">
+          {view.states.map((state) => (
+            <div key={state.key}>
+              <dt className="text-muted-foreground">{state.label}</dt>
+              <dd className="mt-0.5 text-base font-semibold">{state.count}</dd>
+            </div>
+          ))}
+        </dl>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Operational Health ----------------------------------------------------------
+
+export function HealthCard({ health }: { health: { score: number; label: string; axes: { label: string; value: number }[] } }) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle>Operational Health</CardTitle>
+      </CardHeader>
+      <CardContent className="flex items-center gap-4">
+        <RingGauge value={health.score / 100} size={104} centerLabel={`${health.score}/100`} caption={health.label} />
+        <ul className="min-w-0 flex-1 space-y-1.5 text-xs">
+          {health.axes.map((axis) => (
+            <li key={axis.label} className="grid grid-cols-[minmax(0,5.5rem)_1fr_1.75rem] items-center gap-2">
+              <span className="truncate text-muted-foreground">{axis.label}</span>
+              <span className="h-1.5 rounded-full bg-muted">
+                <span className="block h-full rounded-full bg-primary" style={{ width: `${axis.value}%` }} />
+              </span>
+              <span className="text-right tabular-nums">{axis.value}</span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Automatizaciones ------------------------------------------------------------
+
+export function AutomationsCard({ mode, onModeChange }: { mode: OperatingMode; onModeChange: (mode: OperatingMode) => void }) {
+  const current = OPERATING_MODES.find((m) => m.value === mode)!;
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle>Automatizaciones operativas</CardTitle>
+        <CardDescription>{current.detail}</CardDescription>
+        <CardAction>
+          <DataProvenanceBadge status="demo" compact tooltip="Las reglas y el modo operativo no se guardan: el backend no tiene motor de automatizaciones." />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 xl:flex-row xl:items-center">
+        <ul className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-3 min-[106.25rem]:grid-cols-5">
+          {DEMO_AUTOMATIONS.map((rule) => {
+            const active = rule.activeIn.includes(mode);
+            return (
+              <li key={rule.key} className={cn("min-w-0 rounded-lg border p-2.5", active ? "border-primary/40 bg-primary/5" : "opacity-70")}>
+                <p className="flex items-center gap-1.5 text-[13px] leading-tight font-medium">
+                  <Bot className="size-4 shrink-0 text-primary" /> {rule.label}
+                </p>
+                <p className="mt-1 text-[11px] leading-tight text-muted-foreground">{rule.detail}</p>
+                <LevelChip tone={active ? "ok" : "neutral"} className="mt-1.5">
+                  {active ? "Activo" : "Inactivo"}
+                </LevelChip>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="flex w-full flex-col gap-2 xl:w-56 xl:shrink-0">
+          <label className="text-xs text-muted-foreground" htmlFor="operations-mode">
+            Modo operativo
+          </label>
+          <select
+            id="operations-mode"
+            value={mode}
+            onChange={(e) => onModeChange(e.target.value as OperatingMode)}
+            className="rounded-md border bg-background px-2.5 py-1.5 text-sm"
+          >
+            {OPERATING_MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <Button disabled title="Pendiente: no hay motor de reglas en el backend">
+            <Settings2 /> Configurar reglas
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Pipeline --------------------------------------------------------------------
+
+export function statusTone(status: Order["status"]): LevelTone {
+  if (status === "delivered") return "ok";
+  if (status === "returned") return "bad";
+  if (status === "in_transit" || status === "shipped") return "neutral";
+  return "warn";
+}
+
+export function statusLabel(status: Order["status"]): string {
+  return ORDER_STATUS_LABEL[status];
+}
+
+export const SLA_ICON = { ok: CheckCircle2, risk: Clock, breach: AlertTriangle } as const;
+export const RETURNS_ICON = RotateCcw;

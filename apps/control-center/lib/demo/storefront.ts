@@ -88,3 +88,8 @@ export function demoMasterData(productId: string) {
     dimensions: `${10 + Math.floor(r("dx") * 10)} x ${6 + Math.floor(r("dy") * 6)} x ${3 + Math.floor(r("dz") * 4)} cm`,
   };
 }
+
+/** SKU de demostración cuando el catálogo real todavía no lo trae. */
+export function demoSku(category: string, productId: string): string {
+  return `AMZ-${category.slice(0, 3).toUpperCase()}-${productId.slice(0, 3).toUpperCase()}`;
+}

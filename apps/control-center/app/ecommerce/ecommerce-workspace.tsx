@@ -34,6 +34,7 @@ import {
   DEMO_QUALITY,
   PAYMENT_METHODS,
   demoMasterData,
+  demoSku,
 } from "@/lib/demo/storefront";
 import { contentChecklist, launchReadiness } from "@/lib/ecommerce";
 import { dedupeQuotesBySupplier } from "@/lib/economics";
@@ -193,7 +194,7 @@ export function EcommerceWorkspace({
   const checklist = contentChecklist(storefront ?? { data: null });
   const markets = marketConfig(approvedPrice, data.storefronts);
   const master = demoMasterData(product.id);
-  const sku = storefront?.data?.catalog_entry?.sku ?? `AMZ-${product.category.slice(0, 3).toUpperCase()}-${product.id.slice(0, 3).toUpperCase()}`;
+  const sku = storefront?.data?.catalog_entry?.sku ?? demoSku(product.category, product.id);
   const plan = storefront?.data?.payment_gateway_plan;
   const gateway = plan?.gateway ?? "stripe";
 

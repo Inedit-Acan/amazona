@@ -1396,3 +1396,69 @@ todo lo que necesita gasto real.
   funnel recalcula los pasos (siempre decrecientes); «Optimizar con IA» y «Rellenar
   con IA» funcionan; sin desbordamiento ni textos cortados a 1536, 1896 y 375 px;
   consola sin errores.
+
+## Segunda pasada — Panel 6: Operaciones (`/operations`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/operaciones.png`). Antes la pantalla era la simulación de UN pedido
+de muestra por producto y mercado, con el resto del Control Tower declarado
+pendiente.
+
+### Qué se ve ahora
+
+1. Cabecera con «Datos de demostración», última sincronización, selector de periodo
+   (Hoy / 7 días / 30 días) y «Exportar informe» (CSV de los pedidos filtrados).
+2. Ocho KPIs con su variación: pedidos activos, en tránsito, entregados hoy, % a
+   tiempo, incidencias, devoluciones, entrega media y SLA de proveedor.
+3. Pipeline de pedidos: confirmado → proveedor → preparación → despachado → en
+   tránsito → entregado, con el peso de cada etapa sobre el periodo.
+4. Centro de incidencias (críticas primero, con el pedido y el motivo; al elegir una
+   se abre su pedido) y, si el agente guardó un informe, su triaje de soporte real.
+5. Mapa logístico: un nodo por origen de proveedor y por mercado de destino, con
+   pedidos y días medios, coloreado por normal / retraso / incidencia.
+6. Pedidos recientes: pestañas por estado con conteo, filtros de canal y proveedor,
+   búsqueda, orden y selección de fila; el pedido elegido se abre en «Seguimiento».
+7. Seguimiento del pedido: producto, SKU, cliente, proveedor con bandera, tiempos de
+   procesamiento / recogida / tránsito y los seis hitos del envío.
+8. Rendimiento de proveedores, devoluciones (tasa, motivos, estados y la política
+   real del agente), rendimiento de transportistas, Operational Health (seis ejes) y
+   automatizaciones operativas con modo operativo.
+
+### Datos reales y de demostración
+
+- Reales: el catálogo de productos, las cotizaciones de proveedor (nombre, origen,
+  plazo y fiabilidad; si el producto no tiene, las mismas de demostración que
+  recomienda Proveedores), el precio del análisis económico y, cuando el agente de
+  operaciones guardó un informe, su seguimiento (los `day_offset` mandan sobre los de
+  la demo y la tarjeta lo marca como «Estimación»), su política de devoluciones y su
+  ticket de soporte de ejemplo.
+- Demo (`lib/demo/operations.ts`): los pedidos (360 en 30 días, deterministas por día
+  e índice), clientes, canales, transportistas, incidencias, devoluciones, la salud
+  operativa, el mapa y las automatizaciones. AMAZONA no recibe pedidos reales.
+- El estado de cada pedido se deriva de su edad y de su entrega prevista, así que
+  pipeline, KPIs, funnel de incidencias y devoluciones cuadran entre sí.
+
+### Componentes nuevos / tocados
+
+- `lib/operations-view.ts` con tests (generación de pedidos, periodo, pipeline, KPIs,
+  incidencias, proveedores, transportistas, devoluciones, salud, mapa y cronología) y
+  `lib/demo/operations.ts`.
+- `app/operations/operations-panels.tsx` reescrito (incidencias, mapa, seguimiento,
+  proveedores, transportistas, devoluciones, salud y automatizaciones).
+- `RouteMap` admite tono por punto, líneas de detalle y leyenda propia; `demoSku` se
+  extrae a `lib/demo/storefront.ts` y lo comparten Tienda y Operaciones.
+- `lib/operations.ts` se queda solo con el triaje del ticket de soporte (lo único de
+  su informe que sigue en pantalla); se retiran `stageDurations`, `stageLabel` y
+  `OPERATIONS_VERDICT` con sus tests.
+- El estado de la pantalla (periodo, pestaña y pedido) vive en la URL sin recargar.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 127/127; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario, sin pulsar nada que escriba): el periodo
+  recalcula KPIs y tabla, las pestañas y los filtros de canal y proveedor filtran, la
+  búsqueda encuentra por proveedor, elegir fila o incidencia cambia el seguimiento (y
+  con el producto que tiene informe real aparece «Estimación»), el modo operativo
+  cambia qué reglas están activas; sin desbordamiento ni textos cortados a 1536, 1896
+  y 375 px; consola sin errores.
