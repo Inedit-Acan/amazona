@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -67,23 +67,26 @@
      (no .dark class is ever applied — confirmed via grep of the app),
      so these values live directly on :root instead of behind a
      variant. */
-  --bg-0: #050808;
-  --bg-1: #07110f;
-  --panel: #08241c;
-  --panel-2: #0a2f24;
-  --panel-hover: #0d3b2d;
+  /* Fondo y superficies medidos sobre los mockups de docs/design/*.png:
+     teal muy oscuro, tarjetas casi del color del fondo separadas por un
+     borde fino, y el resaltado (activo/seleccionado) algo más claro. */
+  --bg-0: #001214;
+  --bg-1: #011618;
+  --panel: #011a1c;
+  --panel-2: #04211f;
+  --panel-hover: #012a27;
 
   --emerald: #00d69a;
   --emerald-bright: #15f0b2;
   --emerald-soft: #22c997;
   --cyan-accent: #28e5d0;
 
-  --text-primary: #f5f7f7;
-  --text-secondary: #9ca9a5;
-  --border-glow: rgba(21, 240, 178, 0.18);
+  --text-primary: #e8f0f3;
+  --text-secondary: #8fa3ad;
+  --border-glow: rgba(64, 200, 190, 0.14);
 
-  --warning: #f3b63f;
-  --danger: #ef5a5a;
+  --warning: #f9c45f;
+  --danger: #f84d60;
   --success: #24d69a;
 
   /* shadcn semantic tokens, mapped per the spec's table. */

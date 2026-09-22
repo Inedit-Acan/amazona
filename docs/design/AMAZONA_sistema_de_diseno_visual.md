@@ -22,8 +22,8 @@ paneles consumen.
 
 ## 1. Identidad visual y paleta
 
-Fondo general negro/negro azulado muy oscuro, tarjetas en verde esmeralda
-oscuro, acentos esmeralda/turquesa brillante, estética **2.5D premium**
+Fondo general teal muy oscuro, tarjetas casi del color del fondo separadas
+por un borde fino (sin relleno verde saturado), acentos esmeralda/turquesa brillante, estética **2.5D premium**
 (sombras suaves, capas, bordes finos, glow contenido) — empresarial y
 sobrio, nunca "gaming". Alta densidad de información con jerarquía clara.
 Desktop-first (1440–1920 primero), responsive después.
@@ -32,25 +32,32 @@ Desktop-first (1440–1920 primero), responsive después.
 ### calzar mejor con los mockups, pero dentro de esta dirección):
 
 ```css
---bg-0: #050808;
---bg-1: #07110f;
---panel: #08241c;
---panel-2: #0a2f24;
---panel-hover: #0d3b2d;
+--bg-0: #001214;
+--bg-1: #011618;
+--panel: #011a1c;
+--panel-2: #04211f;
+--panel-hover: #012a27;
 
 --emerald: #00d69a;
 --emerald-bright: #15f0b2;
 --emerald-soft: #22c997;
 --cyan-accent: #28e5d0;
 
---text-primary: #f5f7f7;
---text-secondary: #9ca9a5;
---border: rgba(21, 240, 178, 0.18);
+--text-primary: #e8f0f3;
+--text-secondary: #8fa3ad;
+--border: rgba(64, 200, 190, 0.14);
 
---warning: #f3b63f;
---danger: #ef5a5a;
+--warning: #f9c45f;
+--danger: #f84d60;
 --success: #24d69a;
 ```
+
+Valores medidos (mediana por zonas) sobre los mockups de paneles de
+`docs/design/*.png` el 22-09-2026; sustituyen a los orientativos iniciales
+(`--bg-0: #050808`, `--panel: #08241c`…), que daban un verde saturado que
+no aparece en los mockups. La opción activa del menú lateral es
+`--panel-hover` con barra izquierda y texto `--emerald-bright`, no un
+relleno esmeralda.
 
 ### Mapeo sobre las variables shadcn ya presentes en `app/globals.css`
 
