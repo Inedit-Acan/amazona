@@ -1327,3 +1327,72 @@ Referencia: mockup enviado por el propietario el 22-09-2026
   «Configurar» de Amazon abre su sección; cambiar de mercado restablece el contenido
   y recalcula el Legal Gate; sin textos cortados ni desbordamiento a 1536, 1896 y
   375 px; consola sin errores.
+
+## Segunda pasada — Panel 5: Marketing y adquisición (`/marketing`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/marketing.png`). Antes la pantalla solo enseñaba la propuesta del
+agente (KPIs estimados, audiencias, creatividad de texto) y declaraba pendiente
+todo lo que necesita gasto real.
+
+### Qué se ve ahora
+
+1. Cabecera con «Datos de demostración», ficha del producto (selector, categoría,
+   subcategoría, enlace a Investigación) y recuadro de mercado con precio, margen de
+   contribución y CAC máximo — los mismos supuestos que Economía.
+2. Seis KPIs del periodo con su variación: inversión, ingresos atribuidos, CAC/CPA,
+   ROAS, conversiones y estado general (anillo 0–100 con CAC, ROAS y ritmo de gasto).
+3. Plan de adquisición por canal (Meta, Google, TikTok, Creators, Otros) con barra,
+   porcentaje, importe y enfoque; «Optimizar con IA» reparte el mismo total hacia los
+   canales que captan más barato.
+4. Nueva campaña: objetivo, canal, mercado, evento de conversión, presupuesto diario
+   y duración, con CAC objetivo, inversión total prevista y el aviso «Rentabilidad
+   protegida» (CAC previsto del canal frente al CAC máximo). «Rellenar con IA»
+   propone canal y presupuesto; «Crear campaña» lanza el agente real.
+5. Audiencias propuestas con score, intención y origen (las del agente primero).
+6. Creatividades generadas por IA (4 vídeos con Creative Score y estado) y vista
+   previa del anuncio en Meta, Instagram, TikTok y Google; al elegir una creatividad
+   la vista previa la muestra.
+7. Funnel de conversión por canal (impresiones → compras, con CTR y % de cada paso),
+   rendimiento diario por canal (inversión, ingresos, ROAS y CAC), atribución de
+   ingresos (último clic, primer clic, lineal y data driven) y recomendaciones de la
+   IA.
+8. Presupuesto y control: asignado, gastado, restante, ritmo de gasto, CAC actual /
+   objetivo / máximo y «Solicitar aprobación de inversión» (lleva al Director
+   ejecutivo con el importe).
+
+### Datos reales y de demostración
+
+- Reales: las propuestas de campaña del agente (canal, presupuesto diario,
+  audiencias, creatividad, CTR y conversión estimados, recomendación de presupuesto)
+  y los supuestos de Economía (precio, margen de contribución, CAC objetivo y CAC
+  máximo de `lib/economics-model.ts` sobre la cotización real o la de demostración).
+- Demo (`lib/demo/marketing.ts`): todo lo que exige gasto real en plataformas —
+  inversión, conversiones, ingresos atribuidos, funnel, serie diaria por canal y
+  atribución—, los canales sin propuesta del agente, las creatividades (vídeos,
+  score y estado), las audiencias que el agente no propone (incluidas remarketing y
+  lookalike), el objetivo, el evento de conversión y la duración.
+- El presupuesto del plan no es un número suelto: son los pedidos mensuales de
+  Economía al CAC objetivo, así que el panel cuadra con Economía y con Tienda.
+
+### Componentes nuevos / tocados
+
+- `lib/marketing-view.ts` con tests (plan, optimización, rendimiento por canal,
+  KPIs, funnel, atribución, audiencias, creatividades, recomendaciones y guardrail
+  de rentabilidad) y `lib/demo/marketing.ts`.
+- `app/marketing/marketing-panels.tsx` (creatividades, vista previa, funnel,
+  rendimiento, atribución y recomendaciones) sustituye a `campaign-panels.tsx`.
+- `DonutChart` nuevo; `LineChart` admite `xTicks` y `dots`; de `lib/marketing.ts` se
+  retira `audienceBars`, `CAMPAIGN_VERDICT` y `AGENT_GUARDRAILS` (ya no se usan) y se
+  conservan `campaignPlan`, `latestCampaign` y `platformLabel`.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 115/115; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario, sin pulsar «Crear campaña» para no escribir
+  en su base): elegir una creatividad cambia la vista previa; las pestañas de
+  plataforma, métrica y modelo de atribución responden; el selector de canal del
+  funnel recalcula los pasos (siempre decrecientes); «Optimizar con IA» y «Rellenar
+  con IA» funcionan; sin desbordamiento ni textos cortados a 1536, 1896 y 375 px;
+  consola sin errores.

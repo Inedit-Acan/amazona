@@ -74,6 +74,9 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `RingGauge` | Legal | Porcentajes de cumplimiento o avance (Proyectos, Operaciones) |
 | `RiskMatrix` | Legal | Riesgos probabilidad × impacto (Finanzas, Proyectos, Operaciones) |
 | `KpiCard` `leading` | Legal | KPIs con icono o gráfico a la izquierda |
+| `DonutChart` | Marketing (2.ª pasada) | Finanzas (reparto de ingresos/gastos), Operaciones, Estado |
+| `LineChart` `xTicks` / `dots` | Marketing (2.ª pasada) | Series largas (30 días) sin saturar el eje ni los puntos |
+| `lib/marketing-view.ts` | Marketing (2.ª pasada) | Operaciones y Finanzas (CAC, ROAS y funnel del mismo periodo) |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -655,3 +658,27 @@ borradores de tienda y de Amazon, análisis económico y legal. Demo
    schema.org; páginas del sitio y experimentos A/B.
 6. Mercados por país (precio, idioma, estado) y ficha maestra del producto (EAN,
    peso, dimensiones, stock del proveedor).
+
+## 5 (segunda pasada). Marketing y adquisición
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real:
+propuestas de campaña del agente (canal, presupuesto diario, audiencias,
+creatividad, CTR y conversión estimados, recomendación) y los supuestos de Economía
+(precio, margen, CAC objetivo y CAC máximo). Demo (`lib/demo/marketing.ts`): todo lo
+que exige gasto real en plataformas y el resto del panel.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 5 y además:
+
+1. Métricas diarias por campaña y canal (impresiones, clics, gasto, conversiones,
+   ingresos) con `data_origin`, de donde saldrían KPIs, funnel, rendimiento y
+   atribución; hoy todas esas cifras son simuladas.
+2. Reparto de presupuesto por canal devuelto por el agente (`channel_plan`) y canales
+   más allá de Meta y Google (TikTok, creators, display).
+3. Modelos de atribución (último clic, primer clic, lineal, data driven) calculados
+   con datos reales.
+4. Puntuación de audiencias (`score`, `intent`, `source`) y creatividades con medios
+   (vídeo/imagen), `creative_score`, estado y variantes.
+5. Objetivo, evento de conversión y duración aceptados por `POST /api/marketing/runs`.
+6. Presupuesto asignado y gasto real del periodo, con pacing y guardrails activos
+   (pausar por CAC o ROAS, limitar subidas de presupuesto).
+7. `POST /api/marketing/investment-requests` para la aprobación de inversión.

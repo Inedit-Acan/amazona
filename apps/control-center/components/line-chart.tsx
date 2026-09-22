@@ -42,6 +42,8 @@ export function LineChart({
   markers = [],
   height = 230,
   legend = true,
+  xTicks,
+  dots = true,
 }: {
   series: LineSeries[];
   ariaLabel: string;
@@ -56,6 +58,10 @@ export function LineChart({
   markers?: LineMarker[];
   height?: number;
   legend?: boolean;
+  /** x con etiqueta en el eje (por defecto, todas). */
+  xTicks?: number[];
+  /** Punto en cada valor; sin ellos solo se marca la x del tooltip. */
+  dots?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | undefined>(defaultHoverX);
@@ -126,7 +132,7 @@ export function LineChart({
             </text>
           </g>
         ))}
-        {xs.map((x) => (
+        {(xTicks ?? xs).map((x) => (
           <text key={x} x={sx(x)} y={H - PAD.bottom + 14} textAnchor="middle" className="fill-muted-foreground text-[10px]">
             {formatX(x)}
           </text>
@@ -169,9 +175,11 @@ export function LineChart({
               strokeLinejoin="round"
               points={s.points.map((p) => `${sx(p.x)},${sy(p.y)}`).join(" ")}
             />
-            {s.points.map((p) => (
-              <circle key={p.x} cx={sx(p.x)} cy={sy(p.y)} r={p.x === hoverX ? 4.5 : 2.5} fill={s.color} />
-            ))}
+            {s.points
+              .filter((p) => dots || p.x === hoverX)
+              .map((p) => (
+                <circle key={p.x} cx={sx(p.x)} cy={sy(p.y)} r={p.x === hoverX ? 4.5 : 2.5} fill={s.color} />
+              ))}
           </g>
         ))}
 

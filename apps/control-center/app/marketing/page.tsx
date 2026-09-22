@@ -2,6 +2,7 @@ import { api, type Product } from "@/lib/api";
 import { EMPTY_PRODUCT_MARKETING_DATA, loadProductMarketingData } from "@/lib/product-channels";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
+import { MARKETING_DESCRIPTION, MARKETING_TITLE } from "./copy";
 import { MarketingWorkspace } from "./marketing-workspace";
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -26,26 +27,16 @@ export default async function MarketingPage({ searchParams }: PageProps<"/market
     error = err instanceof Error ? err.message : "Error desconocido";
   }
 
-  // El mercado pedido manda; si no, el de la última propuesta; si no, EE. UU.
-  const market = requestedMarket ?? data.campaigns[0]?.market ?? "us";
-
-  return (
-    <div>
-      <PageHeader
-        title="Marketing y adquisición"
-        description="Diseña una propuesta de campaña — audiencias, creatividad (texto + brief de imagen), estimación de rendimiento y recomendación de presupuesto — a partir de datos reales de producto, precio, legal y tienda. Fase 3, Agente 7. Todo el rendimiento es simulado: sin gasto publicitario real ni credenciales de Meta/Google/TikTok Ads."
-      />
-
-      {error ? (
+  if (error) {
+    return (
+      <div>
+        <PageHeader title={MARKETING_TITLE} description={MARKETING_DESCRIPTION} />
         <ApiErrorAlert message={error} />
-      ) : (
-        <MarketingWorkspace
-          products={products}
-          initialProductId={productId}
-          initialData={data}
-          initialMarket={market}
-        />
-      )}
-    </div>
-  );
+      </div>
+    );
+  }
+
+  // El mercado pedido manda; si no, el de la última propuesta de campaña; si no, la UE.
+  const market = requestedMarket ?? data.campaigns[0]?.market ?? "eu";
+  return <MarketingWorkspace key={productId} products={products} productId={productId} data={data} initialMarket={market} />;
 }
