@@ -1757,3 +1757,83 @@ decena de entradas.
   pantalla responden; el filtro de tipo deja 165 aprobaciones y la paginación avanza
   a 13–24; sin desbordamiento ni textos cortados a 1536, 1896 y 375 px; consola sin
   errores.
+
+## Segunda pasada — Panel 12: Estado e infraestructura (`/status`)
+
+Referencia: mockup enviado por el propietario el 23-09-2026
+(`docs/design/estado de AMAZONA.png`). Antes la pantalla solo enseñaba los cuatro
+servicios de los que hay señal real y una lista larga de «pendiente de backend».
+
+### Qué se ve ahora
+
+1. Cabecera con «Datos de demostración» y «Ver status público» (pendiente). La
+   banda de veredicto solo aparece si algo va mal de verdad.
+2. Siete KPIs: disponibilidad de 30 días, latencia p95 de la API (con la medida
+   real de esta carga al lado), errores 5xx, servicios operativos, incidentes
+   activos, jobs en cola y deploy actual.
+3. Fila principal: Servicios (los 18 con estado, uptime, minitendencia y p95),
+   Mapa de servicios (topología por niveles: Usuarios → Frontend → API Gateway →
+   Auth/Backend/Storage → Postgres/Queue → Workers → integraciones), System Health
+   (medidor 0–100 y nueve barras) y Agent Runtime (workers, jobs y colas).
+4. Segunda fila: Métricas principales de las últimas 24 h (latencia p95, requests
+   por minuto y tasa de errores), Integraciones externas, Tareas programadas
+   (Cron) y Base de datos (Supabase).
+5. Tercera fila: Deployments, Migraciones de base de datos, Incidentes (con
+   «Registrar incidente», que sigue escribiendo de verdad en el backend) y Coste
+   de infraestructura de hoy.
+
+### Datos reales y de demostración
+
+- Reales: que el frontend se ha renderizado; que la API responde a
+  `/health/detailed` y cuánto tarda (una medida cronometrada desde el servidor del
+  frontend, no un percentil); si el backend puede consultar la base de datos; la
+  migración aplicada; si Supabase está configurado (Auth y Storage); los agentes
+  registrados y su estado; el log de ejecuciones, del que salen el estado de los
+  workers, su puntuación en System Health, los jobs fallidos de hoy y el coste de
+  inferencia; y los incidentes. El estado sale medido de verdad en 6 de los 18
+  servicios y esas filas llevan su marca.
+- Demo (`lib/demo/status.ts`): el estado de los otros doce servicios, el uptime de
+  30 días, la latencia p95 y la minitendencia de los dieciocho, las series de las
+  últimas 24 horas, las colas y los jobs en ejecución, las tareas programadas, las
+  integraciones externas, las métricas del motor de base de datos, los despliegues,
+  la versión anterior y los contadores de migraciones, y las cuatro líneas de coste
+  que no dependen de los agentes. Cada tarjeta lo declara al pie.
+- Coherencia: si el log de ejecuciones está vacío se usan las mismas ejecuciones de
+  demostración que la pantalla de Agentes (`demoExecutions`), y el coste de
+  inferencia de hoy se calcula con el mismo `COST_PER_RUN` por equipo, así que las
+  dos pantallas cuentan lo mismo.
+
+### Componentes nuevos / tocados
+
+- `lib/status-view.ts` con tests (filas de servicio, resumen, KPIs, System Health,
+  runtime, series horarias, integraciones, cron, migraciones, costes e incidentes)
+  y `lib/demo/status.ts`.
+- `lib/status.ts` se queda con lo que la señal real permite (`realSignals`,
+  `workerSignal`, `overallStatus`) y su test se reescribe.
+- `ServiceMap` reescrito: topología por niveles con conectores dibujados en
+  porcentaje (líneas de un píxel a cualquier ancho, sin redondeos que rompan la
+  hidratación) y estado `demo` para los nodos sin telemetría.
+- `ColumnChart` nuevo: barras compactas con ejes y sin etiqueta por barra, para las
+  24 horas de requests por minuto.
+- `LineChart`: modo `compact` (geometría reducida para que los ejes sigan siendo
+  legibles en tarjetas de ~200 px) y corrección del redondeo de las marcas del eje
+  Y, que con dos decimales fijos colapsaba en cero las series pequeñas como la tasa
+  de errores.
+- `KpiCard`: `provenanceCompact` para filas de muchas tarjetas estrechas.
+- `lib/demo/status.ts` pone la parte variable de la semilla delante: `demoRandom`
+  mezcla poco los últimos caracteres y con horas consecutivas las series salían
+  escalonadas.
+- Se retira `PendingFeatures`, que quedaba sin uso.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 183/183; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario): los 18 servicios con 6 marcados como
+  medidos de verdad, mapa con sus seis conectores dibujados, System Health 99/100,
+  Agent Runtime con los 13 agentes reales y 3 jobs fallidos reales, las tres series
+  de 24 h con ejes legibles, incidentes de demostración declarados y coste de hoy
+  de 20,66 € (16,01 € de inferencia sobre ejecuciones). «Registrar incidente» abre
+  el formulario (no se envió nada). Sin desbordamiento ni textos cortados a 1536,
+  1896 y 375 px (en móvil la tabla de servicios desplaza dentro de su tarjeta, como
+  el resto de tablas); consola sin errores en pestaña nueva.

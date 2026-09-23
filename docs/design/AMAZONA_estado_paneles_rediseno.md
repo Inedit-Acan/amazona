@@ -53,7 +53,6 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `BarChart` | Economía | Finanzas, Marketing, Operaciones (series de una sola métrica) |
 | `lib/format.ts` | Economía (extraído de Proveedores) | Todos los paneles con importes |
 | `SectionNav` | Economía, Legal | Cualquier panel con las «tabs» del mockup (Tienda, Marketing, Operaciones, Finanzas…) |
-| `PendingFeatures` | Economía, Legal | Todo panel cuyo mockup enseña datos que aún no existen |
 | `VerdictBanner` | Economía, Legal | Tienda (estado de lanzamiento), Aprobaciones, Estado |
 | `ProductHeader` | Economía, Legal | Tienda, Marketing (cabecera de producto de cada mockup del pipeline) |
 | `KpiCard` `tone` | Legal | Tarjetas KPI cuyo valor es un veredicto |
@@ -88,6 +87,11 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `lib/approvals-view.ts` | Aprobaciones (2.ª pasada) | Panel y Director ejecutivo (bandeja de decisiones) |
 | `lib/audit-view.ts` | Auditoría (2.ª pasada) | Panel y Proyectos (actividad y trazabilidad) |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
+| `ServiceMap` por niveles | Estado (2.ª pasada) | Cualquier topología con estado por nodo (Proyectos, Operaciones) |
+| `ColumnChart` | Estado (2.ª pasada) | Series temporales en barras sin etiqueta por barra (Marketing, Finanzas) |
+| `LineChart` `compact` | Estado (2.ª pasada) | Minigráficos con ejes legibles en tarjetas estrechas |
+| `KpiCard` `provenanceCompact` | Estado (2.ª pasada) | Filas de muchas tarjetas KPI estrechas |
+| `lib/status-view.ts` | Estado (2.ª pasada) | Panel y Director ejecutivo (salud de la plataforma y runtime de agentes) |
 
 ---
 
@@ -812,3 +816,38 @@ anomalías y la retención.
 5. Hash encadenado y firma de integridad, con verificación periódica.
 6. Detección de anomalías y política de retención configurable.
 7. Paquete de auditoría exportable (CSV, JSON y PDF firmado).
+
+## 12 (segunda pasada). Estado e infraestructura
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real: la
+comprobación de salud `/health/detailed` (base de datos, migración aplicada y
+configuración de Supabase) con su latencia cronometrada desde el servidor del
+frontend, el registro de agentes, el log de ejecuciones (de donde salen el estado
+de los workers, su puntuación de System Health, los jobs fallidos de hoy y el
+coste de inferencia) y los incidentes registrados a mano. Demo
+(`lib/demo/status.ts`): el estado de los doce servicios sin telemetría, el uptime
+de 30 días y la latencia p95 de los dieciocho, las series de las últimas 24 horas,
+las colas y el runtime, las tareas programadas, las integraciones externas, las
+métricas del motor de base de datos, los despliegues y el coste de
+infraestructura. Se retira `PendingFeatures`, que quedaba sin uso: ahora cada
+tarjeta declara al pie qué parte suya es de demostración.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 12 y además:
+
+1. Disponibilidad de 30 días y percentiles de latencia (p50/p95/p99) por servicio,
+   con su serie temporal.
+2. Comprobación de salud de los otros doce servicios (Realtime, Edge Functions,
+   Queue, Cron, Email, Monitoring, Logs, Backup, CDN, DNS y certificados).
+3. Series de requests por minuto, respuestas por código y tasa de errores 5xx.
+4. Cola de trabajos: profundidad por cola, dead-letter, tarea más antigua, tiempo
+   medio en cola, workers activos/ocupados y jobs en ejecución.
+5. Estado, latencia, errores y consumo de límites de las integraciones externas.
+6. Planificador consultable: tareas programadas, última ejecución, resultado y
+   fallos de las últimas 24 h.
+7. Métricas del motor de base de datos (CPU, memoria, conexiones, cache hit,
+   queries lentas, locks, storage e IOPS).
+8. Registro de despliegues (versión, entorno, commit, fecha y resultado) y estado
+   de las migraciones (anterior, pendientes y fallidas).
+9. Coste de infraestructura medido por partida, no estimado.
+10. Detección automática de incidentes (hoy se abren a mano) y página de estado
+    pública.

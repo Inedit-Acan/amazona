@@ -17,8 +17,12 @@ export interface LineMarker {
   label: string[];
 }
 
-const W = 560;
-const PAD = { top: 12, right: 14, bottom: 34, left: 52 };
+const GEOMETRY = {
+  default: { W: 560, PAD: { top: 12, right: 14, bottom: 34, left: 52 }, tooltipW: 140 },
+  // Los minigráficos se dibujan en cajas de ~200 px: con la geometría grande el
+  // viewBox se escala tanto que las etiquetas de los ejes quedan ilegibles.
+  compact: { W: 220, PAD: { top: 8, right: 8, bottom: 18, left: 30 }, tooltipW: 92 },
+};
 
 function niceStep(span: number, count: number): number {
   const raw = span / count || 1;
@@ -44,6 +48,7 @@ export function LineChart({
   legend = true,
   xTicks,
   dots = true,
+  compact = false,
 }: {
   series: LineSeries[];
   ariaLabel: string;
@@ -62,10 +67,13 @@ export function LineChart({
   xTicks?: number[];
   /** Punto en cada valor; sin ellos solo se marca la x del tooltip. */
   dots?: boolean;
+  /** Geometría reducida para minigráficos (ejes legibles en cajas estrechas). */
+  compact?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | undefined>(defaultHoverX);
 
+  const { W, PAD, tooltipW } = compact ? GEOMETRY.compact : GEOMETRY.default;
   const H = height;
   const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort((a, b) => a - b);
   const ys = series.flatMap((s) => s.points.map((p) => p.y)).concat(markers.map((m) => m.y), 0);
@@ -76,8 +84,12 @@ export function LineChart({
   const xMax = xs[xs.length - 1] ?? 1;
   const sx = (x: number) => PAD.left + ((x - xMin) / (xMax - xMin || 1)) * (W - PAD.left - PAD.right);
   const sy = (y: number) => PAD.top + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD.top - PAD.bottom);
+  // El redondeo quita el ruido de coma flotante al acumular `step`, pero tiene que
+  // seguir la magnitud del paso: con dos decimales fijos, una serie pequeña (la
+  // tasa de errores, con pasos de 0,002) colapsaría todas las marcas en cero.
+  const tickFactor = 10 ** Math.max(0, -Math.floor(Math.log10(step)) + 1);
   const yTicks: number[] = [];
-  for (let v = yMin; v <= yMax + step / 2; v += step) yTicks.push(Math.round(v * 100) / 100);
+  for (let v = yMin; v <= yMax + step / 2; v += step) yTicks.push(Math.round(v * tickFactor) / tickFactor);
 
   function onMove(event: React.MouseEvent<SVGSVGElement>) {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -204,7 +216,7 @@ export function LineChart({
         {hovered.length > 0 && hoverX !== undefined ? (
           <g>
             {(() => {
-              const boxW = 140;
+              const boxW = tooltipW;
               const boxH = 22 + hovered.length * 14;
               const bx = tooltipLeft ? sx(hoverX) - boxW - 10 : sx(hoverX) + 10;
               const by = PAD.top;

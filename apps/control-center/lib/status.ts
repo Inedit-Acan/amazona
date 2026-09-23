@@ -1,20 +1,13 @@
 import type { DetailedHealth } from "./api.ts";
 
 // El backend expone una comprobación de salud (`/health/detailed`: base de datos,
-// migración y si Supabase está configurado). No hay uptime, percentiles, colas,
-// cron, integraciones, despliegues ni costes. Este módulo solo traduce esa señal
-// real; lo demás se declara «sin telemetría» en vez de inventarse.
+// migración y si Supabase está configurado), el log de ejecuciones de agentes y
+// los incidentes registrados a mano. No hay uptime, percentiles, colas, cron,
+// integraciones, despliegues ni costes. Este módulo solo traduce esa señal real:
+// qué servicios del mapa se pueden afirmar y cuál es el estado general. Lo que
+// falta lo rellena lib/demo/status.ts y la pantalla lo declara.
 
 export type ServiceState = "operational" | "down" | "no_signal";
-
-export interface ServiceRow {
-  id: string;
-  name: string;
-  state: ServiceState;
-  /** Latencia medida de esta comprobación (ms), si se midió. */
-  latencyMs: number | null;
-  note: string;
-}
 
 export interface HealthSignal {
   apiReachable: boolean;
@@ -23,45 +16,74 @@ export interface HealthSignal {
   health: Pick<DetailedHealth, "database" | "supabase_configured">;
 }
 
-/** Los servicios de la spec (§9.5) de los que sí hay señal real: el frontend (esta
- * página se ha renderizado), la API (responde a la comprobación), la base de datos y la
- * configuración de Supabase. Los demás no se listan como operativos. */
-export function serviceRows(signal: HealthSignal): ServiceRow[] {
-  const { apiReachable, latencyMs, health } = signal;
-  return [
-    { id: "frontend", name: "Frontend", state: "operational", latencyMs: null, note: "Esta página se ha renderizado." },
-    {
-      id: "api",
-      name: "API (backend)",
-      state: apiReachable ? "operational" : "down",
-      latencyMs: apiReachable ? latencyMs : null,
-      note: apiReachable ? "Respondió a la comprobación de salud." : "No se pudo contactar con el backend.",
-    },
-    {
-      id: "database",
-      name: "Base de datos",
-      state: !apiReachable ? "no_signal" : health.database === "ok" ? "operational" : "down",
-      latencyMs: null,
-      note: !apiReachable ? "Sin respuesta del backend." : health.database === "ok" ? "El backend puede consultarla." : "El backend no puede consultarla.",
-    },
-    {
-      id: "supabase",
-      name: "Supabase (Auth / Storage)",
-      state: !apiReachable ? "no_signal" : health.supabase_configured ? "operational" : "no_signal",
-      latencyMs: null,
-      note: !apiReachable
-        ? "Sin respuesta del backend."
-        : health.supabase_configured
-          ? "Está configurado; no se comprueba su disponibilidad."
-          : "No está configurado en este entorno.",
-    },
-  ];
+/** Señal real de los agentes, sacada del log de ejecuciones (`AgentExecutionLog`). */
+export interface WorkerSignal {
+  runs: number;
+  failures: number;
+  /** Duración media (ms) de esas ejecuciones; null si no hay ninguna. */
+  avgDurationMs: number | null;
 }
 
-export function serviceSummary(rows: ServiceRow[]): { operational: number; down: number; withSignal: number } {
-  const operational = rows.filter((r) => r.state === "operational").length;
-  const down = rows.filter((r) => r.state === "down").length;
-  return { operational, down, withSignal: operational + down };
+export interface RealSignal {
+  state: ServiceState;
+  /** Latencia medida de verdad en esta carga; null si no se mide. */
+  measuredMs: number | null;
+  note: string;
+}
+
+/** Los servicios del mapa de los que sí hay señal real: el frontend (esta página
+ * se ha renderizado), la API (responde a la comprobación de salud y se cronometra),
+ * Postgres y la configuración de Supabase (Auth y Storage), y los workers de
+ * agentes (su log de ejecuciones). Los otros doce servicios del mockup no tienen
+ * telemetría y se rellenan con datos de demostración. */
+export function realSignals(signal: HealthSignal, workers: WorkerSignal): Record<string, RealSignal> {
+  const { apiReachable, latencyMs, health } = signal;
+  const supabase: RealSignal = {
+    state: !apiReachable ? "no_signal" : health.supabase_configured ? "operational" : "no_signal",
+    measuredMs: null,
+    note: !apiReachable
+      ? "Sin respuesta del backend."
+      : health.supabase_configured
+        ? "Supabase está configurado; no se comprueba su disponibilidad."
+        : "Supabase no está configurado en este entorno.",
+  };
+  return {
+    frontend: { state: "operational", measuredMs: null, note: "Esta página se ha renderizado." },
+    api: {
+      state: apiReachable ? "operational" : "down",
+      measuredMs: apiReachable ? latencyMs : null,
+      note: apiReachable ? "Respondió a la comprobación de salud." : "No se pudo contactar con el backend.",
+    },
+    postgres: {
+      state: !apiReachable ? "no_signal" : health.database === "ok" ? "operational" : "down",
+      measuredMs: null,
+      note: !apiReachable
+        ? "Sin respuesta del backend."
+        : health.database === "ok"
+          ? "El backend puede consultarla."
+          : "El backend no puede consultarla.",
+    },
+    auth: supabase,
+    storage: supabase,
+    workers: {
+      state: workers.runs === 0 ? "no_signal" : workers.failures === workers.runs ? "down" : "operational",
+      measuredMs: workers.avgDurationMs,
+      note:
+        workers.runs === 0
+          ? "Todavía no hay ejecuciones de agentes registradas."
+          : `${workers.runs} ejecuciones registradas, ${workers.failures} fallidas.`,
+    },
+  };
+}
+
+/** Resumen de las ejecuciones reales de agentes en la ventana mirada. */
+export function workerSignal(executions: { success: boolean; duration_ms: number }[]): WorkerSignal {
+  const runs = executions.length;
+  return {
+    runs,
+    failures: executions.filter((e) => !e.success).length,
+    avgDurationMs: runs > 0 ? executions.reduce((sum, e) => sum + e.duration_ms, 0) / runs : null,
+  };
 }
 
 export interface OverallStatus {
@@ -88,8 +110,8 @@ export function overallStatus(input: { signal: HealthSignal; openIncidents: numb
     };
   }
   return {
-    title: "Operativo",
-    detail: "Los servicios con telemetría responden. El resto de servicios todavía no tiene telemetría.",
+    title: "Sistema operativo",
+    detail: "Los servicios con telemetría responden. El resto se enseña con datos de demostración.",
     tone: "ok",
   };
 }

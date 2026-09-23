@@ -12,6 +12,7 @@ export function KpiCard({
   caption,
   provenance,
   provenanceTooltip,
+  provenanceCompact = false,
   tone = "default",
   accent = false,
   footer,
@@ -25,6 +26,8 @@ export function KpiCard({
   provenance?: DataProvenance;
   /** Overrides the badge's default tooltip (e.g. to say what exactly is pending). */
   provenanceTooltip?: string;
+  /** Etiqueta corta en el badge, para filas de muchas tarjetas estrechas. */
+  provenanceCompact?: boolean;
   /** Resalta las tarjetas cuyo valor es un veredicto (p. ej. Legal Gate). */
   tone?: KpiTone;
   /** Valor en el color primario sin resaltar la tarjeta (los importes en verde del mockup). */
@@ -61,7 +64,7 @@ export function KpiCard({
           </p>
           {caption ? <p className="text-xs text-muted-foreground">{caption}</p> : null}
           {footer}
-          {provenance ? <DataProvenanceBadge status={provenance} tooltip={provenanceTooltip} /> : null}
+          {provenance ? <DataProvenanceBadge status={provenance} tooltip={provenanceTooltip} compact={provenanceCompact} /> : null}
         </div>
       </CardContent>
     </Card>
