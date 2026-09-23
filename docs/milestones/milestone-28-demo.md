@@ -1641,3 +1641,63 @@ el log de ejecuciones tal cual, sin coste, evaluación ni actividad.
   pestañas, el filtro de equipo, la búsqueda, el orden y «Ver agente» responden; sin
   desbordamiento ni textos cortados a 1536, 1896 y 375 px; consola sin errores en
   pestaña nueva.
+
+## Segunda pasada — Panel 10: Aprobaciones y decisiones (`/approvals`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/aprobaciones y decisiones.png`). Antes era una bandeja de tarjetas
+con las aprobaciones y revisiones del backend; hoy el backend no tiene ninguna.
+
+### Qué se ve ahora
+
+1. Cabecera con «Datos de demostración» y «Ver reglas de aprobación» (pendiente).
+2. Cinco KPIs: pendientes, críticas, vencen pronto, aprobadas hoy y tiempo medio.
+3. Pestañas de filtro con conteo (Pendientes, Todas, Críticas y por tipo), orden y
+   búsqueda.
+4. Bandeja a la izquierda: cada solicitud con su icono, severidad, proyecto,
+   producto, agente solicitante, importe y antigüedad; al pulsarla se abre a la
+   derecha.
+5. Debajo: solicitudes por tipo (donut), estado de solicitudes y tiempo medio de
+   resolución; y el interruptor de emergencia del pipeline (real).
+6. Detalle con pestañas Resumen, Análisis de agentes, Documentos, Flujo de
+   aprobación y Comentarios: detalles de la solicitud, estado de validaciones,
+   presupuesto de marketing, análisis de los agentes consultados, hallazgos,
+   riesgos e impacto de aprobar o rechazar.
+7. Barra de acciones: Rechazar, Solicitar cambios (pendiente) y Aprobar.
+
+### Datos reales y de demostración
+
+- Reales: las aprobaciones y las revisiones de pipeline del backend —con sus
+  botones de aprobar y rechazar conectados a la API— los agentes registrados
+  (quién solicita y quién opina) y los análisis del producto: el importe de la
+  campaña sale del plan de Marketing, el CAC máximo y el margen del modelo de
+  Economía, el Legal Gate de `buildLegalView` y el readiness de Tienda de
+  `launchReadiness`.
+- Demo (`lib/demo/approvals.ts`): las siete solicitudes del mockup mientras la
+  bandeja real esté vacía, la severidad, el SLA, las estadísticas de resueltas, los
+  documentos, el flujo por pasos y los comentarios. Las solicitudes de demostración
+  llevan su etiqueta y sus botones de decisión deshabilitados: solo se puede
+  aprobar o rechazar lo que existe en el backend.
+
+### Componentes nuevos / tocados
+
+- `lib/approvals-view.ts` con tests (solicitudes demo sobre datos reales,
+  aprobación y revisión reales, KPIs, filtros, orden, reparto por tipo y estado) y
+  `lib/demo/approvals.ts`.
+- `app/approvals/approvals-workspace.tsx` y `approvals-panels.tsx` sustituyen a
+  `approvals-inbox.tsx`; se retiran `ApprovalCard`, `PipelineReviewCard`,
+  `ProjectHealth` y `ProductHeader`, que quedaban sin uso.
+- `lib/approvals.ts` se queda con lo que dice el backend (`isExpired`,
+  `isActionable`, `actionLabel`, `decisionImpact`) y su test se reduce;
+  `projectCodeFor` se extrae a `lib/projects-view.ts` y lo comparten las dos
+  pantallas.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 153/153; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario, sin pulsar Aprobar ni Rechazar): 7
+  pendientes y 2 críticas como el mockup; elegir una solicitud cambia el detalle;
+  las pestañas del detalle responden; los botones de decisión salen deshabilitados
+  en las solicitudes de demostración; sin desbordamiento ni textos cortados a 1536,
+  1896 y 375 px; consola sin errores.

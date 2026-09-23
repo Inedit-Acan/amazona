@@ -85,6 +85,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `lib/projects-view.ts` | Proyectos (2.ª pasada) | Panel y Director ejecutivo (cartera y fases por producto) |
 | `AgentCard` (rediseñada) | Agentes (2.ª pasada) | Panel y Director ejecutivo (flota de agentes) |
 | `lib/agents-view.ts` | Agentes (2.ª pasada) | Panel, Proyectos (actividad y salud de la flota) |
+| `lib/approvals-view.ts` | Aprobaciones (2.ª pasada) | Panel y Director ejecutivo (bandeja de decisiones) |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -772,3 +773,22 @@ y, mientras el log esté vacío, las propias ejecuciones.
 4. Tarea en curso del agente y su progreso.
 5. Histórico de versiones con notas y despliegue de una nueva versión.
 6. Umbrales de alerta configurables y su estado.
+
+## 10 (segunda pasada). Aprobaciones y decisiones
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real: las
+aprobaciones y revisiones de pipeline del backend (con aprobar y rechazar
+conectados), los agentes registrados y los análisis del producto que alimentan
+validaciones, importes, hallazgos y riesgos. Demo (`lib/demo/approvals.ts`): las
+solicitudes de ejemplo mientras la bandeja esté vacía, severidad, SLA,
+estadísticas, documentos, flujo y comentarios.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 10 y además:
+
+1. Tipo, severidad, proyecto, producto y agente solicitante en cada aprobación.
+2. Validaciones y análisis de agentes asociados a la solicitud, no recalculados.
+3. SLA y vencimiento por severidad, y métricas de resolución (tiempo medio,
+   aprobadas y rechazadas por periodo).
+4. Pedir cambios como acción, además de aprobar y rechazar.
+5. Hilo de comentarios y documentos adjuntos por solicitud.
+6. Reglas de aprobación consultables (qué exige aprobación humana y con qué límite).

@@ -88,6 +88,12 @@ export interface ProductProjectInput {
   market: string;
 }
 
+/** Código del proyecto de un producto por su posición en el catálogo (AMZ-0024,
+ * AMZ-0023...). Lo comparten Proyectos y Aprobaciones. */
+export function projectCodeFor(index: number): string {
+  return `${PROJECT_CODE_PREFIX}${String(24 - index).padStart(4, "0")}`;
+}
+
 function phase(key: PhaseKey, state: PhaseState, detail: string, score: number | null = null): ProjectPhase {
   const meta = PHASES.find((p) => p.key === key)!;
   return { key, label: meta.label, href: meta.href, state, detail, score };
@@ -149,7 +155,7 @@ export function projectFromProduct(input: ProductProjectInput, index: number, to
 
   return {
     id: product.id,
-    code: `${PROJECT_CODE_PREFIX}${String(24 - index).padStart(4, "0")}`,
+    code: projectCodeFor(index),
     name: product.name,
     category: product.category,
     market,
