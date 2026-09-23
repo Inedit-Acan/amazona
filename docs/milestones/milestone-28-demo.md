@@ -1588,3 +1588,56 @@ proyectos del Director ejecutivo (grafo de tareas y decisión) y un detalle en
   actividad los eventos de auditoría del producto; `/projects/<id>` redirige al
   proyecto seleccionado; sin desbordamiento ni textos cortados a 1536, 1896 y 375 px;
   consola sin errores en pestaña nueva.
+
+## Segunda pasada — Panel 9: Agentes (`/agents`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/agentes.png`). Antes la pantalla enseñaba el registro de agentes y
+el log de ejecuciones tal cual, sin coste, evaluación ni actividad.
+
+### Qué se ve ahora
+
+1. Cabecera con «Datos de demostración» y «Nueva versión de agente» (deshabilitado).
+2. Seis KPIs de la flota: agentes registrados, ejecutando ahora, disponibles, tasa
+   de éxito, coste de hoy y alertas (con las críticas).
+3. Pestañas Agentes / Actividad / Rendimiento / Evaluaciones / Versiones, con filtro
+   de equipo, búsqueda y orden (nombre, éxito, coste, ejecuciones).
+4. Tarjetas por equipo (Investigación, Abastecimiento, Economía, Legal, Comercio,
+   Marketing, Operaciones, Finanzas) con estado, descripción, éxito, evaluación,
+   latencia, coste de hoy, tarea en curso o última tarea, versión y «Ver agente»,
+   que despliega capacidades, herramientas, ejecuciones de hoy y rol.
+5. Uso y coste de agentes (7 días), distribución de ejecuciones por equipo y coste
+   por agente de hoy.
+6. Barra lateral: actividad en tiempo real, alertas de la flota y recursos.
+
+### Datos reales y de demostración
+
+- Reales: los agentes registrados (nombre, rol, capacidades, estado y versión) y,
+  cuando el log tiene filas, sus ejecuciones: de ahí salen la tasa de éxito, la
+  latencia, la actividad, la distribución por equipo y las alertas.
+- Demo (`lib/demo/agents.ts`): la descripción de cada rol, la evaluación, el coste
+  por ejecución (el `cost_profile` del backend devuelve 0), la tarea en curso, las
+  herramientas, el histórico de versiones y los recursos.
+- Con el log vacío —como está hoy— la pantalla genera ejecuciones de demostración
+  deterministas de los últimos 7 días (≈1.100) y lo dice en cada tarjeta afectada y
+  al pie; en cuanto el backend registre ejecuciones reales, manda el log.
+- El estado «Ejecutando / Disponible» es el del registro: no se inventa.
+
+### Componentes nuevos / tocados
+
+- `lib/agents-view.ts` con tests (tarjetas, KPIs, uso por día, coste por agente,
+  alertas, feed de actividad, versiones, filtros, orden y agrupación) y
+  `lib/demo/agents.ts` (incluye el generador de ejecuciones de demostración).
+- `AgentCard` se rehace con el diseño del mockup y pasa a recibir el modelo de vista.
+- `app/agents/agents-panels.tsx` nuevo (barra lateral, gráficos y tablas de las
+  pestañas); `lib/agents.ts` se mantiene como fuente de equipos y estadísticas.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 157/157; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario): 13 agentes en 8 equipos como el mockup,
+  tasa de éxito 98,3 % y coste 16,01 € con las ejecuciones de demostración; las
+  pestañas, el filtro de equipo, la búsqueda, el orden y «Ver agente» responden; sin
+  desbordamiento ni textos cortados a 1536, 1896 y 375 px; consola sin errores en
+  pestaña nueva.

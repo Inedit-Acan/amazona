@@ -83,6 +83,8 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `CashFlowChart` | Finanzas (2.ª pasada) | Panel y Director ejecutivo (caja y previsión) |
 | `lib/cfo-view.ts` | Finanzas (2.ª pasada) | Panel, Director ejecutivo (P&L, caja y salud financiera) |
 | `lib/projects-view.ts` | Proyectos (2.ª pasada) | Panel y Director ejecutivo (cartera y fases por producto) |
+| `AgentCard` (rediseñada) | Agentes (2.ª pasada) | Panel y Director ejecutivo (flota de agentes) |
+| `lib/agents-view.ts` | Agentes (2.ª pasada) | Panel, Proyectos (actividad y salud de la flota) |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -752,3 +754,21 @@ adelantado; el beneficio real sale de los pedidos de Operaciones.
 5. Decisiones pendientes accionables desde el proyecto (aprobar o rechazar) y su
    trazabilidad.
 6. Aprendizajes guardados y aplicables al sistema.
+
+## 9 (segunda pasada). Agentes
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real: el
+registro de agentes y, si tiene filas, el log de ejecuciones (éxito, latencia,
+actividad, distribución y alertas). Demo (`lib/demo/agents.ts`): descripción,
+evaluación, coste por ejecución, tarea en curso, herramientas, versiones anteriores
+y, mientras el log esté vacío, las propias ejecuciones.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 9 y además:
+
+1. Registrar ejecuciones reales de cada agente (hoy el log está vacío) con su coste
+   y tokens, no solo duración y éxito.
+2. Descripción, equipo y herramientas/permisos en el registro de agentes.
+3. Suite de evaluación con su puntuación por agente y versión.
+4. Tarea en curso del agente y su progreso.
+5. Histórico de versiones con notas y despliegue de una nueva versión.
+6. Umbrales de alerta configurables y su estado.
