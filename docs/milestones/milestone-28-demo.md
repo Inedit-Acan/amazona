@@ -1701,3 +1701,59 @@ con las aprobaciones y revisiones del backend; hoy el backend no tiene ninguna.
   las pestañas del detalle responden; los botones de decisión salen deshabilitados
   en las solicitudes de demostración; sin desbordamiento ni textos cortados a 1536,
   1896 y 375 px; consola sin errores.
+
+## Segunda pasada — Panel 11: Auditoría y trazabilidad (`/audit`)
+
+Referencia: mockup enviado por el propietario el 22-09-2026
+(`docs/design/auditoria.png`). Antes la pantalla enseñaba las entradas del
+registro tal cual, con sus filtros y agrupaciones; el backend solo tiene una
+decena de entradas.
+
+### Qué se ve ahora
+
+1. Cabecera con «Datos de demostración», «Exportar» (CSV de lo filtrado) y
+   «Generar paquete de auditoría» (pendiente).
+2. Seis KPIs del día: eventos, acciones críticas, aprobaciones, cambios de
+   configuración, errores y evidencias completas.
+3. Pestañas Eventos / Timeline / Proyectos / Agentes / Seguridad / Integridad /
+   Retención, y una fila de filtros: periodo, tipo, actor, proyecto, criticidad y
+   búsqueda.
+4. Tabla de eventos con fecha, tipo, acción, actor, proyecto, resultado,
+   criticidad e ID de correlación, con paginación y tamaño de página.
+5. Detalle del evento seleccionado con pestañas Resumen, Datos, Evidencias,
+   Trazabilidad y JSON: datos reales separados de los de demostración, cambios
+   antes/después, contexto del proyecto, integridad, evidencias, la cadena de
+   correlación y el JSON del evento.
+6. Anomalías detectadas en los últimos 7 días.
+
+### Datos reales y de demostración
+
+- Reales: las entradas de `AuditLog` (actor, acción, recurso, estado
+  antes/después, ID de correlación y fecha); de ellas se deducen el tipo, el tipo
+  de actor, el resultado, el proyecto (por el recurso, con el mismo código AMZ-00NN
+  que Proyectos) y la cadena de correlación, y su JSON se enseña tal cual.
+- Demo (`lib/demo/audit.ts`): los 1.800 eventos que llenan la ventana de 30 días
+  mientras el backend solo tenga una decena, la criticidad, la IP, el user agent,
+  las evidencias, el hash de integridad, las anomalías y la política de retención.
+  Cada evento dice si es real o de demostración, en la tabla y en el detalle.
+
+### Componentes nuevos / tocados
+
+- `lib/audit-view.ts` con tests (filas reales y demo, KPIs, filtros, paginación,
+  detalle, cambios, trazabilidad, agrupación por actor, proyecto y día, anomalías) y
+  `lib/demo/audit.ts`.
+- `app/audit/audit-panels.tsx` nuevo con las tarjetas del detalle y de las pestañas;
+  `audit-workspace.tsx` reescrito.
+- `lib/audit.ts` se queda con lo que se deduce de una entrada (`eventCategory`,
+  `actorKind`, `isErrorAction`, `stateChanges`) y su test se reduce; se retira
+  `CorrelationTrace`, que quedaba sin uso.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 159/159; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario): 1.810 eventos en la ventana (10 reales),
+  60 hoy; elegir una fila abre su detalle; las pestañas del detalle y las de la
+  pantalla responden; el filtro de tipo deja 165 aprobaciones y la paginación avanza
+  a 13–24; sin desbordamiento ni textos cortados a 1536, 1896 y 375 px; consola sin
+  errores.

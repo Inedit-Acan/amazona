@@ -1,590 +1,423 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
-  ArrowLeft,
-  CheckCheck,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  FileArchive,
+  CircleCheck,
+  Download,
   FileText,
-  Fingerprint,
-  Gavel,
-  HardDrive,
-  ScrollText,
-  Search,
-  ShieldAlert,
+  Package,
+  Settings2,
   ShieldCheck,
-  Users,
+  XCircle,
 } from "lucide-react";
-import type { AuditEntry } from "@/lib/api";
+import type { Agent, AuditEntry, Product } from "@/lib/api";
 import {
-  EVENT_CATEGORIES,
-  actorKind,
-  actorRows,
-  auditSummary,
-  eventCategory,
-  filterEvents,
-  groupByDay,
-  projectRows,
-  stateChanges,
-  unattributedCount,
-  type ActorRow,
-  type AuditFilters,
-  type ProjectByCorrelation,
-  type ProjectRow,
-} from "@/lib/audit";
-import { parseUtc } from "@/lib/dates";
-import { formatInteger } from "@/lib/format";
-import { CorrelationTrace } from "@/components/correlation-trace";
+  EMPTY_FILTERS,
+  WINDOW_LABELS,
+  anomalies,
+  auditKpis,
+  auditRows,
+  correlationTrace,
+  filterOptions,
+  filterRows,
+  paginate,
+  type AuditRow,
+  type AuditWindow,
+  type RowFilters,
+} from "@/lib/audit-view";
+import { EXPORT_FORMATS } from "@/lib/demo/audit";
+import { downloadCsv, toCsv } from "@/lib/csv";
+import { formatInteger, formatPercent } from "@/lib/format";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
-import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { KpiCard } from "@/components/kpi-card";
-import { PendingFeatures, type PendingFeature } from "@/components/pending-features";
-import { Badge } from "@/components/ui/badge";
+import { LevelChip, type LevelTone } from "@/components/level-chip";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { AUDIT_DESCRIPTION, AUDIT_TITLE } from "./copy";
+import {
+  ActorsTabCard,
+  AnomaliesCard,
+  ChangesCard,
+  EventFieldsCard,
+  EvidencesCard,
+  IntegrityCard,
+  IntegrityTabCard,
+  JsonCard,
+  ProjectContextCard,
+  ProjectsTabCard,
+  RetentionTabCard,
+  SecurityTabCard,
+  TimelineCard,
+  TraceCard,
+  formatDateTime,
+} from "./audit-panels";
 
-const PAGE_SIZE = 12;
-const INPUT_CLASS = "rounded-md border bg-background px-3 py-1.5 text-sm";
-/** El backend devuelve como máximo 500 eventos, los más antiguos primero (api/audit.py). */
-const API_LIMIT = 500;
+const DEMO_TOOLTIP =
+  "Incluye datos de demostración: una entrada real del registro solo guarda actor, acción, recurso, estado antes/después, ID de correlación y fecha, y hoy hay poco más de una decena. Los eventos que llenan la tabla, la criticidad, la IP, el user agent, las evidencias, el hash de integridad, las anomalías y la política de retención son simulados. Real: las entradas del backend, su tipo y actor deducidos de la acción, sus cambios de estado y su cadena de correlación.";
 
-const PENDING_INTEGRITY: PendingFeature[] = [
-  {
-    icon: Fingerprint,
-    title: "Integridad y cadena de hashes",
-    description: "Hash por evento, cadena de hashes, última verificación y eventos modificados = 0.",
-  },
-  {
-    icon: FileArchive,
-    title: "Evidencias asociadas",
-    description: "Informes, Legal Gate, presupuesto, aprobaciones y documentos con hash, versión y estado.",
-  },
-  {
-    icon: ShieldAlert,
-    title: "Anomalías",
-    description: "Precio cambiado sin aprobación, acción fuera de política o proveedor modificado tras aprobar.",
-  },
-  {
-    icon: Gavel,
-    title: "Criticidad y resultado",
-    description: "Cada evento con su criticidad (crítica/alta/media/baja) y su resultado (éxito, error, creado).",
-  },
-];
+const MAIN_TABS = [
+  { key: "eventos", label: "Eventos" },
+  { key: "timeline", label: "Timeline" },
+  { key: "proyectos", label: "Proyectos" },
+  { key: "agentes", label: "Agentes" },
+  { key: "seguridad", label: "Seguridad" },
+  { key: "integridad", label: "Integridad" },
+  { key: "retencion", label: "Retención" },
+] as const;
 
-const PENDING_RETENTION: PendingFeature[] = [
-  {
-    icon: HardDrive,
-    title: "Retención por tipo de evento",
-    description: "Cuánto se conserva cada tipo de evento y cuándo se archiva.",
-  },
-  {
-    icon: FileText,
-    title: "Exportación completa y paquete de auditoría",
-    description: "JSON, PDF de evidencia y paquete por proyecto/periodo con eventos, aprobaciones, evidencias y hashes.",
-  },
-];
+type MainTab = (typeof MAIN_TABS)[number]["key"];
 
-const WINDOW_OPTIONS: { value: AuditFilters["window"]; label: string }[] = [
-  { value: "all", label: "Todo el histórico" },
-  { value: "24h", label: "Últimas 24 h" },
-  { value: "7d", label: "Últimos 7 días" },
-  { value: "30d", label: "Últimos 30 días" },
-];
+const DETAIL_TABS = [
+  { key: "resumen", label: "Resumen" },
+  { key: "datos", label: "Datos" },
+  { key: "evidencias", label: "Evidencias" },
+  { key: "trazabilidad", label: "Trazabilidad" },
+  { key: "json", label: "JSON" },
+] as const;
 
-const CATEGORY_TONE: Record<string, string> = {
-  Aprobación: "border-amber-500/40 text-amber-500",
-  Decisión: "border-primary/50 text-primary",
-  Seguridad: "border-red-500/40 text-red-500",
-  Incidencia: "border-red-500/40 text-red-500",
-};
+type DetailTab = (typeof DETAIL_TABS)[number]["key"];
 
-function CategoryChip({ action }: { action: string }) {
-  const category = eventCategory(action);
-  return (
-    <Badge variant="outline" className={cn("font-medium", CATEGORY_TONE[category])}>
-      {category}
-    </Badge>
-  );
-}
+const RESULT_TONE: Record<AuditRow["result"], LevelTone> = { "Éxito": "ok", Creado: "neutral", Error: "bad" };
+const CRITICALITY_TONE: Record<AuditRow["criticality"], LevelTone> = { Alta: "bad", Media: "warn", Baja: "ok" };
 
-function formatDateTime(value: string): string {
-  return new Date(parseUtc(value)).toLocaleString("es-ES");
-}
-
-function formatMs(ms: number): string {
-  return new Date(ms).toLocaleString("es-ES");
-}
+const PAGE_SIZES = [12, 25, 50];
+const INPUT_CLASS = "min-w-0 rounded-md border bg-background px-2.5 py-1.5 text-xs";
 
 export function AuditWorkspace({
   entries,
-  projects,
-  correlationId,
+  products,
+  agents,
+  now,
 }: {
   entries: AuditEntry[];
-  projects: ProjectByCorrelation;
-  correlationId?: string;
+  products: Product[];
+  agents: Agent[];
+  now: number;
 }) {
-  // Se fija una vez: mantiene el render puro y estable.
-  const [now] = useState(() => Date.now());
-  const [filters, setFilters] = useState<AuditFilters>({ window: "all", category: "all", actor: "all", project: "all", query: "" });
+  const [tab, setTab] = useState<MainTab>("eventos");
+  const [filters, setFilters] = useState<RowFilters>(EMPTY_FILTERS);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(12);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>("resumen");
 
-  const summary = useMemo(() => auditSummary(entries, now), [entries, now]);
-  const newestFirst = useMemo(() => [...entries].sort((a, b) => parseUtc(b.created_at) - parseUtc(a.created_at)), [entries]);
-  const filtered = useMemo(() => filterEvents(newestFirst, filters, projects, now), [newestFirst, filters, projects, now]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount - 1);
-  const pageRows = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+  const rows = useMemo(() => auditRows(entries, products, agents, now), [entries, products, agents, now]);
+  const kpis = auditKpis(rows, now);
+  const options = useMemo(() => filterOptions(rows), [rows]);
+  const filtered = useMemo(() => filterRows(rows, filters, now), [rows, filters, now]);
+  const pageData = paginate(filtered, page, pageSize);
+  const selected = rows.find((row) => row.id === selectedId) ?? pageData.items[0] ?? rows[0];
+  const trace = selected ? correlationTrace(rows, selected.correlationId) : [];
+  const realCount = rows.filter((row) => !row.isDemo).length;
 
-  const actorOptions = useMemo(() => [...new Set(entries.map((e) => e.actor))].sort(), [entries]);
-  const projectOptions = useMemo(
-    () => [...new Map(Object.values(projects).map((p) => [p.id, p.name] as const)).entries()].sort((a, b) => a[1].localeCompare(b[1], "es")),
-    [projects],
-  );
-  const actors = useMemo(() => actorRows(entries), [entries]);
-  const byProject = useMemo(() => projectRows(entries, projects), [entries, projects]);
-  const unattributed = useMemo(() => unattributedCount(entries, projects), [entries, projects]);
-  const days = useMemo(() => groupByDay(entries).slice(0, 7), [entries]);
-  const humanEvents = useMemo(() => newestFirst.filter((e) => actorKind(e.actor) === "Persona"), [newestFirst]);
-
-  const selected = entries.find((e) => e.id === selectedId) ?? filtered[0];
-  const trace = selected ? entries.filter((e) => e.correlation_id === selected.correlation_id) : [];
-  const selectedProject = selected ? projects[selected.correlation_id] : undefined;
-  const changes = selected ? stateChanges(selected.before, selected.after) : [];
-
-  function update(patch: Partial<AuditFilters>) {
+  function update(patch: Partial<RowFilters>) {
     setFilters((current) => ({ ...current, ...patch }));
     setPage(0);
   }
 
-  const eventColumns: DataTableColumn<AuditEntry>[] = [
-    { key: "when", header: "Fecha y hora", cell: (row) => <span className="text-xs whitespace-nowrap">{formatDateTime(row.created_at)}</span>, sortValue: (row) => row.created_at, exportValue: (row) => row.created_at },
-    { key: "type", header: "Tipo", cell: (row) => <CategoryChip action={row.action} />, sortValue: (row) => eventCategory(row.action), exportValue: (row) => eventCategory(row.action) },
-    { key: "action", header: "Acción", cell: (row) => <span className="font-medium">{row.action}</span>, sortValue: (row) => row.action, exportValue: (row) => row.action },
-    { key: "actor", header: "Actor", cell: (row) => <span className="font-mono text-xs">{row.actor}</span>, sortValue: (row) => row.actor, exportValue: (row) => row.actor },
-    {
-      key: "project",
-      header: "Proyecto",
-      cell: (row) => projects[row.correlation_id]?.name ?? <span className="text-muted-foreground">—</span>,
-      exportValue: (row) => projects[row.correlation_id]?.name ?? "",
-    },
-    { key: "resource", header: "Recurso", cell: (row) => <span className="font-mono text-[11px] text-muted-foreground">{row.resource}</span>, exportValue: (row) => row.resource },
-    { key: "corr", header: "Correlación", cell: (row) => <span className="font-mono text-[11px]">{row.correlation_id.slice(0, 8)}</span>, exportValue: (row) => row.correlation_id },
-  ];
+  function exportCsv() {
+    const csv = toCsv(
+      ["Evento", "Fecha", "Tipo", "Acción", "Actor", "Proyecto", "Resultado", "Criticidad", "Correlación", "Origen"],
+      filtered
+        .slice(0, 2000)
+        .map((row) => [
+          row.code,
+          new Date(row.at).toISOString(),
+          row.type,
+          row.title,
+          row.actor,
+          row.projectCode ?? "",
+          row.result,
+          row.criticality,
+          row.correlationId,
+          row.isDemo ? "demostración" : "backend",
+        ]),
+    );
+    downloadCsv("auditoria.csv", csv);
+  }
 
-  const actorColumns: DataTableColumn<ActorRow>[] = [
-    { key: "actor", header: "Actor", cell: (row) => <span className="font-mono text-xs">{row.actor}</span>, sortValue: (row) => row.actor, exportValue: (row) => row.actor },
-    { key: "kind", header: "Tipo", cell: (row) => row.kind, sortValue: (row) => row.kind, exportValue: (row) => row.kind },
-    { key: "events", header: "Eventos", cell: (row) => formatInteger(row.events), sortValue: (row) => row.events, exportValue: (row) => row.events, align: "right" },
-    { key: "errors", header: "Errores", cell: (row) => <span className={cn(row.errors > 0 && "font-medium text-destructive")}>{row.errors}</span>, sortValue: (row) => row.errors, align: "right" },
-    { key: "first", header: "Primer evento", cell: (row) => <span className="text-xs">{formatMs(row.firstAt)}</span>, sortValue: (row) => row.firstAt },
-    { key: "last", header: "Último evento", cell: (row) => <span className="text-xs">{formatMs(row.lastAt)}</span>, sortValue: (row) => row.lastAt },
-  ];
-
-  const projectColumns: DataTableColumn<ProjectRow>[] = [
-    {
-      key: "name",
-      header: "Proyecto",
-      cell: (row) => (
-        <Link href={`/projects/${row.projectId}`} className="font-medium text-primary underline-offset-4 hover:underline">
-          {row.name}
-        </Link>
-      ),
-      sortValue: (row) => row.name,
-      exportValue: (row) => row.name,
-    },
-    { key: "events", header: "Eventos", cell: (row) => formatInteger(row.events), sortValue: (row) => row.events, exportValue: (row) => row.events, align: "right" },
-    { key: "corr", header: "Ejecuciones", cell: (row) => formatInteger(row.correlations), sortValue: (row) => row.correlations, align: "right" },
-    { key: "last", header: "Último evento", cell: (row) => <span className="text-xs">{formatMs(row.lastAt)}</span>, sortValue: (row) => row.lastAt },
-  ];
-
-  if (entries.length === 0) {
+  if (rows.length === 0) {
     return (
-      <Card>
-        <CardContent>
-          <EmptyState
-            icon={ScrollText}
-            title={correlationId ? "No hay eventos para este ID de correlación" : "Todavía no hay eventos de auditoría"}
-            description={
-              correlationId
-                ? "Ese ID no aparece en el registro."
-                : "Cada acción relevante de los agentes, el director ejecutivo y las personas queda registrada aquí."
-            }
-            action={
-              correlationId ? (
-                <Button size="sm" variant="outline" nativeButton={false} render={<Link href="/audit" />}>
-                  Ver todo el registro
-                </Button>
-              ) : undefined
-            }
-          />
-        </CardContent>
-      </Card>
+      <div>
+        <PageHeader title={AUDIT_TITLE} description={AUDIT_DESCRIPTION} />
+        <Card>
+          <CardContent>
+            <EmptyState icon={FileText} title="El registro está vacío" description="Todavía no hay eventos de auditoría." />
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {correlationId ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
-          <span>
-            Mostrando solo los eventos del ID de correlación <span className="font-mono text-xs">{correlationId}</span>.
-          </span>
-          <Button size="sm" variant="outline" nativeButton={false} render={<Link href="/audit" />}>
-            <ArrowLeft /> Ver todo el registro
-          </Button>
-        </div>
-      ) : null}
+    <div className="space-y-5">
+      <PageHeader
+        title={AUDIT_TITLE}
+        description={AUDIT_DESCRIPTION}
+        actions={
+          <>
+            <DataProvenanceBadge status="demo" tooltip={DEMO_TOOLTIP} />
+            <Button variant="outline" onClick={exportCsv}>
+              <Download /> Exportar
+            </Button>
+            <Button disabled title={`Pendiente: el backend no genera paquetes de auditoría (${EXPORT_FORMATS.join(", ")})`}>
+              <ShieldCheck /> Generar paquete de auditoría
+            </Button>
+          </>
+        }
+      />
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6" aria-label="Indicadores de auditoría">
-        <KpiCard
-          label="Eventos registrados"
-          value={formatInteger(summary.total)}
-          icon={ScrollText}
-          caption={summary.total >= API_LIMIT && !correlationId ? `Límite de ${API_LIMIT}: puede haber más` : "En el registro"}
-          provenance="verified"
-        />
-        <KpiCard label="Eventos hoy" value={formatInteger(summary.today)} icon={Clock} caption="Del día actual" provenance="verified" />
-        <KpiCard label="Aprobaciones" value={formatInteger(summary.approvals)} icon={CheckCheck} caption="Solicitadas y resueltas" provenance="verified" />
-        <KpiCard label="Decisiones del CEO" value={formatInteger(summary.decisions)} icon={Gavel} caption="Decisiones registradas" provenance="verified" />
-        <KpiCard
-          label="Errores"
-          value={formatInteger(summary.errors)}
-          icon={AlertTriangle}
-          tone={summary.errors > 0 ? "danger" : "default"}
-          caption="Acciones que indican un fallo"
-          provenance="verified"
-        />
+      {/* KPIs */}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6" aria-label="Indicadores de auditoría">
+        <KpiCard label="Eventos hoy" leading={<FileText className="size-7 shrink-0 text-primary" />} value={formatInteger(kpis.today)} />
         <KpiCard
           label="Acciones críticas"
-          value="—"
-          icon={ShieldAlert}
-          caption="Los eventos no tienen criticidad"
-          provenance="pending"
-          provenanceTooltip="El registro no clasifica los eventos por criticidad."
+          leading={<AlertTriangle className={cn("size-7 shrink-0", kpis.critical > 0 ? "text-destructive" : "text-primary")} />}
+          value={formatInteger(kpis.critical)}
+          tone={kpis.critical > 0 ? "danger" : "default"}
+        />
+        <KpiCard label="Aprobaciones" leading={<CircleCheck className="size-7 shrink-0 text-primary" />} value={formatInteger(kpis.approvals)} />
+        <KpiCard label="Cambios de configuración" leading={<Settings2 className="size-7 shrink-0 text-primary" />} value={formatInteger(kpis.configChanges)} />
+        <KpiCard
+          label="Errores"
+          leading={<XCircle className={cn("size-7 shrink-0", kpis.errors > 0 ? "text-warning" : "text-primary")} />}
+          value={formatInteger(kpis.errors)}
+          tone={kpis.errors > 0 ? "warning" : "default"}
+        />
+        <KpiCard
+          label="Evidencias completas"
+          leading={<ShieldCheck className="size-7 shrink-0 text-primary" />}
+          value={formatPercent(kpis.evidenceRate)}
+          caption="Dato de demostración"
         />
       </section>
 
-      <Tabs defaultValue="events" className="gap-4">
-        <div className="max-w-full overflow-x-auto">
-          <TabsList>
-            <TabsTrigger value="events">Eventos</TabsTrigger>
-            <TabsTrigger value="timeline">Timeline</TabsTrigger>
-            <TabsTrigger value="projects">Proyectos</TabsTrigger>
-            <TabsTrigger value="agents">Agentes</TabsTrigger>
-            <TabsTrigger value="security">Seguridad</TabsTrigger>
-            <TabsTrigger value="integrity">Integridad</TabsTrigger>
-            <TabsTrigger value="retention">Retención</TabsTrigger>
-          </TabsList>
-        </div>
+      <Tabs value={tab} onValueChange={(value) => setTab(value as MainTab)}>
+        <TabsList className="flex flex-wrap justify-start group-data-horizontal/tabs:h-auto">
+          {MAIN_TABS.map((item) => (
+            <TabsTrigger key={item.key} value={item.key} className="flex-none px-2.5 text-xs">
+              {item.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
-        <TabsContent value="events" className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-12">
-            <Card className="xl:col-span-8">
-              <CardHeader>
-                <CardTitle>Eventos</CardTitle>
-                <CardAction>
-                  <DataProvenanceBadge status="verified" tooltip="Filas del registro de auditoría de la base de datos." />
-                </CardAction>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <select value={filters.window} onChange={(e) => update({ window: e.target.value as AuditFilters["window"] })} aria-label="Periodo" className={INPUT_CLASS}>
-                    {WINDOW_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select value={filters.category} onChange={(e) => update({ category: e.target.value as AuditFilters["category"] })} aria-label="Tipo de evento" className={INPUT_CLASS}>
-                    <option value="all">Todos los tipos</option>
-                    {EVENT_CATEGORIES.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ))}
-                  </select>
-                  <select value={filters.actor} onChange={(e) => update({ actor: e.target.value })} aria-label="Actor" className={cn(INPUT_CLASS, "max-w-48")}>
-                    <option value="all">Todos los actores</option>
-                    {actorOptions.map((actor) => (
-                      <option key={actor} value={actor}>
-                        {actor}
-                      </option>
-                    ))}
-                  </select>
-                  <select value={filters.project} onChange={(e) => update({ project: e.target.value })} aria-label="Proyecto" className={cn(INPUT_CLASS, "max-w-48")}>
-                    <option value="all">Todos los proyectos</option>
-                    {projectOptions.map(([id, name]) => (
-                      <option key={id} value={id}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="relative block min-w-40 flex-1">
-                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      type="search"
-                      value={filters.query}
-                      onChange={(e) => update({ query: e.target.value })}
-                      placeholder="Buscar eventos, ID, texto…"
-                      aria-label="Buscar eventos"
-                      className={cn(INPUT_CLASS, "w-full pl-9")}
-                    />
-                  </label>
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={filters.window} onChange={(e) => update({ window: e.target.value as AuditWindow })} aria-label="Periodo" className={INPUT_CLASS}>
+          {Object.entries(WINDOW_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <select value={filters.type} onChange={(e) => update({ type: e.target.value })} aria-label="Tipo" className={INPUT_CLASS}>
+          <option value="all">Todos los tipos</option>
+          {options.types.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+        <select value={filters.actor} onChange={(e) => update({ actor: e.target.value })} aria-label="Actor" className={INPUT_CLASS}>
+          <option value="all">Todos los actores</option>
+          {options.actors.map((actor) => (
+            <option key={actor} value={actor}>
+              {actor}
+            </option>
+          ))}
+        </select>
+        <select value={filters.project} onChange={(e) => update({ project: e.target.value })} aria-label="Proyecto" className={INPUT_CLASS}>
+          <option value="all">Todos los proyectos</option>
+          {options.projects.map((project) => (
+            <option key={project} value={project}>
+              {project}
+            </option>
+          ))}
+        </select>
+        <select value={filters.criticality} onChange={(e) => update({ criticality: e.target.value })} aria-label="Criticidad" className={INPUT_CLASS}>
+          <option value="all">Todas las criticidades</option>
+          {["Alta", "Media", "Baja"].map((level) => (
+            <option key={level} value={level}>
+              {level}
+            </option>
+          ))}
+        </select>
+        <input
+          value={filters.query}
+          onChange={(e) => update({ query: e.target.value })}
+          type="search"
+          placeholder="Buscar eventos, ID, texto…"
+          aria-label="Buscar en el registro"
+          className={cn(INPUT_CLASS, "min-w-48 flex-1")}
+        />
+      </div>
+
+      {tab === "eventos" ? (
+        <div className="grid gap-4 min-[106.25rem]:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          {/* Tabla */}
+          <div className="min-w-0 space-y-3">
+            <Card className="min-w-0">
+              <CardContent className="space-y-3">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="text-muted-foreground">
+                      <tr>
+                        <th className="pb-2 text-left font-normal">Fecha y hora</th>
+                        <th className="pb-2 text-left font-normal">Tipo</th>
+                        <th className="pb-2 text-left font-normal">Acción / Evento</th>
+                        <th className="pb-2 text-left font-normal">Actor</th>
+                        <th className="pb-2 text-left font-normal">Proyecto</th>
+                        <th className="pb-2 text-left font-normal">Resultado</th>
+                        <th className="pb-2 text-left font-normal">Criticidad</th>
+                        <th className="pb-2 text-left font-normal">Correlación</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pageData.items.map((row) => (
+                        <tr
+                          key={row.id}
+                          onClick={() => {
+                            setSelectedId(row.id);
+                            setDetailTab("resumen");
+                          }}
+                          aria-selected={selected?.id === row.id}
+                          className={cn("cursor-pointer border-t transition hover:bg-panel-hover", selected?.id === row.id && "bg-primary/5")}
+                        >
+                          <td className="py-1.5 whitespace-nowrap text-muted-foreground">{formatDateTime(row.at)}</td>
+                          <td className="py-1.5">{row.type}</td>
+                          <td className="py-1.5">
+                            <span className="block leading-tight font-medium">{row.title}</span>
+                            <span className="block text-muted-foreground">{row.detail}</span>
+                          </td>
+                          <td className="py-1.5 break-words">{row.actor}</td>
+                          <td className="py-1.5 whitespace-nowrap">{row.projectCode ?? "—"}</td>
+                          <td className="py-1.5">
+                            <LevelChip tone={RESULT_TONE[row.result]}>{row.result}</LevelChip>
+                          </td>
+                          <td className="py-1.5">
+                            <LevelChip tone={CRITICALITY_TONE[row.criticality]}>{row.criticality}</LevelChip>
+                          </td>
+                          <td className="py-1.5 font-mono whitespace-nowrap text-muted-foreground">{row.correlationId}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-
-                <DataTable
-                  columns={eventColumns}
-                  rows={pageRows}
-                  getRowId={(row) => row.id}
-                  selectedId={selected?.id ?? null}
-                  onSelect={(row) => setSelectedId(row.id)}
-                  exportFileName="auditoria.csv"
-                  emptyMessage="Ningún evento coincide con los filtros."
-                />
+                {pageData.total === 0 ? <p className="py-3 text-sm text-muted-foreground">Sin eventos con estos filtros.</p> : null}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
-                    {filtered.length === 0
-                      ? "0 eventos"
-                      : `Mostrando ${currentPage * PAGE_SIZE + 1}–${Math.min((currentPage + 1) * PAGE_SIZE, filtered.length)} de ${formatInteger(filtered.length)} eventos`}
-                    {" · "}
-                    la exportación CSV incluye solo la página visible
+                    Mostrando {formatInteger(pageData.from)}–{formatInteger(pageData.to)} de {formatInteger(pageData.total)} eventos
                   </span>
-                  <div className="flex items-center gap-1">
-                    <Button type="button" size="icon-sm" variant="outline" aria-label="Página anterior" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>
-                      <ChevronLeft />
+                  <span className="flex items-center gap-1.5">
+                    <Button size="xs" variant="outline" disabled={pageData.page === 0} onClick={() => setPage(pageData.page - 1)}>
+                      Anterior
                     </Button>
                     <span className="tabular-nums">
-                      {currentPage + 1} / {pageCount}
+                      {pageData.page + 1} / {pageData.pages}
                     </span>
-                    <Button type="button" size="icon-sm" variant="outline" aria-label="Página siguiente" disabled={currentPage >= pageCount - 1} onClick={() => setPage(currentPage + 1)}>
-                      <ChevronRight />
+                    <Button size="xs" variant="outline" disabled={pageData.page >= pageData.pages - 1} onClick={() => setPage(pageData.page + 1)}>
+                      Siguiente
                     </Button>
-                  </div>
+                    <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }} aria-label="Eventos por página" className={INPUT_CLASS}>
+                      {PAGE_SIZES.map((size) => (
+                        <option key={size} value={size}>
+                          {size} por página
+                        </option>
+                      ))}
+                    </select>
+                  </span>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="xl:col-span-4">
-              <CardHeader>
-                <CardTitle>Detalle del evento</CardTitle>
-                <CardAction>
-                  <DataProvenanceBadge status="verified" tooltip="Evento leído del registro de auditoría." />
-                </CardAction>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {selected ? (
-                  <>
-                    <div>
-                      <p className="text-base font-semibold">{selected.action}</p>
-                      <p className="text-xs text-muted-foreground">{formatDateTime(selected.created_at)}</p>
-                    </div>
-                    <dl className="divide-y rounded-lg border px-3 text-sm">
-                      {[
-                        ["ID del evento", <span key="id" className="font-mono text-xs">{selected.id.slice(0, 13)}</span>],
-                        ["Tipo", <CategoryChip key="type" action={selected.action} />],
-                        ["Actor", `${selected.actor} (${actorKind(selected.actor).toLowerCase()})`],
-                        ["Recurso", <span key="res" className="font-mono text-xs break-all">{selected.resource}</span>],
-                        [
-                          "Proyecto",
-                          selectedProject ? (
-                            <Link key="proj" href={`/projects/${selectedProject.id}`} className="text-primary underline-offset-4 hover:underline">
-                              {selectedProject.name}
-                            </Link>
-                          ) : (
-                            "—"
-                          ),
-                        ],
-                        [
-                          "Correlación",
-                          <Link key="corr" href={`/audit?correlation_id=${selected.correlation_id}`} className="font-mono text-xs text-primary underline-offset-4 hover:underline">
-                            {selected.correlation_id.slice(0, 13)}
-                          </Link>,
-                        ],
-                      ].map(([label, value]) => (
-                        <div key={String(label)} className="flex items-start justify-between gap-3 py-1.5">
-                          <dt className="text-muted-foreground">{label}</dt>
-                          <dd className="text-right font-medium">{value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-
-                    <div>
-                      <p className="mb-1.5 text-xs font-medium text-muted-foreground">Antes / después</p>
-                      {changes.length > 0 ? (
-                        <div className="overflow-x-auto rounded-lg border">
-                          <table className="w-full text-xs">
-                            <thead>
-                              <tr className="border-b text-left text-muted-foreground">
-                                <th className="px-2 py-1.5 font-medium">Campo</th>
-                                <th className="px-2 py-1.5 font-medium">Antes</th>
-                                <th className="px-2 py-1.5 font-medium">Después</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {changes.map((change) => (
-                                <tr key={change.key} className="border-b last:border-0">
-                                  <td className="px-2 py-1.5 font-mono">{change.key}</td>
-                                  <td className="px-2 py-1.5 font-mono break-all text-red-400">{change.before ?? "—"}</td>
-                                  <td className="px-2 py-1.5 font-mono break-all text-primary">{change.after ?? "—"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Este evento no guarda estado antes ni después.</p>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                      <DataProvenanceBadge status="pending" tooltip="El registro no guarda origen, IP ni user agent del evento." />
-                      Origen del evento, IP, user agent, resultado y criticidad: sin datos.
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Selecciona un evento de la tabla.</p>
-                )}
-              </CardContent>
-            </Card>
+            <AnomaliesCard anomalies={anomalies(rows, now)} />
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Trazabilidad (Correlation Trace)</CardTitle>
-              <CardAction>
-                <DataProvenanceBadge status="verified" tooltip="Todos los eventos que comparten el ID de correlación del evento elegido, en orden cronológico." />
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              {trace.length > 0 ? (
-                <CorrelationTrace entries={trace} />
-              ) : (
-                <p className="text-sm text-muted-foreground">Elige un evento para ver todo lo que ocurrió bajo su ID de correlación.</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+          {/* Detalle */}
+          <div className="min-w-0 space-y-4">
+            {selected ? (
+              <>
+                <Card className="min-w-0">
+                  <CardContent className="space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          {selected.code}
+                          <LevelChip tone={selected.isDemo ? "neutral" : "ok"}>{selected.isDemo ? "Evento de demostración" : "Evento verificado"}</LevelChip>
+                        </p>
+                        <p className="flex flex-wrap items-center gap-2 text-xl leading-tight font-semibold">
+                          {selected.title}
+                          <LevelChip tone={CRITICALITY_TONE[selected.criticality]}>{selected.criticality} criticidad</LevelChip>
+                        </p>
+                        <p className="text-xs text-muted-foreground">{formatDateTime(selected.at)}</p>
+                      </div>
+                    </div>
+                    <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as DetailTab)}>
+                      <TabsList className="flex w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
+                        {DETAIL_TABS.map((item) => (
+                          <TabsTrigger key={item.key} value={item.key} className="flex-none px-2.5 text-xs">
+                            {item.label}
+                          </TabsTrigger>
+                        ))}
+                      </TabsList>
+                    </Tabs>
+                  </CardContent>
+                </Card>
 
-        <TabsContent value="timeline" className="space-y-4">
-          {days.map((group) => (
-            <Card key={group.day}>
-              <CardHeader>
-                <CardTitle>{new Date(`${group.day}T12:00:00`).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</CardTitle>
-                <CardAction>
-                  <span className="text-xs text-muted-foreground">{group.entries.length} eventos</span>
-                </CardAction>
-              </CardHeader>
-              <CardContent>
-                <ol className="space-y-2 border-l pl-4">
-                  {group.entries.slice(0, 40).map((entry) => (
-                    <li key={entry.id} className="relative flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-                      <span className="absolute top-2 -left-[21px] size-2 rounded-full bg-primary" aria-hidden />
-                      <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {new Date(parseUtc(entry.created_at)).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                      </span>
-                      <span className="font-medium">{entry.action}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{entry.actor}</span>
-                      {projects[entry.correlation_id] ? <span className="text-xs text-muted-foreground">· {projects[entry.correlation_id].name}</span> : null}
-                    </li>
-                  ))}
-                </ol>
-                {group.entries.length > 40 ? <p className="mt-2 text-xs text-muted-foreground">Se muestran los 40 más recientes del día.</p> : null}
-              </CardContent>
-            </Card>
-          ))}
-          <p className="text-[11px] text-muted-foreground">Últimos 7 días con actividad.</p>
-        </TabsContent>
+                {detailTab === "resumen" ? (
+                  <>
+                    <EventFieldsCard row={selected} />
+                    <ChangesCard row={selected} />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <ProjectContextCard row={selected} />
+                      <IntegrityCard row={selected} />
+                    </div>
+                  </>
+                ) : null}
+                {detailTab === "datos" ? (
+                  <>
+                    <EventFieldsCard row={selected} />
+                    <ChangesCard row={selected} />
+                  </>
+                ) : null}
+                {detailTab === "evidencias" ? (
+                  <>
+                    <EvidencesCard row={selected} />
+                    <IntegrityCard row={selected} />
+                  </>
+                ) : null}
+                {detailTab === "trazabilidad" ? (
+                  <>
+                    <TraceCard steps={trace} />
+                    <ProjectContextCard row={selected} />
+                  </>
+                ) : null}
+                {detailTab === "json" ? <JsonCard row={selected} /> : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
-        <TabsContent value="projects" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Actividad por proyecto</CardTitle>
-              <CardAction>
-                <Users className="size-4 text-primary" />
-              </CardAction>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <DataTable columns={projectColumns} rows={byProject} getRowId={(row) => row.projectId} exportFileName="auditoria-proyectos.csv" emptyMessage="Ningún evento se puede atribuir a un proyecto." />
-              <p className="text-[11px] text-muted-foreground">
-                El evento no guarda el proyecto: se atribuye por el ID de correlación de la decisión del proyecto.
-                {unattributed > 0 ? ` ${formatInteger(unattributed)} eventos (análisis por producto, memoria…) no se pueden atribuir a un proyecto.` : ""}
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
+      {tab === "timeline" ? <TimelineCard rows={filtered} /> : null}
+      {tab === "proyectos" ? <ProjectsTabCard rows={filtered} /> : null}
+      {tab === "agentes" ? <ActorsTabCard rows={filtered} /> : null}
+      {tab === "seguridad" ? <SecurityTabCard rows={filtered} /> : null}
+      {tab === "integridad" ? <IntegrityTabCard rows={filtered} evidenceRate={kpis.evidenceRate} /> : null}
+      {tab === "retencion" ? <RetentionTabCard /> : null}
 
-        <TabsContent value="agents" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Actividad por actor</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <DataTable columns={actorColumns} rows={actors} getRowId={(row) => row.actor} getSearchText={(row) => row.actor} searchPlaceholder="Buscar actor…" exportFileName="auditoria-actores.csv" />
-              <p className="text-[11px] text-muted-foreground">
-                El tipo de actor se deduce del nombre (agente, persona, orquestador o sistema). Cambios de versión, aprobaciones
-                por agente e incidencias: pendientes.
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="security" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Acciones de personas</CardTitle>
-              <CardAction>
-                <ShieldCheck className="size-4 text-primary" />
-              </CardAction>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {humanEvents.length > 0 ? (
-                <DataTable
-                  columns={eventColumns.filter((c) => c.key !== "project")}
-                  rows={humanEvents}
-                  getRowId={(row) => row.id}
-                  exportFileName="auditoria-personas.csv"
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground">Todavía no hay acciones de personas en el registro.</p>
-              )}
-              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                <DataProvenanceBadge status="pending" tooltip="El backend no registra inicios de sesión, permisos, API keys ni integraciones." />
-                Inicios de sesión, permisos, API keys, integraciones, owner y políticas: no se auditan todavía.
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="integrity" className="space-y-4">
-          <PendingFeatures
-            title="Integridad y evidencias — pendiente de backend"
-            tooltip="El registro no calcula hashes, no guarda evidencias ni detecta anomalías."
-            items={PENDING_INTEGRITY}
-            columns={4}
-            note="Los eventos se guardan como filas de una tabla. La interfaz no permite editarlos ni borrarlos, pero el backend no encadena hashes ni verifica que nadie los haya modificado, así que no se puede afirmar integridad demostrable."
-          />
-        </TabsContent>
-
-        <TabsContent value="retention" className="space-y-4">
-          <PendingFeatures
-            title="Retención y exportación — pendiente de backend"
-            tooltip="No hay política de retención ni generación de paquetes de auditoría."
-            items={PENDING_RETENTION}
-            note="Sí se puede exportar a CSV la tabla de eventos (solo la página visible) y las tablas de actores y proyectos."
-          />
-        </TabsContent>
-      </Tabs>
+      <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+        <Package className="size-3.5" />
+        {formatInteger(realCount)} eventos reales del registro del backend · {formatInteger(rows.length - realCount)} de demostración para llenar la
+        ventana de 30 días.
+      </p>
     </div>
   );
 }

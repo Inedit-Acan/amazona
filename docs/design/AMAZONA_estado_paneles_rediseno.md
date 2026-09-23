@@ -86,6 +86,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `AgentCard` (rediseñada) | Agentes (2.ª pasada) | Panel y Director ejecutivo (flota de agentes) |
 | `lib/agents-view.ts` | Agentes (2.ª pasada) | Panel, Proyectos (actividad y salud de la flota) |
 | `lib/approvals-view.ts` | Aprobaciones (2.ª pasada) | Panel y Director ejecutivo (bandeja de decisiones) |
+| `lib/audit-view.ts` | Auditoría (2.ª pasada) | Panel y Proyectos (actividad y trazabilidad) |
 | `lib/status.ts` | Estado | Cabecera y Panel (indicador «Sistema operativo» a partir de la señal real) |
 
 ---
@@ -792,3 +793,22 @@ estadísticas, documentos, flujo y comentarios.
 4. Pedir cambios como acción, además de aprobar y rechazar.
 5. Hilo de comentarios y documentos adjuntos por solicitud.
 6. Reglas de aprobación consultables (qué exige aprobación humana y con qué límite).
+
+## 11 (segunda pasada). Auditoría y trazabilidad
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). Real: las
+entradas de `AuditLog` con su tipo, actor, resultado, proyecto, cambios de estado y
+cadena de correlación. Demo (`lib/demo/audit.ts`): los eventos que llenan la ventana
+de 30 días, la criticidad, la IP, el user agent, las evidencias, el hash, las
+anomalías y la retención.
+
+**Backend que faltaría (para sustituir la demo).** Lo de la sección 11 y además:
+
+1. Registrar de verdad todos los eventos (hoy solo se auditan las ejecuciones de
+   agentes), con criticidad y resultado propios.
+2. Proyecto y producto en la entrada, no deducidos del recurso.
+3. Origen del evento: IP, user agent y sesión.
+4. Evidencias documentales asociadas al evento.
+5. Hash encadenado y firma de integridad, con verificación periódica.
+6. Detección de anomalías y política de retención configurable.
+7. Paquete de auditoría exportable (CSV, JSON y PDF firmado).
