@@ -8,6 +8,10 @@ export interface LineSeries {
   /** Color CSS (variable o hex). */
   color: string;
   points: { x: number; y: number }[];
+  /** Trazo discontinuo (la serie secundaria del Panel). */
+  dashed?: boolean;
+  /** La serie va al eje derecho, con su propia escala y su propio formato. */
+  secondary?: boolean;
 }
 
 export interface LineMarker {
@@ -49,6 +53,7 @@ export function LineChart({
   xTicks,
   dots = true,
   compact = false,
+  formatY2,
 }: {
   series: LineSeries[];
   ariaLabel: string;
@@ -69,20 +74,28 @@ export function LineChart({
   dots?: boolean;
   /** Geometría reducida para minigráficos (ejes legibles en cajas estrechas). */
   compact?: boolean;
+  /** Formato del eje derecho; obligatorio si alguna serie es `secondary`. */
+  formatY2?: (value: number) => string;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverX, setHoverX] = useState<number | undefined>(defaultHoverX);
 
   const { W, PAD, tooltipW } = compact ? GEOMETRY.compact : GEOMETRY.default;
   const H = height;
+  const secondaries = series.filter((s) => s.secondary);
+  // Si TODAS las series son secundarias no hay dos escalas que conciliar.
+  const hasRightAxis = secondaries.length > 0 && secondaries.length < series.length;
+  const primary = hasRightAxis ? series.filter((s) => !s.secondary) : series;
+  const right = hasRightAxis ? PAD.right + (compact ? 22 : 34) : PAD.right;
+
   const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort((a, b) => a - b);
-  const ys = series.flatMap((s) => s.points.map((p) => p.y)).concat(markers.map((m) => m.y), 0);
+  const ys = primary.flatMap((s) => s.points.map((p) => p.y)).concat(markers.map((m) => m.y), 0);
   const step = niceStep(Math.max(...ys) - Math.min(...ys), 4);
   const yMin = Math.floor(Math.min(...ys) / step) * step;
   const yMax = Math.ceil(Math.max(...ys) / step) * step || step;
   const xMin = xs[0] ?? 0;
   const xMax = xs[xs.length - 1] ?? 1;
-  const sx = (x: number) => PAD.left + ((x - xMin) / (xMax - xMin || 1)) * (W - PAD.left - PAD.right);
+  const sx = (x: number) => PAD.left + ((x - xMin) / (xMax - xMin || 1)) * (W - PAD.left - right);
   const sy = (y: number) => PAD.top + (1 - (y - yMin) / (yMax - yMin || 1)) * (H - PAD.top - PAD.bottom);
   // El redondeo quita el ruido de coma flotante al acumular `step`, pero tiene que
   // seguir la magnitud del paso: con dos decimales fijos, una serie pequeña (la
@@ -90,6 +103,22 @@ export function LineChart({
   const tickFactor = 10 ** Math.max(0, -Math.floor(Math.log10(step)) + 1);
   const yTicks: number[] = [];
   for (let v = yMin; v <= yMax + step / 2; v += step) yTicks.push(Math.round(v * tickFactor) / tickFactor);
+
+  // Eje derecho: se le dan exactamente los mismos intervalos que al izquierdo, para
+  // que las dos escalas compartan la rejilla y ninguna marca quede a media altura.
+  const intervals = Math.max(1, yTicks.length - 1);
+  const ys2 = hasRightAxis ? secondaries.flatMap((s) => s.points.map((p) => p.y)).concat(0) : [0, 1];
+  const min2 = Math.min(...ys2);
+  const max2 = Math.max(...ys2);
+  let step2 = niceStep(max2 - min2, intervals);
+  let y2Min = min2 >= 0 ? 0 : Math.floor(min2 / step2) * step2;
+  for (let guard = 0; guard < 6 && y2Min + step2 * intervals < max2; guard++) {
+    step2 = niceStep(step2 * intervals * 1.5, intervals);
+    y2Min = min2 >= 0 ? 0 : Math.floor(min2 / step2) * step2;
+  }
+  const y2Max = y2Min + step2 * intervals;
+  const sy2 = (y: number) => PAD.top + (1 - (y - y2Min) / (y2Max - y2Min || 1)) * (H - PAD.top - PAD.bottom);
+  const scaleOf = (s: LineSeries) => (hasRightAxis && s.secondary ? sy2 : sy);
 
   function onMove(event: React.MouseEvent<SVGSVGElement>) {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -113,7 +142,11 @@ export function LineChart({
         <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
           {series.map((s) => (
             <li key={s.key} className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full" style={{ background: s.color }} aria-hidden />
+              {s.dashed ? (
+                <span className="h-0.5 w-4 border-t-2 border-dashed" style={{ borderColor: s.color }} aria-hidden />
+              ) : (
+                <span className="size-2 rounded-full" style={{ background: s.color }} aria-hidden />
+              )}
               {s.label}
             </li>
           ))}
@@ -132,7 +165,7 @@ export function LineChart({
           <g key={v}>
             <line
               x1={PAD.left}
-              x2={W - PAD.right}
+              x2={W - right}
               y1={sy(v)}
               y2={sy(v)}
               stroke="currentColor"
@@ -142,6 +175,11 @@ export function LineChart({
             <text x={PAD.left - 6} y={sy(v) + 3} textAnchor="end" className="fill-muted-foreground text-[10px]">
               {formatY(v)}
             </text>
+            {hasRightAxis && formatY2 ? (
+              <text x={W - right + 6} y={sy(v) + 3} textAnchor="start" className="fill-muted-foreground text-[10px]">
+                {formatY2(y2Min + ((v - yMin) / (yMax - yMin || 1)) * (y2Max - y2Min))}
+              </text>
+            ) : null}
           </g>
         ))}
         {(xTicks ?? xs).map((x) => (
@@ -150,7 +188,7 @@ export function LineChart({
           </text>
         ))}
         {xLabel ? (
-          <text x={(PAD.left + W - PAD.right) / 2} y={H - 4} textAnchor="middle" className="fill-muted-foreground text-[10px]">
+          <text x={(PAD.left + W - right) / 2} y={H - 4} textAnchor="middle" className="fill-muted-foreground text-[10px]">
             {xLabel}
           </text>
         ) : null}
@@ -178,27 +216,31 @@ export function LineChart({
           />
         ) : null}
 
-        {series.map((s) => (
-          <g key={s.key}>
-            <polyline
-              fill="none"
-              stroke={s.color}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              points={s.points.map((p) => `${sx(p.x)},${sy(p.y)}`).join(" ")}
-            />
-            {s.points
-              .filter((p) => dots || p.x === hoverX)
-              .map((p) => (
-                <circle key={p.x} cx={sx(p.x)} cy={sy(p.y)} r={p.x === hoverX ? 4.5 : 2.5} fill={s.color} />
-              ))}
-          </g>
-        ))}
+        {series.map((s) => {
+          const scale = scaleOf(s);
+          return (
+            <g key={s.key}>
+              <polyline
+                fill="none"
+                stroke={s.color}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeDasharray={s.dashed ? "5 4" : undefined}
+                points={s.points.map((p) => `${sx(p.x)},${scale(p.y)}`).join(" ")}
+              />
+              {s.points
+                .filter((p) => dots || p.x === hoverX)
+                .map((p) => (
+                  <circle key={p.x} cx={sx(p.x)} cy={scale(p.y)} r={p.x === hoverX ? 4.5 : 2.5} fill={s.color} />
+                ))}
+            </g>
+          );
+        })}
 
         {markers.map((m) => {
           const boxW = 86;
           const boxH = 12 + m.label.length * 12;
-          const bx = Math.min(Math.max(sx(m.x) - boxW / 2, PAD.left), W - PAD.right - boxW);
+          const bx = Math.min(Math.max(sx(m.x) - boxW / 2, PAD.left), W - right - boxW);
           const by = Math.max(sy(m.y) - boxH - 10, PAD.top);
           return (
             <g key={`${m.x}-${m.y}`}>
@@ -230,7 +272,7 @@ export function LineChart({
                     <g key={s.key}>
                       <circle cx={bx + 13} cy={by + 26 + k * 14} r={3} fill={s.color} />
                       <text x={bx + 21} y={by + 29 + k * 14} className="fill-foreground text-[10px]">
-                        {s.label}: {formatY(point.y)}
+                        {s.label}: {hasRightAxis && s.secondary && formatY2 ? formatY2(point.y) : formatY(point.y)}
                       </text>
                     </g>
                   ))}

@@ -92,6 +92,10 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `LineChart` `compact` | Estado (2.ª pasada) | Minigráficos con ejes legibles en tarjetas estrechas |
 | `KpiCard` `provenanceCompact` | Estado (2.ª pasada) | Filas de muchas tarjetas KPI estrechas |
 | `lib/status-view.ts` | Estado (2.ª pasada) | Panel y Director ejecutivo (salud de la plataforma y runtime de agentes) |
+| `LineChart` eje derecho / `dashed` | Panel (2.ª pasada) | Cualquier gráfico con dos escalas (Finanzas, Marketing, Economía) |
+| `KpiCard` `trailing` | Panel (2.ª pasada) | KPIs con minigráfico a la derecha del valor |
+| `TEAM_ICON` | Panel (2.ª pasada, extraído de Agentes) | Todo panel que enseñe agentes por equipo |
+| `lib/dashboard-view.ts` | Panel (2.ª pasada) | Director ejecutivo (mismo resumen del negocio) |
 
 ---
 
@@ -851,3 +855,29 @@ tarjeta declara al pie qué parte suya es de demostración.
 9. Coste de infraestructura medido por partida, no estimado.
 10. Detección automática de incidentes (hoy se abren a mano) y página de estado
     pública.
+
+## Panel (segunda pasada). Panel de inicio
+
+**Hecho.** Estructura completa del mockup (ver milestone-28-demo.md). El Panel no
+calcula nada propio: reúne lo que ya calculan las demás pantallas, para que ninguna
+cifra se contradiga con la suya. Ventas, beneficio y la serie de ventas/margen
+salen del mismo P&L que Finanzas (`lib/cfo-view.ts`) sobre los análisis económicos
+reales; el reparto por día lo dan los pedidos de Operaciones (`buildOrders`); el
+margen de cada oportunidad es el `contributionMargin` del mismo modelo que Economía
+(`lib/economics-model.ts`), no el `margin_percent` del análisis, que ninguna otra
+pantalla usa; el orden de las oportunidades es el score de Investigación
+(`buildRows`); la actividad viene de `agentCards` de Agentes; y las decisiones, de
+las mismas solicitudes que Aprobaciones (reales del backend más las de
+demostración). La fase de cada producto («En observación» → «Lanzamiento») sale de
+hasta dónde ha llegado de verdad su pipeline.
+
+**Backend que faltaría (para sustituir la demo).** Lo que ya piden las secciones de
+Economía, Finanzas, Operaciones y Aprobaciones y, además:
+
+1. Ventas y beneficio medidos, no modelados: AMAZONA no factura ni cobra.
+2. Serie diaria real de ingresos y margen, en vez del reparto de un P&L mensual.
+3. Un endpoint agregado del Panel: hoy cada producto cuesta cinco peticiones y solo
+   se leen los ocho primeros.
+4. Tarea en curso de cada agente (la actividad se deduce del log de ejecuciones).
+5. Objetivos: «Nuevo objetivo» lleva a Director ejecutivo porque no hay alta desde
+   aquí.

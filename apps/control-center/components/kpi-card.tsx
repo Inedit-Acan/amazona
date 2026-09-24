@@ -17,6 +17,7 @@ export function KpiCard({
   accent = false,
   footer,
   leading,
+  trailing,
 }: {
   label: string;
   value: string | number;
@@ -36,6 +37,8 @@ export function KpiCard({
   footer?: ReactNode;
   /** Icono grande o gráfico a la izquierda del valor (KPIs de Legal). */
   leading?: ReactNode;
+  /** Gráfico o chevron a la derecha del valor (KPIs del Panel). Necesita `leading`. */
+  trailing?: ReactNode;
 }) {
   return (
     <Card
@@ -66,6 +69,7 @@ export function KpiCard({
           {footer}
           {provenance ? <DataProvenanceBadge status={provenance} tooltip={provenanceTooltip} compact={provenanceCompact} /> : null}
         </div>
+        {trailing}
       </CardContent>
     </Card>
   );

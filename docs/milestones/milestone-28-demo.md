@@ -1837,3 +1837,69 @@ servicios de los que hay señal real y una lista larga de «pendiente de backend
   el formulario (no se envió nada). Sin desbordamiento ni textos cortados a 1536,
   1896 y 375 px (en móvil la tabla de servicios desplaza dentro de su tarjeta, como
   el resto de tablas); consola sin errores en pestaña nueva.
+
+## Segunda pasada — Panel: Panel de inicio (`/dashboard`)
+
+Referencia: mockup `docs/design/dashboard inicial.png`. Antes la pantalla era una
+pila de tarjetas con cuatro KPIs sueltos, las últimas ejecuciones, las aprobaciones
+pendientes, la actividad económica y un hueco vacío para oportunidades.
+
+### Qué se ve ahora
+
+1. Cabecera con «Datos de demostración», fecha y hora, y «Nuevo objetivo» (lleva a
+   Director ejecutivo, que es donde se dan de alta).
+2. Cuatro KPIs con icono y minigráfico: Ventas y Beneficio estimado (con su
+   variación respecto al mes anterior y la curva del mes), Agentes en línea (con las
+   ejecuciones de los últimos siete días) y Aprobaciones pendientes (con acceso a
+   Aprobaciones).
+3. Actividad empresarial: los cinco agentes más activos, con lo que están haciendo,
+   cuándo fue su última ejecución y su estado.
+4. Decisiones necesarias: las cuatro solicitudes pendientes más urgentes, por
+   severidad y recencia, con qué se aprueba en cada una.
+5. Oportunidades: los productos del catálogo por score de Investigación, con
+   demanda, margen, riesgo y la fase a la que ha llegado su pipeline.
+6. Ventas / margen del periodo: gráfico de dos escalas (€ a la izquierda, % a la
+   derecha, margen en trazo discontinuo) con selector de 7, 14 o 30 días que
+   sobrevive a una recarga en la URL (`?dias=`).
+
+### Datos reales y de demostración
+
+- Reales: los productos del catálogo y sus análisis (cotizaciones, económicos,
+  legales, tienda y campañas), de donde salen el margen de cada oportunidad y su
+  fase; los agentes registrados con su estado; el log de ejecuciones; y las
+  aprobaciones y revisiones de pipeline pendientes del backend.
+- Demo: las ventas, el beneficio y la serie de ventas/margen son el modelo de
+  Finanzas y Operaciones, no una medición (AMAZONA no factura); la tarea en curso de
+  cada agente; y las solicitudes de decisión que no vienen del backend. Cada tarjeta
+  lo declara al pie y la tabla de oportunidades marca con un badge el margen que no
+  parte de un análisis económico real.
+- Coherencia comprobada: el margen de «LED strip lights» sale 38 % en el Panel y
+  37,9 % en Economía (el mismo `contributionMargin` redondeado). Ventas y beneficio
+  son el `revenue` y el `net` del mismo P&L que Finanzas. Con el log de ejecuciones
+  vacío se usan las mismas `demoExecutions` que Agentes.
+
+### Componentes nuevos / tocados
+
+- `lib/dashboard-view.ts` con tests (KPIs, actividad, decisiones, fase y margen de
+  cada oportunidad, y la serie de ventas/margen).
+- `app/dashboard/dashboard-workspace.tsx` y `dashboard-panels.tsx` nuevos;
+  `page.tsx` pasa a cargar el pipeline de los ocho primeros productos, los agentes,
+  su log, las aprobaciones y las revisiones.
+- `LineChart`: eje derecho con su propia escala (`secondary` + `formatY2`), trazo
+  discontinuo (`dashed`) y leyenda acorde. Las dos escalas comparten intervalos para
+  que ninguna marca quede a media altura.
+- `KpiCard`: `trailing` para el minigráfico a la derecha del valor.
+- `TEAM_ICON` se saca de `app/agents/agents-workspace.tsx` a
+  `components/team-icon.ts` para no duplicarlo.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 195/195; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario): Ventas 33.419 € (+12,4 %), Beneficio
+  11.564 €, 13/13 agentes, 7 decisiones pendientes (4 en la tarjeta), 3
+  oportunidades con su fase y su margen. El selector de periodo cambia la escala y
+  escribe `?dias=7` en la URL, que sobrevive a la recarga; el total del periodo
+  escala con la ventana. Sin desbordamiento ni textos cortados a 1536, 1896 y 375 px
+  (en móvil las dos tablas desplazan dentro de su tarjeta, como el resto);
+  consola sin errores en pestaña nueva.
