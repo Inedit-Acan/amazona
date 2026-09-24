@@ -89,14 +89,17 @@ export interface GraphEdge {
 
 // --- Layout determinista --------------------------------------------------------------
 
-/** Radios de cada anillo y altura de cada nivel. */
+/** Radios de cada anillo y altura de cada nivel. Las alturas están separadas de
+ * verdad —CEO arriba, dominios en un plano intermedio alto, núcleo en el centro
+ * y agentes en un plano exterior más bajo—: la profundidad la da la posición, no
+ * la niebla ni el brillo (corrección visual §3.7 y §29). */
 export const LAYOUT = {
-  ceoHeight: 4.2,
+  ceoHeight: 4.4,
   coreHeight: 0,
   domainRadius: 3.5,
-  domainHeight: 0.15,
-  agentRadius: 6.4,
-  agentHeight: -0.55,
+  domainHeight: 0.95,
+  agentRadius: 6.5,
+  agentHeight: -1.05,
   /** Media separación entre dominios: el anillo arranca girado para dejar
    * libre la vertical del CEO. */
   startAngleDeg: -22.5,

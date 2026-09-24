@@ -98,6 +98,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `lib/dashboard-view.ts` | Panel (2.ª pasada) | Director ejecutivo (mismo resumen del negocio) |
 | `components/neural-nexus/` | Director ejecutivo (2.ª pasada) | Cualquier pantalla que necesite el mapa de la flota |
 | `lib/neural-nexus.ts` | Director ejecutivo (2.ª pasada) | Panel y Agentes (jerarquía y estado de la flota) |
+| `PrecisionNode` | Director ejecutivo (iteración 2) | Lenguaje visual común de cualquier nodo 3D |
 
 ---
 

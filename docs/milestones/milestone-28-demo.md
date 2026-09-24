@@ -2021,3 +2021,75 @@ los 13 agentes) y los iconos dentro de cada nodo; consola sin errores.
 **No verificado visualmente**: el panel del navegador de esta sesión no captura
 WebGL en pantalla, así que el aspecto final (bloom, brillo, elipse) está pendiente
 de que lo mire el propietario.
+
+### Iteración 2 del grafo — corrección visual y técnica (24-09-2026)
+
+Referencia: `docs/design/KOVA_Neural_Nexus_correccion_visual_tecnica_iteracion_2.md`.
+La arquitectura no se toca: CEO → Decision Engine → dominios → agentes se queda
+como está. Todo el trabajo va al acabado, con el objetivo de pasar de «holograma
+difuso» a «visualización técnica de precisión».
+
+#### P0 — lo obligatorio
+
+1. **Fuera los halos grandes.** Cada nodo es ahora un `PrecisionNode`: superficie
+   oscura y opaca que lo recorta del fondo, anillo principal fino, anillo
+   secundario más tenue, icono, punto de estado y un microhalo de 1,5 radios que
+   solo aparece si el nodo está haciendo algo. Ya no hay discos translúcidos del
+   tamaño de la zona de influencia.
+2. **Bloom selectivo de verdad** (`Selection` + `Select` + `SelectiveBloom`). Solo
+   pasan por el bloom el núcleo, el CEO, los nodos activos, los avisos, los
+   errores y las partículas de flujo. Órbitas, agentes en reposo, conexiones
+   inactivas y rótulos quedan fuera. Intensidad 0,85 y umbral 0,35: la escena se
+   sostiene con el bloom casi apagado.
+3. **Jerarquía de intensidad** (`STATUS_EMISSIVE`): un agente disponible emite
+   0,22 y uno ejecutando 1,6. Antes todo parecía activo.
+4. **Decision Engine dominante por detalle, no por masa.** Halo contenido a 1,25
+   radios, wireframe fino, filamentos, partículas internas, dos anillos de energía
+   de 6 mm y un núcleo pequeño y brillante que ilumina desde dentro. Pulsación de
+   ±3 %.
+5. **Órbitas instrumentales**: tres aros de 8 mm de grosor a opacidad 0,09–0,15,
+   con marcas cada 45° alineadas con los ocho dominios. Antes eran cinco aros
+   gruesos que competían con los nodos.
+6. **Conexiones más finas y jerarquizadas**: CEO–núcleo 0,34 · núcleo–dominio 0,24
+   · dominio–agente 0,13. Las cruzadas están ocultas por defecto y solo salen en
+   Ejecución, en Incidencias o al seleccionar el nodo al que pertenecen.
+7. **Etiquetas sin glow**: blanco roto para CEO, núcleo y dominios (siempre
+   visibles), gris frío para los agentes, que se ocultan cuando la cámara se aleja
+   de 17 unidades y reaparecen al acercarse, al pasar el cursor o al seleccionar.
+
+#### P1 — profundidad, materiales y estados
+
+- **Planos separados de verdad**: CEO a 4,4 · dominios a 0,95 · núcleo a 0 ·
+  agentes a −1,05. La profundidad la dan la posición y la luz, no la niebla: el
+  fog empieza ahora a 24 unidades en vez de a 14.
+- **Materiales**: los nodos pasan a `MeshStandardMaterial` con emissive bajo, así
+  que la forma la dibuja la luz. Iluminación contenida (`NexusLighting`): ambiente
+  0,28, una luz puntual dentro del núcleo, una direccional suave y un contraluz
+  esmeralda.
+- **Cámara**: sube a y 5,6 con fov 40 y `target` en el núcleo — ni cenital ni tan
+  inclinada que comprima la escena; límites polares 0,20π–0,46π.
+
+#### Sobre la pérdida de brillo (§23)
+
+Revisado uno por uno: no hay ningún decaimiento multiplicativo en el código (nada
+del tipo `value *= 0.97`); todas las animaciones son `Math.sin` alrededor de un
+baseline constante y vuelven a él. Se han fijado a mano `toneMapping`,
+`toneMappingExposure` y `outputColorSpace` en el `gl` del Canvas, y nada los
+modifica en marcha. Se ha reducido drásticamente el número de superficies
+transparentes solapadas por nodo (§9: superficie + anillo + microhalo) y se ha
+retirado el `AdditiveBlending` de los halos y del disco de luz del núcleo, que era
+lo que acumulaba luminancia donde se solapaban. La causa concreta del vídeo no se
+ha podido reproducir en este entorno, así que queda como pendiente de confirmar.
+
+#### Verificación
+
+- `tsc` limpio; `npm test` 212/212; `eslint` limpio; `next build` correcto (copia
+  temporal, sin tocar el `.next` del propietario).
+- En navegador (viewport real 1536 × 1000, recarga forzada): lienzo 1.199 × 542,
+  22 rótulos de nodo más el del núcleo, 22 iconos en escena, los tres modos
+  responden y la escena sigue en pie tras 90 segundos; consola sin errores.
+- **No verificado**: el aspecto final y la estabilidad de luminosidad a dos
+  minutos. El panel del navegador de esta sesión no pinta ni captura WebGL cuando
+  está oculto —también congela `requestAnimationFrame`, así que tampoco se pudo
+  medir FPS—. Los criterios de aceptación A, C, D, F y G del documento quedan
+  pendientes de revisión del propietario.
