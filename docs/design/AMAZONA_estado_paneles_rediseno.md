@@ -96,6 +96,8 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `KpiCard` `trailing` | Panel (2.ª pasada) | KPIs con minigráfico a la derecha del valor |
 | `TEAM_ICON` | Panel (2.ª pasada, extraído de Agentes) | Todo panel que enseñe agentes por equipo |
 | `lib/dashboard-view.ts` | Panel (2.ª pasada) | Director ejecutivo (mismo resumen del negocio) |
+| `components/neural-nexus/` | Director ejecutivo (2.ª pasada) | Cualquier pantalla que necesite el mapa de la flota |
+| `lib/neural-nexus.ts` | Director ejecutivo (2.ª pasada) | Panel y Agentes (jerarquía y estado de la flota) |
 
 ---
 
@@ -881,3 +883,30 @@ Economía, Finanzas, Operaciones y Aprobaciones y, además:
 4. Tarea en curso de cada agente (la actividad se deduce del log de ejecuciones).
 5. Objetivos: «Nuevo objetivo» lleva a Director ejecutivo porque no hay alta desde
    aquí.
+
+## Director ejecutivo (segunda pasada). Grafo de agentes (Neural Nexus)
+
+**Hecho.** El grafo 3D de la pantalla se rehace entero según
+`docs/design/KOVA_Neural_Nexus_especificacion_Claude_Code.md`: cuatro niveles
+(CEO → Decision Engine → 8 dominios → 13 agentes), layout determinista y estable,
+tres modos (Arquitectura, Ejecución e Incidencias), vista 3D con alternativa 2D
+sobre el mismo dataset, HUD del Decision Engine, leyenda de estados y panel de
+detalle por nodo. Real: los 13 agentes del registro con su estado —que encajan
+exactamente en los 8 dominios de la especificación vía `teamOf`—, su log de
+ejecuciones y la decisión del CEO con sus evidencias, que es lo que pone a un
+agente a ejecutar, a esperar o bloqueado (el veto financiero y el NO_GO legal son
+bloqueos reales). Demo (`lib/demo/neural-nexus.ts`): la tarea en curso, el
+progreso, los handoffs entre dominios y las métricas del núcleo. El resto de la
+pantalla del Director ejecutivo no se toca.
+
+**Backend que faltaría (para sustituir la demo).**
+
+1. Tarea en curso y progreso de cada agente (el registro no los guarda).
+2. Bus de eventos en tiempo real (`agent.status.changed`, `agent.handoff`,
+   `decision.*`, `incident.*`) por WebSocket, SSE o Supabase Realtime: hoy el
+   grafo es una foto del momento de cargarlo.
+3. Handoffs reales entre agentes y dominios, con su dirección y su momento.
+4. Métricas del Decision Engine: eventos activos, latencia, decisiones recientes,
+   dependencias y Human Gates pendientes.
+5. Human Gate como evento contextual, no como nodo permanente.
+6. Incidencias y bloqueos con su causa, no deducidos de la evidencia de la decisión.

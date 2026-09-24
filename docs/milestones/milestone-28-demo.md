@@ -1903,3 +1903,77 @@ pendientes, la actividad económica y un hueco vacío para oportunidades.
   escala con la ventana. Sin desbordamiento ni textos cortados a 1536, 1896 y 375 px
   (en móvil las dos tablas desplazan dentro de su tarjeta, como el resto);
   consola sin errores en pestaña nueva.
+
+## Segunda pasada — Director ejecutivo: grafo de agentes (Neural Nexus)
+
+Referencia: `docs/design/KOVA_Neural_Nexus_especificacion_Claude_Code.md` y la
+imagen que la acompaña, enviadas por el propietario el 24-09-2026. Solo cambia el
+grafo 3D; el resto de `/ceo` se queda como está. («KOVA» es el cambio de nombre
+que el propietario está haciendo: aquí solo se usa como nombre del módulo.)
+
+### Qué se ve ahora
+
+1. Barra superior: modos Arquitectura / Ejecución / Incidencias, Vista 3D / Vista
+   2D, reinicio de cámara y pantalla completa.
+2. Escena: el Decision Engine domina el centro (malla neural, filamentos,
+   partículas, anillos y una pulsación lenta), el CEO separado por encima, los 8
+   dominios en un anillo intermedio y los 13 agentes en el exterior, cada uno
+   junto a su dominio.
+3. HUD del Decision Engine: estado, eventos activos, agentes activos, latencia
+   media, proyecto y progreso, con «demo» en cada línea que no es real.
+4. Leyenda de estados con icono, etiqueta y recuento (el color nunca va solo).
+5. Panel de detalle al seleccionar: nombre, dominio, estado, proyecto, tarea,
+   progreso, última actividad, conexiones, ejecuciones, éxito, latencia y coste.
+6. Modo Ejecución: partículas por las rutas activas y agentes parados atenuados.
+   Modo Incidencias: solo quedan vivos los bloqueados, en error o esperando.
+7. Vista 2D en SVG con los mismos datos y las mismas posiciones, en planta.
+
+### Datos reales y de demostración
+
+- Reales: los 13 agentes del registro con su nombre y su estado. Encajan
+  exactamente en los 8 dominios de la especificación (Investigación,
+  Abastecimiento, Economía y Legal con dos; Finanzas, Operaciones y Marketing con
+  uno; Comercio con dos), así que los nodos llevan el nombre real y no el del
+  roster canónico. También son reales el log de ejecuciones (ejecuciones, tasa de
+  éxito, latencia y última actividad de cada agente) y la decisión del CEO: su
+  evidencia por fuente es lo que pone a un agente a ejecutar o a esperar, y el
+  veto financiero y el NO_GO legal lo bloquean de verdad.
+- Demo (`lib/demo/neural-nexus.ts`): la tarea en curso de cada agente, su
+  progreso, los handoffs entre dominios, las métricas del núcleo y el roster
+  canónico de 13 agentes que se usa solo si el registro está vacío (y que entonces
+  se marca como demostración en el panel de cada nodo).
+
+### Componentes nuevos / tocados
+
+- `lib/neural-nexus.ts` con tests (layout determinista, reparto de los agentes
+  reales en los dominios, estados a partir de la decisión, jerarquía y aristas
+  contextuales, los tres modos, el foco y el HUD) y `lib/demo/neural-nexus.ts`.
+- `components/neural-nexus/`: `neural-nexus-graph` (raíz), `nexus-toolbar`,
+  `nexus-hud`, `nexus-legend`, `nexus-details`, `nexus-2d`, `nexus-theme`,
+  `use-nexus-fallback` y `scene/` (`nexus-scene`, `decision-core`, `nexus-node`,
+  `nexus-edge`).
+- Se retira `components/graph3d/` entero, que queda sin uso.
+- `app/ceo/page.tsx`: tres cambios mínimos — importa el módulo nuevo, el grafo sale
+  de la columna derecha para ocupar todo el ancho (con ~480 px no caben los 13
+  agentes ni sus etiquetas) y ya no usa `dynamic(..., { ssr: false })`, que hacía
+  que el HTML del servidor llegase con el único Suspense de la página (su fallback
+  es `null`) sin resolver. Ahora el módulo se importa directo, en el servidor se
+  dibuja la vista 2D y el cliente sube a 3D en cuanto comprueba que puede.
+- `use-nexus-fallback`: su `subscribe` avisa una vez al suscribirse. Sin ese aviso,
+  `useSyncExternalStore` se quedaba con la respuesta del servidor («no se puede
+  pintar en 3D») para siempre y la vista 3D no llegaba a salir nunca.
+
+### Verificación
+
+- `tsc` limpio; `npm test` 212/212; `eslint` limpio en lo tocado; `next build`
+  correcto (copia temporal, sin tocar el `.next` del propietario).
+- En navegador (entorno del propietario, con recarga forzada: el bundle viejo da
+  falsos negativos): canvas de 1.199 × 542 px con las 22 etiquetas del grafo —CEO,
+  los 8 dominios y los 13 agentes reales por su nombre—; los tres modos responden;
+  la vista 2D dibuja los 23 nodos; al hacer clic en «Legal Validation Agent» se
+  abre su detalle con datos reales (0 ejecuciones, éxito y latencia en «—», sin
+  ceros inventados) y su badge «Verificado». Sin desbordamiento ni textos cortados;
+  consola sin errores.
+- No verificado: el comportamiento con una decisión real en marcha (haría falta
+  ejecutar un objetivo, que escribe en el backend) y el rendimiento sostenido en
+  FPS.
