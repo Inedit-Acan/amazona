@@ -56,6 +56,33 @@ export const CANONICAL_AGENTS: { id: string; label: string; domain: DomainKey }[
   { id: "marketplace-channel", label: "Marketplace Channel", domain: "Comercio" },
 ];
 
+/** Icono de cada dominio, por clave (el componente lo resuelve la capa visual:
+ * la lib no conoce lucide). Son los del mockup. */
+export const DOMAIN_ICON_KEY: Record<DomainKey, string> = {
+  "Investigación": "search",
+  Abastecimiento: "box",
+  "Economía": "bar-chart",
+  Legal: "scale",
+  Finanzas: "database",
+  Operaciones: "settings",
+  Marketing: "megaphone",
+  Comercio: "cart",
+};
+
+/** Icono de cada agente según el hueco que ocupa en su dominio, en el orden del
+ * roster canónico. Si un dominio tuviera más agentes de los previstos, los
+ * siguientes heredan el icono de su dominio. */
+export const DOMAIN_AGENT_ICON_KEYS: Record<DomainKey, string[]> = {
+  "Investigación": ["search", "trending"],
+  Abastecimiento: ["box", "truck"],
+  "Economía": ["calculator", "alert"],
+  Legal: ["file", "shield"],
+  Finanzas: ["chart-line"],
+  Operaciones: ["headset"],
+  Marketing: ["users"],
+  Comercio: ["monitor", "store"],
+};
+
 /** Tarea en curso de ejemplo por dominio (el registro no la expone). */
 export const DEMO_TASKS: Record<DomainKey, string[]> = {
   "Investigación": ["Comparando 18 nichos", "Revisando tendencias de búsqueda", "Puntuando candidatos"],

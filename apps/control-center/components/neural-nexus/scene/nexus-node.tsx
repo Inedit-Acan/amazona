@@ -1,15 +1,16 @@
 "use client";
 
 import { useRef } from "react";
-import { Html } from "@react-three/drei";
+import { Billboard, Html } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import type * as THREE from "three";
+import * as THREE from "three";
 import type { GraphNode } from "@/lib/neural-nexus";
-import { STATUS_GLOW, STATUS_COLOR, NODE_RADIUS } from "../nexus-theme";
+import { NODE_ICON, NODE_RADIUS, STATUS_COLOR, STATUS_GLOW } from "../nexus-theme";
 
-/** Un nodo del grafo (CEO, dominio o agente). El núcleo tiene su propio
- * componente. Anillo exterior + esfera, etiqueta siempre visible y halo cuando
- * está seleccionado o en hover — el estado nunca depende solo del color. */
+/** Un nodo del grafo (CEO, dominio o agente). Como en el mockup: un anillo
+ * luminoso con el icono dentro, mirando siempre a la cámara —así se lee como un
+ * círculo perfecto desde cualquier ángulo—, un punto de estado y la etiqueta
+ * debajo. El color nunca va solo: hay icono, punto y texto. */
 export function NexusNode({
   node,
   dimmed,
@@ -27,78 +28,98 @@ export function NexusNode({
   onSelect: () => void;
   onHover: (hovered: boolean) => void;
 }) {
-  const material = useRef<THREE.MeshStandardMaterial>(null);
+  const halo = useRef<THREE.Mesh>(null);
   const ring = useRef<THREE.Mesh>(null);
   const radius = NODE_RADIUS[node.type];
   const color = STATUS_COLOR[node.status];
   const base = STATUS_GLOW[node.status];
   const pulsing = node.status === "running" || node.status === "error";
-  const opacity = dimmed ? 0.22 : 1;
+  const opacity = dimmed ? 0.18 : 1;
+  const Icon = NODE_ICON[node.icon];
+  const active = selected || hovered;
 
   useFrame(({ clock }) => {
-    if (!material.current) return;
-    const pulse = animate && pulsing ? Math.sin(clock.elapsedTime * 2.4) * 0.3 : 0;
-    material.current.emissiveIntensity = (base + pulse) * (dimmed ? 0.3 : 1) + (selected || hovered ? 0.6 : 0);
-    if (ring.current && animate) ring.current.rotation.z = clock.elapsedTime * (node.type === "ceo" ? 0.35 : 0.2);
+    const pulse = animate && pulsing ? (Math.sin(clock.elapsedTime * 2.2) + 1) / 2 : 0;
+    if (halo.current) {
+      const material = halo.current.material as THREE.MeshBasicMaterial;
+      material.opacity = (0.1 + pulse * 0.12 + (active ? 0.16 : 0)) * opacity;
+      halo.current.scale.setScalar(1 + pulse * 0.12);
+    }
+    if (ring.current) {
+      const material = ring.current.material as THREE.MeshBasicMaterial;
+      // El anillo va por encima de 1 a propósito: es lo que enciende el bloom.
+      material.opacity = (base + pulse * 0.45 + (active ? 0.5 : 0)) * opacity;
+    }
   });
 
-  const scale = selected ? 1.25 : hovered ? 1.12 : 1;
-
   return (
-    <group position={node.position} scale={scale}>
-      <mesh
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect();
-        }}
-        onPointerOver={(event) => {
-          event.stopPropagation();
-          onHover(true);
-        }}
-        onPointerOut={() => onHover(false)}
-      >
-        <sphereGeometry args={[radius, 24, 24]} />
-        <meshStandardMaterial
-          ref={material}
-          color={color}
-          emissive={color}
-          emissiveIntensity={base}
-          transparent
-          opacity={opacity}
-          roughness={0.3}
-          metalness={0.1}
-        />
-      </mesh>
-
-      {/* Anillo del nodo: refuerza la jerarquía sin depender del tamaño. */}
-      <mesh ref={ring} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[radius * 1.55, radius * 0.06, 8, 48]} />
-        <meshBasicMaterial color={color} transparent opacity={0.45 * opacity} />
-      </mesh>
-
-      {selected || hovered ? (
-        <mesh>
-          <sphereGeometry args={[radius * 2.1, 16, 16]} />
-          <meshBasicMaterial color={color} transparent opacity={0.12} depthWrite={false} />
+    <group position={node.position} scale={active ? 1.16 : 1}>
+      <Billboard>
+        {/* Halo: lo que el bloom convierte en resplandor. */}
+        <mesh ref={halo}>
+          <circleGeometry args={[radius * 2.6, 32]} />
+          <meshBasicMaterial color={color} transparent opacity={0.1} depthWrite={false} blending={THREE.AdditiveBlending} />
         </mesh>
-      ) : null}
+
+        {/* Disco interior oscuro: recorta el anillo contra el fondo. */}
+        <mesh
+          position={[0, 0, 0.001]}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect();
+          }}
+          onPointerOver={(event) => {
+            event.stopPropagation();
+            onHover(true);
+          }}
+          onPointerOut={() => onHover(false)}
+        >
+          <circleGeometry args={[radius, 48]} />
+          <meshBasicMaterial color="#04100e" transparent opacity={0.92 * opacity} />
+        </mesh>
+
+        {/* Anillo luminoso */}
+        <mesh ref={ring} position={[0, 0, 0.002]}>
+          <ringGeometry args={[radius * 0.87, radius, 64]} />
+          <meshBasicMaterial color={color} transparent opacity={base * opacity} side={THREE.DoubleSide} />
+        </mesh>
+
+        {/* Anillo exterior fino, como en el mockup */}
+        <mesh position={[0, 0, 0.002]}>
+          <ringGeometry args={[radius * 1.22, radius * 1.26, 64]} />
+          <meshBasicMaterial color={color} transparent opacity={0.28 * opacity} side={THREE.DoubleSide} />
+        </mesh>
+
+        {/* Punto de estado: el estado no depende solo del color del anillo. */}
+        <mesh position={[radius * 0.95, radius * 0.95, 0.003]}>
+          <circleGeometry args={[radius * 0.2, 16]} />
+          <meshBasicMaterial color={color} transparent opacity={opacity} />
+        </mesh>
+
+        {Icon ? (
+          <Html center distanceFactor={9} zIndexRange={[12, 0]} style={{ pointerEvents: "none", opacity: dimmed ? 0.3 : 1 }}>
+            <Icon size={node.type === "agent" ? 15 : 22} color={color} strokeWidth={1.75} />
+          </Html>
+        ) : null}
+      </Billboard>
 
       <Html
-        position={[0, -(radius + 0.32), 0]}
+        position={[0, -(radius + 0.34), 0]}
         center
-        distanceFactor={11}
-        zIndexRange={[20, 0]}
-        style={{ pointerEvents: "none", opacity: dimmed ? 0.35 : 1 }}
+        distanceFactor={10}
+        zIndexRange={[11, 0]}
+        style={{ pointerEvents: "none", opacity: dimmed ? 0.3 : 1 }}
       >
         <div
           style={{
-            color: node.type === "agent" ? "#9ca9a5" : "#f5f7f7",
-            fontSize: node.type === "agent" ? 10 : 12,
-            fontWeight: node.type === "agent" ? 500 : 600,
-            letterSpacing: node.type === "domain" ? "0.02em" : undefined,
-            textShadow: "0 1px 4px rgba(0,0,0,0.9)",
-            whiteSpace: "nowrap",
+            color: node.type === "agent" ? "#cbd6d2" : "#f5f7f7",
+            fontSize: node.type === "agent" ? 11 : 13,
+            fontWeight: 600,
+            letterSpacing: "0.01em",
+            textShadow: "0 1px 6px rgba(0,0,0,0.95)",
+            maxWidth: node.type === "agent" ? 108 : 150,
             textAlign: "center",
+            lineHeight: 1.15,
           }}
         >
           {node.label}

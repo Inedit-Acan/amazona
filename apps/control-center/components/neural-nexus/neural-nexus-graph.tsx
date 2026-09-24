@@ -82,6 +82,17 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
     };
   }, []);
 
+  // El <Canvas> de R3F mide su contenedor al montar y aquí esa primera medida
+  // vuelve 0: el lienzo se queda en los 300 × 150 por defecto (contenedor real:
+  // ~1200 × 544). Un `resize` le hace medir otra vez y ya acierta, así que se le
+  // manda uno en cuanto la escena aparece; se repite porque el montaje no siempre
+  // ha terminado en el primer frame.
+  useEffect(() => {
+    if (loading || view !== "3d") return;
+    const timers = [50, 250, 800].map((delay) => window.setTimeout(() => window.dispatchEvent(new Event("resize")), delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [loading, view]);
+
   useEffect(() => {
     function onChange() {
       setFullscreen(Boolean(document.fullscreenElement));

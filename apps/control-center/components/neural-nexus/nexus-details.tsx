@@ -7,7 +7,7 @@ import { formatDuration, formatEuro, formatInteger, formatPercent } from "@/lib/
 import { STATUS_LABEL, type GraphEdge, type GraphNode } from "@/lib/neural-nexus";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { Button } from "@/components/ui/button";
-import { DOMAIN_ICON, STATUS_COLOR } from "./nexus-theme";
+import { NODE_ICON, STATUS_COLOR } from "./nexus-theme";
 
 function Field({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
@@ -44,7 +44,7 @@ export function NexusDetails({
   onClose: () => void;
 }) {
   const color = STATUS_COLOR[node.status];
-  const Icon = node.domain ? DOMAIN_ICON[node.domain] : null;
+  const Icon = NODE_ICON[node.icon];
   const link = LINK[node.type];
   const byId = new Map(nodes.map((item) => [item.id, item]));
   const connected = edges

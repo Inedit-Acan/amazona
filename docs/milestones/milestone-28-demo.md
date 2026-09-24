@@ -1977,3 +1977,47 @@ que el propietario está haciendo: aquí solo se usa como nombre del módulo.)
 - No verificado: el comportamiento con una decisión real en marcha (haría falta
   ejecutar un objetivo, que escribe en el backend) y el rendimiento sostenido en
   FPS.
+
+### Segunda vuelta visual del grafo (24-09-2026)
+
+El propietario avisó de que la estructura coincidía con el mockup pero el diseño
+final no, y preguntó si hacía falta alguna herramienta externa o de pago. No hace
+falta ninguna: todo sale de three.js + React Three Fiber, que ya estaban. Lo único
+que añade una dependencia es el bloom, y se instaló con su permiso
+(`@react-three/postprocessing` + `postprocessing`, ambos MIT).
+
+Qué cambia respecto a la primera versión:
+
+1. **Nodos como en el mockup**: anillo luminoso con el icono dentro, disco oscuro
+   que lo recorta, anillo exterior fino, punto de estado y etiqueta debajo. Miran
+   siempre a la cámara (`Billboard`), así que se leen como círculos perfectos
+   desde cualquier ángulo. Antes eran esferas sólidas sin icono.
+2. **Icono por nodo**: cada `GraphNode` lleva ahora una clave `icon` (el modelo de
+   la especificación ya la preveía) y la capa visual la traduce a un componente de
+   lucide. Los agentes tienen icono propio según el hueco que ocupan en su dominio.
+3. **Bloom** (`EffectComposer` + `Bloom`): es lo que da el aspecto de que todo
+   brilla. Los rótulos van en DOM y no se ven afectados, así que el texto sigue
+   nítido.
+4. **Núcleo**: elipsoide achatado con malla más densa, disco de luz en el plano del
+   anillo y el rótulo «DECISION ENGINE» dentro, como en la imagen.
+5. **Anillos orbitales planos** alrededor del núcleo y **radios** que salen de él
+   hacia cada dominio, desvaneciéndose hacia fuera.
+6. **Cámara más baja** (y 2,9, fov 38): es lo que achata los anillos en la elipse
+   del mockup, en vez de la vista casi cenital de antes.
+
+**Un fallo de medición, y un diagnóstico que me costó caro.** El `<Canvas>` de R3F
+mide su contenedor al montar y esa primera medida vuelve 0: el lienzo se quedaba en
+los 300 × 150 por defecto (contenedor real ~1.200 × 544) hasta que llegaba un
+`resize`. Se resuelve mandando un `resize` en cuanto la escena aparece
+(`neural-nexus-graph.tsx`). Antes de dar con ello perseguí varias pistas falsas
+—bloom, versiones de three, caché del bundle— porque el panel del navegador se
+había quedado con el viewport en 0 × 0 y **todas las medidas eran mentira**. Para
+la próxima: comprobar `window.innerWidth` antes de fiarse de cualquier medición.
+
+**Verificación.** `tsc` limpio; `npm test` 212/212; `eslint` limpio en lo tocado;
+`next build` correcto. En navegador (con viewport real de 1536 × 1000 y recarga
+forzada): lienzo de 1.199 × 542, 23 rótulos (CEO, DECISION ENGINE, los 8 dominios y
+los 13 agentes) y los iconos dentro de cada nodo; consola sin errores.
+**No verificado visualmente**: el panel del navegador de esta sesión no captura
+WebGL en pantalla, así que el aspecto final (bloom, brillo, elipse) está pendiente
+de que lo mire el propietario.

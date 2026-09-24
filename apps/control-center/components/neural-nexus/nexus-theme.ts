@@ -1,9 +1,31 @@
-import { Boxes, Gauge, Landmark, Megaphone, Scale, Search, ShoppingCart, Truck, type LucideIcon } from "lucide-react";
-import type { DomainKey } from "@/lib/demo/neural-nexus";
+import {
+  AlertTriangle,
+  BarChart3,
+  Box,
+  Brain,
+  Calculator,
+  Database,
+  FileText,
+  Headset,
+  LineChart,
+  Megaphone,
+  Monitor,
+  Scale,
+  Search,
+  Settings,
+  Shield,
+  ShoppingBag,
+  ShoppingCart,
+  TrendingUp,
+  Truck,
+  User,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import type { NodeStatus, NodeType } from "@/lib/neural-nexus";
 
 /** Paleta del grafo (especificación §3). El color nunca va solo: cada estado
- * lleva además icono y etiqueta. */
+ * lleva además icono, punto y etiqueta. */
 export const STATUS_COLOR: Record<NodeStatus, string> = {
   running: "#15f0b2",
   available: "#22c997",
@@ -23,36 +45,50 @@ export const STATUS_TEXT: Record<NodeStatus, string> = {
   inactive: "text-[#52615d]",
 };
 
-/** Brillo base de cada estado: «disponible» apenas brilla, «ejecutando» sí. */
+/** Intensidad base del anillo de cada estado. Por encima de 1 a propósito: es lo
+ * que hace que el bloom lo encienda. */
 export const STATUS_GLOW: Record<NodeStatus, number> = {
-  running: 1.15,
-  available: 0.4,
-  waiting: 0.75,
-  blocked: 0.95,
-  error: 1,
-  inactive: 0.18,
+  running: 1.35,
+  available: 0.9,
+  waiting: 1.1,
+  blocked: 1.2,
+  error: 1.3,
+  inactive: 0.32,
 };
 
 /** Radio de cada nivel de la jerarquía: el núcleo domina, el CEO le sigue. */
 export const NODE_RADIUS: Record<NodeType, number> = {
-  core: 1.35,
-  ceo: 0.5,
-  domain: 0.36,
-  agent: 0.24,
+  core: 1.55,
+  ceo: 0.6,
+  domain: 0.52,
+  agent: 0.33,
 };
 
-/** Icono de cada dominio. Se consulta como propiedad, no a través de una
- * función: una función que devuelve un componente en pleno render hace saltar a
- * react-hooks («componente creado durante el render»). */
-export const DOMAIN_ICON: Record<DomainKey, LucideIcon> = {
-  "Investigación": Search,
-  Abastecimiento: Truck,
-  "Economía": Gauge,
-  Legal: Scale,
-  Finanzas: Landmark,
-  Operaciones: Boxes,
-  Marketing: Megaphone,
-  Comercio: ShoppingCart,
+/** Iconos por la clave que trae cada nodo (`GraphNode.icon`). Se consultan como
+ * propiedad, no a través de una función: una función que devuelve un componente
+ * en pleno render hace saltar a react-hooks. */
+export const NODE_ICON: Record<string, LucideIcon> = {
+  ceo: User,
+  core: Brain,
+  search: Search,
+  trending: TrendingUp,
+  box: Box,
+  truck: Truck,
+  calculator: Calculator,
+  alert: AlertTriangle,
+  file: FileText,
+  shield: Shield,
+  "chart-line": LineChart,
+  headset: Headset,
+  users: Users,
+  monitor: Monitor,
+  store: ShoppingBag,
+  "bar-chart": BarChart3,
+  scale: Scale,
+  database: Database,
+  settings: Settings,
+  megaphone: Megaphone,
+  cart: ShoppingCart,
 };
 
 export const EDGE_COLOR = {

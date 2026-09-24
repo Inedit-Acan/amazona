@@ -1,32 +1,34 @@
 "use client";
 
 import { useMemo, useRef } from "react";
+import { Billboard, Html } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { NodeStatus } from "@/lib/neural-nexus";
 import { STATUS_COLOR } from "../nexus-theme";
 
-const FILAMENTS = 14;
-const PARTICLES = 220;
+const FILAMENTS = 26;
+const PARTICLES = 340;
 
-/** Filamentos internos: arcos deterministas dentro de la esfera, no una maraña
+/** Filamentos internos: arcos deterministas dentro del elipsoide, no una maraña
  * aleatoria que cambie en cada render. */
 function useFilaments(radius: number) {
   return useMemo(() => {
-    const curves: THREE.Vector3[][] = [];
+    const curves: Float32Array[] = [];
     for (let i = 0; i < FILAMENTS; i++) {
       const tilt = (i / FILAMENTS) * Math.PI;
       const yaw = (i * 2.399) % (Math.PI * 2); // ángulo áureo: reparto uniforme
-      const points: THREE.Vector3[] = [];
-      for (let k = 0; k <= 24; k++) {
-        const t = (k / 24) * Math.PI * 2;
-        const r = radius * (0.62 + 0.2 * Math.sin(t * 2 + i));
-        const v = new THREE.Vector3(r * Math.cos(t), r * Math.sin(t) * 0.35, r * Math.sin(t));
+      const points: number[] = [];
+      for (let k = 0; k <= 30; k++) {
+        const t = (k / 30) * Math.PI * 2;
+        const r = radius * (0.58 + 0.24 * Math.sin(t * 2 + i));
+        const v = new THREE.Vector3(r * Math.cos(t), r * Math.sin(t) * 0.42, r * Math.sin(t));
         v.applyAxisAngle(new THREE.Vector3(1, 0, 0), tilt);
         v.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-        points.push(v);
+        // El núcleo es un elipsoide achatado, como en el mockup.
+        points.push(v.x, v.y * 0.62, v.z);
       }
-      curves.push(points);
+      curves.push(new Float32Array(points));
     }
     return curves;
   }, [radius]);
@@ -39,9 +41,9 @@ function useParticles(radius: number) {
     for (let i = 0; i < PARTICLES; i++) {
       const phi = Math.acos(1 - (2 * (i + 0.5)) / PARTICLES);
       const theta = Math.PI * (1 + Math.sqrt(5)) * i;
-      const r = radius * (0.45 + 0.5 * ((i % 7) / 7));
+      const r = radius * (0.35 + 0.6 * ((i % 11) / 11));
       positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-      positions[i * 3 + 1] = r * Math.cos(phi) * 0.55;
+      positions[i * 3 + 1] = r * Math.cos(phi) * 0.42;
       positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     }
     return positions;
@@ -49,8 +51,9 @@ function useParticles(radius: number) {
 }
 
 /** Decision Engine: el elemento visual dominante de la escena
- * (especificación §7.1). Malla neural, filamentos, partículas, anillos y una
- * pulsación lenta — sin cerebro anatómico ni efectos agresivos. */
+ * (especificación §7.1). Elipsoide de malla neural con filamentos, partículas,
+ * un disco de luz en el plano del anillo y su nombre escrito dentro — sin
+ * cerebro anatómico ni efectos agresivos. */
 export function DecisionCore({
   radius,
   status,
@@ -70,23 +73,22 @@ export function DecisionCore({
 }) {
   const group = useRef<THREE.Group>(null);
   const shell = useRef<THREE.Mesh>(null);
-  const rings = useRef<THREE.Group>(null);
+  const inner = useRef<THREE.Mesh>(null);
   const filaments = useFilaments(radius);
   const particles = useParticles(radius);
   const color = STATUS_COLOR[status];
-  const opacity = dimmed ? 0.25 : 1;
+  const opacity = dimmed ? 0.2 : 1;
 
   useFrame(({ clock }) => {
     if (!animate) return;
     const t = clock.elapsedTime;
     // Respiración: escala muy leve, nunca una oscilación exagerada.
-    const breath = 1 + Math.sin(t * 0.7) * 0.022;
-    if (group.current) group.current.scale.setScalar(breath);
-    if (shell.current) {
-      shell.current.rotation.y = t * 0.06;
-      shell.current.rotation.x = Math.sin(t * 0.15) * 0.12;
+    if (group.current) group.current.scale.setScalar(1 + Math.sin(t * 0.7) * 0.02);
+    if (shell.current) shell.current.rotation.y = t * 0.05;
+    if (inner.current) {
+      const material = inner.current.material as THREE.MeshBasicMaterial;
+      material.opacity = (0.55 + Math.sin(t * 1.1) * 0.18) * opacity;
     }
-    if (rings.current) rings.current.rotation.y = -t * 0.09;
   });
 
   return (
@@ -102,38 +104,37 @@ export function DecisionCore({
       }}
       onPointerOut={() => onHover(false)}
     >
-      {/* Halo exterior */}
-      <mesh>
-        <sphereGeometry args={[radius * 1.5, 24, 24]} />
-        <meshBasicMaterial color={color} transparent opacity={0.05 * opacity} depthWrite={false} />
+      {/* Disco de luz en el plano del anillo: el resplandor horizontal del mockup. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[radius * 2.9, 64]} />
+        <meshBasicMaterial color={color} transparent opacity={0.07 * opacity} depthWrite={false} blending={THREE.AdditiveBlending} />
+      </mesh>
+
+      {/* Halo esférico */}
+      <mesh scale={[1, 0.66, 1]}>
+        <sphereGeometry args={[radius * 1.45, 24, 24]} />
+        <meshBasicMaterial color={color} transparent opacity={0.06 * opacity} depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
 
       {/* Malla neural */}
-      <mesh ref={shell}>
-        <icosahedronGeometry args={[radius, 2]} />
-        <meshBasicMaterial color={color} wireframe transparent opacity={0.22 * opacity} />
+      <mesh ref={shell} scale={[1, 0.66, 1]}>
+        <icosahedronGeometry args={[radius, 3]} />
+        <meshBasicMaterial color={color} wireframe transparent opacity={0.2 * opacity} />
       </mesh>
 
       {/* Núcleo energético */}
-      <mesh>
-        <sphereGeometry args={[radius * 0.42, 32, 32]} />
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={selected ? 2.2 : 1.5}
-          transparent
-          opacity={0.9 * opacity}
-          roughness={0.2}
-        />
+      <mesh ref={inner} scale={[1, 0.66, 1]}>
+        <sphereGeometry args={[radius * 0.5, 32, 32]} />
+        <meshBasicMaterial color={color} transparent opacity={0.55 * opacity} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
 
       {/* Filamentos internos */}
       {filaments.map((points, index) => (
         <line key={index}>
           <bufferGeometry>
-            <bufferAttribute attach="attributes-position" args={[new Float32Array(points.flatMap((p) => [p.x, p.y, p.z])), 3]} />
+            <bufferAttribute attach="attributes-position" args={[points, 3]} />
           </bufferGeometry>
-          <lineBasicMaterial color={color} transparent opacity={0.16 * opacity} />
+          <lineBasicMaterial color={color} transparent opacity={0.14 * opacity} blending={THREE.AdditiveBlending} />
         </line>
       ))}
 
@@ -142,18 +143,26 @@ export function DecisionCore({
         <bufferGeometry>
           <bufferAttribute attach="attributes-position" args={[particles, 3]} />
         </bufferGeometry>
-        <pointsMaterial color={color} size={0.035} transparent opacity={0.55 * opacity} sizeAttenuation />
+        <pointsMaterial color={color} size={0.04} transparent opacity={0.7 * opacity} sizeAttenuation blending={THREE.AdditiveBlending} />
       </points>
 
-      {/* Anillos internos */}
-      <group ref={rings}>
-        {[1.05, 1.22].map((scale, index) => (
-          <mesh key={scale} rotation={[Math.PI / 2 + index * 0.35, 0, index * 0.6]}>
-            <torusGeometry args={[radius * scale, 0.008, 8, 96]} />
-            <meshBasicMaterial color={color} transparent opacity={0.35 * opacity} />
-          </mesh>
-        ))}
-      </group>
+      <Billboard position={[0, -radius * 0.82, 0]}>
+        <Html center distanceFactor={10} zIndexRange={[14, 0]} style={{ pointerEvents: "none", opacity: dimmed ? 0.3 : 1 }}>
+          <div
+            style={{
+              color: "#f5f7f7",
+              fontSize: 15,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              textShadow: `0 0 14px ${color}, 0 1px 6px rgba(0,0,0,0.95)`,
+              whiteSpace: "nowrap",
+              opacity: selected ? 1 : 0.92,
+            }}
+          >
+            DECISION ENGINE
+          </div>
+        </Html>
+      </Billboard>
     </group>
   );
 }

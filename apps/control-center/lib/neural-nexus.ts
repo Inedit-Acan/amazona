@@ -5,6 +5,8 @@ import { COST_PER_RUN } from "./demo/agents.ts";
 import {
   CANONICAL_AGENTS,
   DEMO_CORE_METRICS,
+  DOMAIN_AGENT_ICON_KEYS,
+  DOMAIN_ICON_KEY,
   DEMO_HANDOFFS,
   DEMO_PROJECT,
   DEMO_TASKS,
@@ -65,6 +67,8 @@ export interface GraphNode {
   position: [number, number, number];
   status: NodeStatus;
   description: string;
+  /** Clave del icono; la capa visual la traduce a un componente. */
+  icon: string;
   projectName?: string;
   task?: string;
   progress?: number;
@@ -242,6 +246,7 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
         position: ringPosition(agentAngle(domainIndex, indexInDomain, own.length), LAYOUT.agentRadius, LAYOUT.agentHeight),
         status,
         description: DOMAIN_DESCRIPTION[domain],
+        icon: DOMAIN_AGENT_ICON_KEYS[domain][indexInDomain] ?? DOMAIN_ICON_KEY[domain],
         projectName: decision ? decision.project_id : DEMO_PROJECT.code,
         task: status === "running" ? tasks[demoTaskIndex(slot.id, tasks.length)] : undefined,
         progress: status === "running" ? demoProgress(slot.id) : undefined,
@@ -267,6 +272,7 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     position: ringPosition(domainAngle(index), LAYOUT.domainRadius, LAYOUT.domainHeight),
     status: worstStatus(domainStatuses.get(domain) ?? []),
     description: DOMAIN_DESCRIPTION[domain],
+    icon: DOMAIN_ICON_KEY[domain],
     isDemo: false,
   }));
 
@@ -277,6 +283,7 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     position: [0, LAYOUT.coreHeight, 0],
     status: coreStatus(decision),
     description: "Núcleo de inteligencia: procesa la información, evalúa opciones y coordina la ejecución.",
+    icon: "core",
     projectName: decision ? decision.project_id : DEMO_PROJECT.code,
     progress: decision ? undefined : DEMO_PROJECT.progress,
     metrics: { latencyMs: DEMO_CORE_METRICS.latencyMs },
@@ -290,6 +297,7 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     position: [0, LAYOUT.ceoHeight, 0],
     status: decision ? "running" : "available",
     description: "Orquestador del sistema. Coordina agentes, valida decisiones y supervisa la ejecución global.",
+    icon: "ceo",
     isDemo: false,
   };
 
