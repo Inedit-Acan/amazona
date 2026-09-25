@@ -47,7 +47,16 @@ export function NexusEdge({
   animate: boolean;
   showParticles: boolean;
 }) {
-  const curve = useMemo(() => curveBetween(from.position, to.position), [from.position, to.position]);
+  // Cuando un extremo es el Decision Engine, la conexión no va a su centro: entra
+  // por la zona neural que le corresponde a ese dominio (§13.2 y §14).
+  const curve = useMemo(
+    () =>
+      curveBetween(
+        edge.source === CORE_ID && edge.anchor ? edge.anchor : from.position,
+        edge.target === CORE_ID && edge.anchor ? edge.anchor : to.position,
+      ),
+    [edge.source, edge.target, edge.anchor, from.position, to.position],
+  );
   const points = useMemo(() => curve.getPoints(24), [curve]);
   const particles = useRef<THREE.Group>(null);
 

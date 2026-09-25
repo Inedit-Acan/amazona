@@ -5,19 +5,21 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { EffectComposer, SelectiveBloom, Selection, Vignette } from "@react-three/postprocessing";
 import * as THREE from "three";
-import { CORE_ID, LAYOUT, relatedIds, type GraphEdge, type GraphMode, type GraphNode } from "@/lib/neural-nexus";
-import { NODE_RADIUS } from "../nexus-theme";
-import { DecisionCore } from "./decision-core";
+import { CORE_ID, LAYOUT, neuralZones, relatedIds, type GraphEdge, type GraphMode, type GraphNode } from "@/lib/neural-nexus";
+import { DecisionEngine } from "./decision-engine/decision-engine";
 import { NexusEdge } from "./nexus-edge";
 import { NexusLighting } from "./nexus-lighting";
 import { OrbitRings } from "./orbit-rings";
 import { PrecisionNode } from "./precision-node";
 
 const AMBIENT_PARTICLES = 90;
-/** Vista inicial: el CEO entero arriba, el núcleo centrado, el anillo de
- * dominios bien separado y los agentes dentro de cuadro, con margen y sin una
- * inclinación que comprima la escena (§10). */
-const CAMERA_HOME: [number, number, number] = [0, 5.6, 13.6];
+/** Vista inicial: frontal y elevada 28° (§24 de la especificación del Decision
+ * Engine). Esos 28° abren el anillo de dominios en la elipse de la imagen de
+ * referencia —a 22° se aplastaba— sin llegar a juntar en pantalla el anillo de
+ * agentes con el de dominios, que es lo que pasa a partir de los 30°. La
+ * distancia deja el CEO arriba, el cerebro centrado y los agentes dentro de
+ * cuadro con sitio para sus etiquetas. */
+const CAMERA_HOME: [number, number, number] = [0, 6.6, 12.4];
 
 /** Polvo ambiental: muy pocas partículas y muy tenues, solo para que el fondo
  * no sea un vacío plano. */
@@ -85,6 +87,8 @@ export function NexusScene({
   const controls = useRef<Controls>(null);
   const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const focus = useMemo(() => relatedIds(edges, selectedId), [edges, selectedId]);
+  // Estado de cada zona del cerebro: es lo que enciende las rutas neurales.
+  const zones = useMemo(() => neuralZones(nodes), [nodes]);
   const showParticles = mode !== "architecture";
 
   // Al seleccionar, lo no relacionado se atenúa; si no hay selección manda el modo.
@@ -142,10 +146,10 @@ export function NexusScene({
 
         {nodes.map((node) =>
           node.id === CORE_ID ? (
-            <DecisionCore
+            <DecisionEngine
               key={node.id}
-              radius={NODE_RADIUS.core}
               status={node.status}
+              zones={zones}
               animate={animate}
               dimmed={isDimmed(node.id)}
               selected={selectedId === node.id}
@@ -174,7 +178,7 @@ export function NexusScene({
             seleccionan nunca, así que la escena se sostiene con el bloom casi
             apagado. La viñeta es muy sutil, solo para cerrar los bordes. */}
         <EffectComposer enableNormalPass={false} multisampling={4}>
-          <SelectiveBloom intensity={0.85} luminanceThreshold={0.35} luminanceSmoothing={0.3} mipmapBlur radius={0.55} />
+          <SelectiveBloom intensity={0.55} luminanceThreshold={0.38} luminanceSmoothing={0.3} mipmapBlur radius={0.3} />
           <Vignette offset={0.32} darkness={0.42} eskil={false} />
         </EffectComposer>
       </Selection>

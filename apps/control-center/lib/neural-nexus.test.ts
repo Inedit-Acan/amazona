@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Agent, AgentExecution, Decision } from "./api.ts";
-import { CANONICAL_AGENTS, DOMAINS } from "./demo/neural-nexus.ts";
+import { CANONICAL_AGENTS, DEMO_CORE_METRICS, DOMAINS } from "./demo/neural-nexus.ts";
+import { CEO_ANCHOR, zoneAnchor } from "./decision-engine.ts";
 import {
   CEO_ID,
   CORE_ID,
@@ -13,6 +14,7 @@ import {
   coreStatus,
   domainAngle,
   hudMetrics,
+  neuralZones,
   relatedIds,
   ringPosition,
   worstStatus,
@@ -74,11 +76,16 @@ const execution = (id: string, agentId: string, at: number, durationMs = 1000, s
 // --- Layout -----------------------------------------------------------------------
 
 test("el anillo de dominios deja libre la vertical del CEO y avanza en sentido horario", () => {
-  assert.equal(domainAngle(0), -22.5);
-  assert.equal(domainAngle(1), 22.5);
-  assert.equal(domainAngle(7), 292.5);
+  assert.equal(domainAngle(0), -67.5);
+  assert.equal(domainAngle(1), -22.5);
+  assert.equal(domainAngle(7), 247.5);
   // Ninguno cae exactamente arriba (0°), que es donde está el CEO.
   for (let index = 0; index < 8; index++) assert.notEqual(((domainAngle(index) % 360) + 360) % 360, 0);
+  // Los cuatro primeros dominios quedan al fondo y los cuatro últimos al frente,
+  // repartidos a izquierda y derecha en el orden de la imagen de referencia.
+  const x = (index: number) => ringPosition(domainAngle(index), LAYOUT.domainRadius, 0)[0];
+  assert.ok(x(0) < 0 && x(1) < 0 && x(2) > 0 && x(3) > 0, "los cuatro del fondo mal repartidos");
+  assert.ok(x(4) > 0 && x(5) > 0 && x(6) < 0 && x(7) < 0, "los cuatro del frente mal repartidos");
 });
 
 test("ringPosition redondea las coordenadas para no romper la hidratación", () => {
@@ -310,4 +317,74 @@ test("hudMetrics: con decisión, el proyecto, el progreso y los eventos son real
   assert.equal(hud.activeEventsAreDemo, false);
   assert.equal(hud.activeAgents, 1);
   assert.equal(hud.latencyMs, null);
+});
+
+// --- Decision Engine --------------------------------------------------------------
+
+test("buildGraph: cada conexión con el núcleo entra por su propia zona del cerebro", () => {
+  const { nodes, edges } = buildGraph({ agents: REGISTRY, executions: [], decision: null, now: NOW });
+  const domains = nodes.filter((node) => node.type === "domain");
+
+  const ceo = edges.find((edge) => edge.id === "ceo-core");
+  assert.deepEqual(ceo?.anchor, CEO_ANCHOR);
+
+  const anchors = domains.map((domain) => edges.find((edge) => edge.id === `core-${domain.id}`)?.anchor);
+  assert.ok(anchors.every(Boolean), "hay dominios sin zona neural");
+  assert.equal(new Set(anchors.map((anchor) => anchor!.join(","))).size, domains.length, "dos dominios entran por el mismo punto");
+  domains.forEach((domain, index) => {
+    assert.deepEqual(anchors[index], zoneAnchor(domainAngle(index)));
+  });
+});
+
+test("buildGraph: el flujo y las incidencias de un agente entran por la zona de su dominio", () => {
+  const { nodes, edges } = buildGraph({
+    agents: REGISTRY,
+    executions: [],
+    decision: decision({
+      evidence: [
+        { source: "product_validation", summary: "ok", data: {} },
+        { source: "legal_validation", summary: "no", data: { legal_status: "NO_GO" } },
+      ],
+    }),
+    now: NOW,
+  });
+  const contextual = edges.filter((edge) => edge.type === "flow" || edge.type === "incident");
+  assert.ok(contextual.length > 0, "sin conexiones contextuales que comprobar");
+  for (const edge of contextual) {
+    const agent = nodes.find((node) => node.id === edge.source)!;
+    const index = DOMAINS.indexOf(agent.domain!);
+    assert.deepEqual(edge.anchor, zoneAnchor(domainAngle(index)), `${agent.label} entra por la zona equivocada`);
+  }
+});
+
+test("buildGraph: el núcleo publica los datos del panel de detalle, reales en cuanto hay decisión", () => {
+  const demo = buildGraph({ agents: REGISTRY, executions: [], decision: null, now: NOW });
+  const core = demo.nodes.find((node) => node.id === CORE_ID)!;
+  assert.equal(core.metrics?.activeEvents, DEMO_CORE_METRICS.activeEvents);
+  assert.equal(core.metrics?.handoffs, DEMO_CORE_METRICS.handoffs);
+  assert.equal(core.metrics?.humanGates, DEMO_CORE_METRICS.humanGates);
+  assert.equal(core.isDemo, true);
+
+  const real = buildGraph({
+    agents: REGISTRY,
+    executions: [],
+    decision: decision({ evidence: [{ source: "product_validation", summary: "ok", data: {} }] }),
+    now: NOW,
+  });
+  const withDecision = real.nodes.find((node) => node.id === CORE_ID)!;
+  assert.equal(withDecision.metrics?.activeEvents, 1);
+  assert.equal(withDecision.isDemo, false);
+});
+
+test("neuralZones: ocho zonas en el orden de los dominios, con el estado de cada uno", () => {
+  const { nodes } = buildGraph({ agents: REGISTRY, executions: [], decision: null, now: NOW });
+  const zones = neuralZones(nodes);
+  assert.equal(zones.length, DOMAINS.length);
+  zones.forEach((zone, index) => {
+    const domain = nodes.find((node) => node.type === "domain" && node.domain === DOMAINS[index])!;
+    assert.equal(zone.label, DOMAINS[index]);
+    assert.equal(zone.id, domain.id);
+    assert.equal(zone.status, domain.status);
+    assert.equal(zone.angle, domainAngle(index));
+  });
 });

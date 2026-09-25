@@ -1,13 +1,16 @@
 "use client";
 
 import { useMemo } from "react";
+import { BRAIN, brainOutline, type Hemisphere } from "@/lib/decision-engine";
 import { CORE_ID, relatedIds, type GraphEdge, type GraphNode } from "@/lib/neural-nexus";
-import { EDGE_COLOR, NODE_RADIUS, STATUS_COLOR } from "./nexus-theme";
+import { EDGE_COLOR, ENGINE_COLOR, NODE_RADIUS, STATUS_COLOR } from "./nexus-theme";
 
 /** Vista 2D: mismo dataset y mismas posiciones que la 3D, proyectadas en planta
  * (x, −z). Es la alternativa accesible y el fallback sin WebGL
  * (especificación §30): conserva colores, estados, selección y modos. */
 const VIEW = { width: 720, height: 520, scale: 40 };
+
+const SIDES: Hemisphere[] = ["left", "right"];
 
 function project(position: [number, number, number]): { x: number; y: number } {
   return {
@@ -15,6 +18,13 @@ function project(position: [number, number, number]): { x: number; y: number } {
     // La altura del CEO se proyecta hacia arriba para que la jerarquía se lea.
     y: VIEW.height / 2 - position[2] * VIEW.scale - position[1] * VIEW.scale * 0.55,
   };
+}
+
+/** Contorno del hemisferio en coordenadas locales del núcleo, en la misma planta
+ * que el resto de la vista. */
+function hemispherePath(side: Hemisphere): string {
+  const points = brainOutline(side).map(([x, z]) => `${(x * VIEW.scale).toFixed(2)},${(-z * VIEW.scale).toFixed(2)}`);
+  return `M ${points.join(" L ")} Z`;
 }
 
 export function Nexus2D({
@@ -36,6 +46,7 @@ export function Nexus2D({
 }) {
   const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const focus = useMemo(() => relatedIds(edges, selectedId), [edges, selectedId]);
+  const paths = useMemo(() => SIDES.map((side) => [side, hemispherePath(side)] as const), []);
   const isDimmed = (id: string) => (selectedId ? !focus.has(id) : dimmed.has(id));
 
   return (
@@ -52,8 +63,9 @@ export function Nexus2D({
         const from = byId.get(edge.source);
         const to = byId.get(edge.target);
         if (!from || !to) return null;
-        const a = project(from.position);
-        const b = project(to.position);
+        // Igual que en 3D: la conexión entra por la zona del cerebro que le toca.
+        const a = project(edge.source === CORE_ID && edge.anchor ? edge.anchor : from.position);
+        const b = project(edge.target === CORE_ID && edge.anchor ? edge.anchor : to.position);
         const faded = isDimmed(edge.source) || isDimmed(edge.target);
         const color = edge.status === "error" ? EDGE_COLOR.incident : edge.status === "warning" ? "#f3b63f" : EDGE_COLOR[edge.type];
         return (
@@ -73,10 +85,12 @@ export function Nexus2D({
 
       {nodes.map((node) => {
         const { x, y } = project(node.position);
-        const radius = (node.id === CORE_ID ? NODE_RADIUS.core * 0.55 : NODE_RADIUS[node.type]) * VIEW.scale;
+        const isCore = node.id === CORE_ID;
+        const radius = NODE_RADIUS[node.type] * VIEW.scale;
         const color = STATUS_COLOR[node.status];
         const faded = isDimmed(node.id);
         const active = selectedId === node.id || hoveredId === node.id;
+        const labelOffset = (isCore ? BRAIN.halfDepth * VIEW.scale : radius) + 12;
         return (
           <g
             key={node.id}
@@ -90,11 +104,36 @@ export function Nexus2D({
             onMouseEnter={() => onHover(node.id)}
             onMouseLeave={() => onHover(null)}
           >
-            {active ? <circle r={radius * 1.9} fill={color} opacity={0.14} /> : null}
-            <circle r={radius} fill="#030606" stroke={color} strokeWidth={node.type === "agent" ? 1.5 : 2} />
-            <circle r={radius * 0.45} fill={color} opacity={node.status === "inactive" ? 0.35 : 0.9} />
+            {isCore ? (
+              <>
+                {/* Los dos hemisferios con su surco, como en 3D: aquí también es
+                    un cerebro y no un círculo. */}
+                {paths.map(([side, path]) => (
+                  <path
+                    key={side}
+                    d={path}
+                    fill={ENGINE_COLOR.shell}
+                    stroke={ENGINE_COLOR.wireframe}
+                    strokeWidth={active ? 1.8 : 1.2}
+                    opacity={0.9}
+                  />
+                ))}
+                {/* Núcleo geométrico, pequeño y centrado. */}
+                <path
+                  d={`M 0,${(-BRAIN.coreRadius * VIEW.scale).toFixed(1)} L ${(BRAIN.coreRadius * VIEW.scale).toFixed(1)},0 L 0,${(BRAIN.coreRadius * VIEW.scale).toFixed(1)} L ${(-BRAIN.coreRadius * VIEW.scale).toFixed(1)},0 Z`}
+                  fill={color}
+                  opacity={0.95}
+                />
+              </>
+            ) : (
+              <>
+                {active ? <circle r={radius * 1.9} fill={color} opacity={0.14} /> : null}
+                <circle r={radius} fill="#030606" stroke={color} strokeWidth={node.type === "agent" ? 1.5 : 2} />
+                <circle r={radius * 0.45} fill={color} opacity={node.status === "inactive" ? 0.35 : 0.9} />
+              </>
+            )}
             <text
-              y={radius + 12}
+              y={labelOffset}
               textAnchor="middle"
               fontSize={node.type === "agent" ? 9 : 11}
               fontWeight={node.type === "agent" ? 500 : 600}

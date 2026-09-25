@@ -99,6 +99,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `components/neural-nexus/` | Director ejecutivo (2.ª pasada) | Cualquier pantalla que necesite el mapa de la flota |
 | `lib/neural-nexus.ts` | Director ejecutivo (2.ª pasada) | Panel y Agentes (jerarquía y estado de la flota) |
 | `PrecisionNode` | Director ejecutivo (iteración 2) | Lenguaje visual común de cualquier nodo 3D |
+| `lib/decision-engine.ts` | Director ejecutivo (iteración 3) | Cualquier vista que necesite la geometría del Decision Engine (la vista 2D ya la usa) |
 
 ---
 
@@ -899,6 +900,17 @@ agente a ejecutar, a esperar o bloqueado (el veto financiero y el NO_GO legal so
 bloqueos reales). Demo (`lib/demo/neural-nexus.ts`): la tarea en curso, el
 progreso, los handoffs entre dominios y las métricas del núcleo. El resto de la
 pantalla del Director ejecutivo no se toca.
+
+**Iteración 3: el Decision Engine.** El núcleo deja de ser un elipsoide y pasa a
+ser un cerebro digital de dos hemisferios, según
+`docs/design/KOVA_Decision_Engine_especificacion_visual_tecnica_final.md`. Seis
+capas independientes (silueta cerebral, red neural, nodos sinápticos, poliedro de
+decisión, anillo técnico y un halo mínimo), toda la geometría en
+`lib/decision-engine.ts` —matemática pura, determinista y con tests— y los
+componentes de `components/neural-nexus/scene/decision-engine/` solo presentando.
+Cada dominio entra ahora por SU zona del cerebro en vez de por el centro, y el
+anillo de dominios gira 45° para que cada uno caiga del lado que le asigna el
+mapeo dominio → cerebro de la especificación.
 
 **Backend que faltaría (para sustituir la demo).**
 

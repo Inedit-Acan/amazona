@@ -1,5 +1,6 @@
 import type { Agent, AgentExecution, Decision } from "./api.ts";
 import { teamOf } from "./agents.ts";
+import { CEO_ANCHOR, zoneAnchor, type Vec3 } from "./decision-engine.ts";
 import { parseUtc } from "./dates.ts";
 import { COST_PER_RUN } from "./demo/agents.ts";
 import {
@@ -56,6 +57,11 @@ export interface NodeMetrics {
   costToday?: number;
   evaluationScore?: number;
   runs?: number;
+  /** Solo el núcleo (§28 de la especificación del Decision Engine): eventos en
+   * curso, handoffs entre dominios y puertas humanas. */
+  activeEvents?: number;
+  handoffs?: number;
+  humanGates?: number;
 }
 
 export interface GraphNode {
@@ -85,6 +91,11 @@ export interface GraphEdge {
   type: EdgeType;
   active: boolean;
   status: "normal" | "warning" | "error";
+  /** Punto por el que la conexión entra en el Decision Engine, cuando uno de
+   * sus extremos es el núcleo. Cada dominio tiene el suyo: las conexiones no
+   * convergen todas en el mismo sitio (§13.2 y §14 de la especificación del
+   * Decision Engine). */
+  anchor?: Vec3;
 }
 
 // --- Layout determinista --------------------------------------------------------------
@@ -99,10 +110,14 @@ export const LAYOUT = {
   domainRadius: 3.5,
   domainHeight: 0.95,
   agentRadius: 6.5,
-  agentHeight: -1.05,
-  /** Media separación entre dominios: el anillo arranca girado para dejar
-   * libre la vertical del CEO. */
-  startAngleDeg: -22.5,
+  agentHeight: -1.5,
+  /** El anillo arranca girado para dejar libre la vertical del CEO y para que
+   * cada dominio caiga del lado que le asigna el mapeo dominio → cerebro
+   * (especificación del Decision Engine §14): Investigación, Abastecimiento,
+   * Comercio y Marketing a la izquierda; Economía, Legal, Finanzas y
+   * Operaciones a la derecha. Es también el reparto de la imagen de
+   * referencia. */
+  startAngleDeg: -67.5,
   stepDeg: 45,
   /** Separación de los agentes de un dominio a cada lado de su ángulo. */
   agentSpreadDeg: 12,
@@ -289,7 +304,13 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     icon: "core",
     projectName: decision ? decision.project_id : DEMO_PROJECT.code,
     progress: decision ? undefined : DEMO_PROJECT.progress,
-    metrics: { latencyMs: DEMO_CORE_METRICS.latencyMs },
+    metrics: {
+      latencyMs: DEMO_CORE_METRICS.latencyMs,
+      // Los eventos son reales en cuanto hay decisión: son sus evidencias.
+      activeEvents: decision ? decision.evidence.length : DEMO_CORE_METRICS.activeEvents,
+      handoffs: DEMO_CORE_METRICS.handoffs,
+      humanGates: DEMO_CORE_METRICS.humanGates,
+    },
     isDemo: !decision,
   };
 
@@ -318,8 +339,12 @@ export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
   const agents = nodes.filter((node) => node.type === "agent");
   const domainIdOf = new Map(domains.map((node) => [node.domain!, node.id] as const));
 
+  // Zona neural de cada dominio: la conexión entra por ahí, y por ahí entran
+  // también el flujo y las incidencias de sus agentes (§15.1).
+  const anchorOf = new Map(DOMAINS.map((domain, index) => [domain, zoneAnchor(domainAngle(index))] as const));
+
   const edges: GraphEdge[] = [
-    { id: "ceo-core", source: CEO_ID, target: CORE_ID, type: "hierarchy", active: true, status: "normal" },
+    { id: "ceo-core", source: CEO_ID, target: CORE_ID, type: "hierarchy", active: true, status: "normal", anchor: CEO_ANCHOR },
   ];
 
   for (const domain of domains) {
@@ -330,6 +355,7 @@ export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
       type: "hierarchy",
       active: domain.status === "running",
       status: domain.status === "error" || domain.status === "blocked" ? "error" : "normal",
+      anchor: anchorOf.get(domain.domain!),
     });
   }
 
@@ -345,7 +371,15 @@ export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
       status: agent.status === "error" || agent.status === "blocked" ? "error" : "normal",
     });
     if (agent.status === "running") {
-      edges.push({ id: `flow-${agent.id}`, source: agent.id, target: CORE_ID, type: "flow", active: true, status: "normal" });
+      edges.push({
+        id: `flow-${agent.id}`,
+        source: agent.id,
+        target: CORE_ID,
+        type: "flow",
+        active: true,
+        status: "normal",
+        anchor: anchorOf.get(agent.domain!),
+      });
     }
     if (agent.status === "blocked" || agent.status === "error") {
       edges.push({
@@ -355,6 +389,7 @@ export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
         type: "incident",
         active: true,
         status: agent.status === "error" ? "error" : "warning",
+        anchor: anchorOf.get(agent.domain!),
       });
     }
   }
@@ -368,6 +403,35 @@ export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
   }
 
   return edges;
+}
+
+// --- Zonas neurales -------------------------------------------------------------------
+
+export interface NeuralZone {
+  id: string;
+  label: DomainKey;
+  /** Ángulo del dominio en el anillo; de él salen la zona y su ruta neural. */
+  angle: number;
+  anchor: Vec3;
+  status: NodeStatus;
+}
+
+/** Las ocho zonas del cerebro con el estado del dominio que entra por cada una.
+ * Es lo que permite encender la ruta del dominio que está ejecutando y resaltar
+ * SOLO la zona afectada cuando uno se bloquea o falla, en vez de teñir el
+ * cerebro entero (§26 de la especificación del Decision Engine). */
+export function neuralZones(nodes: GraphNode[]): NeuralZone[] {
+  return DOMAINS.map((domain, index) => {
+    const node = nodes.find((item) => item.type === "domain" && item.domain === domain);
+    const angle = domainAngle(index);
+    return {
+      id: node?.id ?? `domain-${index}`,
+      label: domain,
+      angle,
+      anchor: zoneAnchor(angle),
+      status: node?.status ?? "inactive",
+    };
+  });
 }
 
 // --- Modos ----------------------------------------------------------------------------

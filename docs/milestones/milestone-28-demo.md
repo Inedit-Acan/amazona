@@ -2093,3 +2093,106 @@ ha podido reproducir en este entorno, así que queda como pendiente de confirmar
   está oculto —también congela `requestAnimationFrame`, así que tampoco se pudo
   medir FPS—. Los criterios de aceptación A, C, D, F y G del documento quedan
   pendientes de revisión del propietario.
+
+### Iteración 3 del grafo — el Decision Engine como cerebro (25-09-2026)
+
+Referencia: `docs/design/KOVA_Decision_Engine_especificacion_visual_tecnica_final.md`
+más la imagen de referencia del propietario. Solo se toca el Decision Engine y lo
+que cuelga de él; el resto de la pantalla del Director ejecutivo se queda igual.
+
+#### Qué cambia
+
+1. **El núcleo ya no es un elipsoide, es un cerebro.** Seis capas independientes
+   (§3), nunca un único objeto brillante: silueta cerebral de dos hemisferios con
+   surco central real, red neural, nodos sinápticos, poliedro de decisión, un
+   único anillo técnico y un halo mínimo. Las proporciones son exactamente las de
+   §4.3 —ancho 1,00 · alto 0,72 · profundidad 0,60— y el cerebro ocupa el 32 % del
+   ancho del anillo de dominios (§11 pide 26–34 %).
+2. **La geometría es lógica pura**: `lib/decision-engine.ts` no importa three.js,
+   no usa `Math.random` y no depende de la hora. El hemisferio sale de un
+   elipsoide con tres perfiles —planta ovoide, bóveda alta con base aplanada y
+   lóbulo temporal— más un relieve fino de circunvoluciones; una medida previa de
+   los extremos ajusta el resultado a las proporciones de §4.3 aunque se retoque
+   la forma. El surco se cierra por debajo, así que los hemisferios están
+   diferenciados pero no partidos en dos piezas (§4.4).
+3. **Cada dominio entra por su propia zona del cerebro** (§13.2 y §14) en vez de
+   por el centro. La zona sale del ángulo del dominio en el anillo: el hemisferio
+   es siempre el de su lado de la pantalla y la altura sube con la profundidad,
+   así que las ocho conexiones entran por ocho sitios distintos y ninguna cruza el
+   cerebro. El flujo y las incidencias de cada agente entran por la zona de su
+   dominio (§15.1) y el CEO por la corona, en una única vertical (§12).
+4. **El anillo de dominios gira 45°** (`startAngleDeg` −22,5 → −67,5). Es lo que
+   hace falta para que cada dominio caiga del lado que le asigna §14
+   —Investigación, Abastecimiento, Comercio y Marketing a la izquierda; Economía,
+   Legal, Finanzas y Operaciones a la derecha— y es también el reparto de la
+   imagen de referencia. Con el reparto anterior, Abastecimiento y Operaciones
+   quedaban en el hemisferio contrario al suyo.
+5. **El estado no tiñe el cerebro** (§26). La densidad de la red sube del 35 % al
+   55 % cuando hay trabajo (§6.3), cada dominio con algo que contar enciende SU
+   ruta con SU color —rojo solo en la ruta afectada— y únicamente el núcleo toma
+   el color del estado global. La activación sigue rutas, nunca son parpadeos
+   sueltos (§7.4): un frente recorre la ruta de la zona al núcleo y el resultado
+   sale por el mismo camino, con la secuencia de tiempos de §17
+   (`processingPhase`, ciclo de 1,9 s).
+6. **Vista 2D**: el núcleo también es un cerebro, dibujado con la silueta en
+   planta que sale de la misma librería, y las conexiones entran por las mismas
+   zonas. Mismo dataset, misma geometría.
+7. **Panel de detalle del núcleo** (§28): eventos, latencia, handoffs y human
+   gates. Los eventos son reales en cuanto hay decisión (son sus evidencias); el
+   resto lleva su marca de demostración. Aprovecha `DEMO_CORE_METRICS.handoffs` y
+   `.humanGates`, que estaban definidos y sin usar.
+8. **Cámara y planos**: vista frontal elevada 28° (§24). Los 22° anteriores
+   aplastaban la elipse de dominios; por encima de 30° el anillo de agentes se
+   junta en pantalla con el de dominios. Los agentes bajan de −1,05 a −1,5 para
+   separar mejor los planos (§25).
+
+#### Acabado
+
+El cerebro es oscuro y técnico; la luz la ponen la red y el núcleo (§41). Los
+números están todos con nombre en `nexus-theme.ts` (`ENGINE_COLOR`,
+`ENGINE_OPACITY`) y en `lib/decision-engine.ts` (`BRAIN`, `SYNAPSE_SIZE`,
+`NETWORK_DENSITY`): ajustar el acabado es cambiar números.
+
+Dos cosas que hubo que medir en pantalla y no se adivinaban:
+
+- **La línea manda más que el nodo.** Con la opacidad de los enlaces por encima
+  de ~0,3, los 500 segmentos de la malla se funden en una masa luminosa y el
+  cerebro deja de leerse (§6.4). Quedó en 0,26 frente a 0,5 de los nodos.
+- **El bloom del núcleo tapaba el cerebro.** Lo que lo extiende es el `radius`,
+  no la intensidad: con `radius` 0,3 el núcleo sigue siendo lo más brillante de
+  la escena sin cubrir nada (§8.6).
+
+#### Estabilidad (§30 y §31)
+
+Ningún valor decae: todas las animaciones son ondas alrededor de un baseline y la
+secuencia de procesamiento es periódica —hay un test que la recorre y comprueba
+que vuelve a empezar igual y que todo queda acotado en [0, 1]—. Los nodos
+sinápticos que enciende una ruta se restauran a su intensidad de reposo en el
+frame siguiente. La geometría se construye una vez y se cachea; por frame solo se
+escriben los colores de los nodos que la ruta atraviesa (§29).
+
+#### Verificación
+
+- `tsc` limpio; `npm test` 230/230 (212 antes: 14 nuevos de `decision-engine` y 4
+  del grafo); `eslint` limpio en lo tocado; `next build` correcto en copia
+  temporal, sin tocar el `.next` del propietario.
+- **Visual, esta vez sí.** El entorno del propietario estaba parado, así que el
+  grafo se montó en una copia desechable en el puerto 3100 (junction de
+  `node_modules`, su `.next` intacto, backend caído → roster canónico). El panel
+  del navegador sí captura WebGL cuando está en primer plano: se comprobaron la
+  forma del cerebro, los dos hemisferios con su surco, el poliedro del núcleo, las
+  rutas de color por estado —forzando en la copia un dominio ejecutando, uno en
+  error y uno esperando— y el pulso del núcleo. La malla se revisó además
+  rasterizando la geometría de la librería a PNG desde Node, que es lo que dejó
+  ver que la silueta en planta era una caja redondeada antes de darle el perfil
+  ovoide.
+- Lienzo 1.214 × 542 con `window.innerWidth` comprobado antes de cada medida
+  (el panel arranca en 0 × 0 y todas las medidas salen mentira). 23 nodos, 22
+  aristas y los 8 dominios rotulados, también en la vista 2D. Consola sin errores
+  propios.
+- Comprobado a 1536 y 1896 px. A 375 px el lienzo queda en 309 × 542 y la escena
+  sale recortada, con el HUD y la leyenda encima del grafo: es de antes de este
+  trabajo —a esa anchura el encuadre solo enseña el centro— y no se ha tocado.
+- **No verificado**: el comportamiento con una decisión real en marcha (haría
+  falta ejecutar un objetivo, que escribe en el backend) y los FPS: el panel
+  congela `requestAnimationFrame` cuando está oculto, así que no se puede medir.

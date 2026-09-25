@@ -9,12 +9,13 @@ import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { Button } from "@/components/ui/button";
 import { NODE_ICON, STATUS_COLOR } from "./nexus-theme";
 
-function Field({ label, value, title }: { label: string; value: string; title?: string }) {
+function Field({ label, value, title, demo }: { label: string; value: string; title?: string; demo?: boolean }) {
   return (
     <div className="flex items-start justify-between gap-3 text-xs">
       <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-right break-words" title={title}>
+      <span className="min-w-0 text-right break-words" title={demo ? "Dato de demostración" : title}>
         {value}
+        {demo ? <span className="ml-1 text-[10px] text-muted-foreground">demo</span> : null}
       </span>
     </div>
   );
@@ -106,6 +107,23 @@ export function NexusDetails({
           </>
         ) : null}
       </div>
+
+      {node.metrics && node.type === "core" ? (
+        <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/10 pt-2.5">
+          {node.metrics.activeEvents === undefined ? null : (
+            <Field label="Eventos" value={formatInteger(node.metrics.activeEvents)} demo={node.isDemo} />
+          )}
+          {node.metrics.latencyMs === undefined ? null : (
+            <Field label="Latencia" value={formatDuration(node.metrics.latencyMs)} demo />
+          )}
+          {node.metrics.handoffs === undefined ? null : (
+            <Field label="Handoffs" value={formatInteger(node.metrics.handoffs)} demo />
+          )}
+          {node.metrics.humanGates === undefined ? null : (
+            <Field label="Human gates" value={formatInteger(node.metrics.humanGates)} demo />
+          )}
+        </div>
+      ) : null}
 
       {node.metrics && node.type === "agent" ? (
         <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/10 pt-2.5">

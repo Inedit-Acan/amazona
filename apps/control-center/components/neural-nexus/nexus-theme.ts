@@ -80,7 +80,9 @@ export const STATUS_BLOOMS: Record<NodeStatus, boolean> = {
 /** Radio de cada nivel. Los dominios son ~25 % mayores que los agentes y el CEO
  * mayor que un dominio (§5.4): la jerarquía se lee por tamaño, no por brillo. */
 export const NODE_RADIUS: Record<NodeType, number> = {
-  core: 1.45,
+  // El núcleo ya no es un disco: su tamaño lo manda BRAIN.halfWidth
+  // (lib/decision-engine.ts). Se deja aquí por completitud del registro.
+  core: 1.12,
   ceo: 0.5,
   domain: 0.4,
   agent: 0.32,
@@ -115,6 +117,41 @@ export const NODE_ICON: Record<string, LucideIcon> = {
   settings: Settings,
   megaphone: Megaphone,
   cart: ShoppingCart,
+};
+
+/** Paleta del Decision Engine (§18 de su especificación). El cerebro NUNCA se
+ * tiñe con el estado: el color de estado se queda para el núcleo y para la zona
+ * o la ruta afectada (§26). */
+export const ENGINE_COLOR = {
+  /** Casco de los hemisferios: casi negro con un punto de verde petróleo. */
+  shell: "#04100d",
+  /** Malla neural. */
+  wireframe: "#00d69a",
+  synapse: "#22c997",
+  synapseActive: "#15f0b2",
+  /** Núcleo: centro blanco frío, borde esmeralda. */
+  coreCenter: "#e6fff7",
+  coreEdge: "#15f0b2",
+  ring: "#22c997",
+};
+
+/** Acabado del Decision Engine. Casi todo lo visual se ajusta desde aquí, sin
+ * tocar los componentes. */
+export const ENGINE_OPACITY = {
+  /** Casco: bajo, pero nunca cero — el cerebro no puede ser transparente (§19).
+   * Se dibuja ANTES que la red, así que no la apaga: le pone cuerpo debajo. */
+  shell: 0.55,
+  /** La línea nunca domina sobre los nodos (§6.4): a más de ~0,3 los 500
+   * segmentos se funden en una masa luminosa y el cerebro deja de leerse. */
+  link: 0.26,
+  /** Los nodos van contenidos: si suben, los 420 se funden en una nube verde.
+   * La luz del cerebro la pone la red, no la masa de puntos (§41). */
+  synapse: 0.5,
+  /** Halo del núcleo, mínimo y de caída corta (§10). */
+  halo: 0.04,
+  ring: 0.2,
+  ringTick: 0.36,
+  route: 0.8,
 };
 
 export const EDGE_COLOR = {
