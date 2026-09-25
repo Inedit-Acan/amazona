@@ -5,12 +5,15 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.approvals.service import ApprovalNotPendingError
-from app.auth.dependencies import get_current_actor
+from app.auth.actor import Actor
+from app.auth.dependencies import actor_name, authorize
 from app.budgets.service import BudgetLedgerService
+from app.core.config import Settings, get_settings
 from app.core.errors import NotFoundError
 from app.db.models.approval import Approval as ApprovalModel
 from app.db.models.audit import AuditLog as AuditLogModel
 from app.db.session import get_db
+from app.permissions.policies import ApiAction
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
@@ -42,9 +45,10 @@ def approve_approval(
     approval_id: str,
     payload: ApprovalActionIn,
     db: Session = Depends(get_db),
-    authenticated_actor: str | None = Depends(get_current_actor),
+    identity: Actor = Depends(authorize(ApiAction.APPROVAL_RESOLVE)),
+    settings: Settings = Depends(get_settings),
 ) -> ApprovalModel:
-    return _resolve(approval_id, authenticated_actor or payload.actor, "APPROVED", db)
+    return _resolve(approval_id, "APPROVED", db, identity, payload.actor, settings)
 
 
 @router.post("/{approval_id}/reject", response_model=ApprovalOut)
@@ -52,9 +56,10 @@ def reject_approval(
     approval_id: str,
     payload: ApprovalActionIn,
     db: Session = Depends(get_db),
-    authenticated_actor: str | None = Depends(get_current_actor),
+    identity: Actor = Depends(authorize(ApiAction.APPROVAL_RESOLVE)),
+    settings: Settings = Depends(get_settings),
 ) -> ApprovalModel:
-    return _resolve(approval_id, authenticated_actor or payload.actor, "REJECTED", db)
+    return _resolve(approval_id, "REJECTED", db, identity, payload.actor, settings)
 
 
 def _as_aware_utc(value: datetime.datetime) -> datetime.datetime:
@@ -62,7 +67,15 @@ def _as_aware_utc(value: datetime.datetime) -> datetime.datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=datetime.UTC)
 
 
-def _resolve(approval_id: str, actor: str, new_status: str, db: Session) -> ApprovalModel:
+def _resolve(
+    approval_id: str,
+    new_status: str,
+    db: Session,
+    identity: Actor,
+    declared: str | None,
+    settings: Settings,
+) -> ApprovalModel:
+    actor = actor_name(identity, declared, settings)
     approval = db.get(ApprovalModel, approval_id)
     if approval is None:
         raise NotFoundError(f"approval {approval_id} not found")
@@ -102,6 +115,8 @@ def _resolve(approval_id: str, actor: str, new_status: str, db: Session) -> Appr
     db.add(
         AuditLogModel(
             actor=actor,
+            actor_role=identity.role,
+            actor_source=identity.source,
             action=f"approval.{action_verb}",
             resource=f"approval:{approval.id}",
             before={"status": before_status},

@@ -1,3 +1,5 @@
+import datetime
+
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -40,7 +42,11 @@ def auth_client(key_pair):
         return Settings(_env_file=None, require_auth=True, supabase_url="https://example.supabase.co")
 
     def override_get_auth_service() -> AuthService:
-        return AuthService(get_signing_key=lambda token: public_key)
+        return AuthService(
+            supabase_url="https://example.supabase.co",
+            audience="authenticated",
+            get_signing_key=lambda token: public_key,
+        )
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_settings] = override_get_settings
@@ -55,7 +61,18 @@ def auth_client(key_pair):
 
 
 def make_token(private_key, sub: str = "user-123") -> str:
-    return jwt.encode({"sub": sub, "email": "owner@amazona.local"}, private_key, algorithm="RS256")
+    now = datetime.datetime.now(datetime.UTC)
+    return jwt.encode(
+        {
+            "sub": sub,
+            "email": "owner@amazona.local",
+            "iss": "https://example.supabase.co/auth/v1",
+            "aud": "authenticated",
+            "exp": now + datetime.timedelta(hours=1),
+        },
+        private_key,
+        algorithm="RS256",
+    )
 
 
 def test_create_objective_requires_a_bearer_token_when_auth_is_enabled(auth_client: TestClient):
@@ -87,7 +104,9 @@ def test_create_objective_accepts_a_valid_token_and_uses_its_sub_as_created_by(a
     )
 
     assert response.status_code == 201
-    assert response.json()["created_by"] == "user-abc"
+    # The email claim is what a human reads in the audit trail; the sub is what
+    # the row is keyed by.
+    assert response.json()["created_by"] == "owner@amazona.local"
 
 
 def test_list_endpoints_do_not_require_auth(auth_client: TestClient):

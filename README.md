@@ -111,6 +111,64 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   propia migración (ADR 0003, Milestone 2 en adelante) — el linter de
   seguridad de Supabase reporta 0 hallazgos, verificado en cada
   milestone que añade una tabla.
+- **Milestones 16-28:** rediseño completo del Control Center (12 paneles,
+  Panel de inicio y el grafo 3D de agentes del Director ejecutivo). Detalle
+  en `docs/milestones/` y en
+  [`AMAZONA_estado_paneles_rediseno.md`](docs/design/AMAZONA_estado_paneles_rediseno.md).
+- **Milestone 29:** base de seguridad para producción
+  ([ADR 0007](docs/architecture/adr-0007-production-security.md)) — ver abajo.
+
+## Qué es real y qué está simulado
+
+Conviene decirlo sin rodeos: **AMAZONA es hoy un sistema de simulación y
+orquestación funcional, no una empresa autónoma en producción.**
+
+**Real:** la orquestación (CEO, pipeline, decision engine), la persistencia, las
+aprobaciones humanas, el ledger de presupuesto, el kill switch, la auditoría con
+`correlation_id`, los estados de los agentes y, desde el Milestone 29, la
+identidad y los permisos.
+
+**Simulado** (proveedores mock en `backend/app/ai/mock_*.py`): tendencias de
+mercado, proveedores y sus precios, normativa y cambios regulatorios,
+rendimiento publicitario, pedidos, tracking, clientes, devoluciones,
+contabilidad, facturación, pagos, marketplaces y logística.
+
+El Control Center marca cada dato de demostración con su badge
+`DataProvenanceBadge`. Ningún módulo que use fixtures se describe como "real".
+
+## Seguridad
+
+Desde el Milestone 29 el comportamiento depende del entorno
+(`ENVIRONMENT`: `development`, `test`, `demo`, `staging`, `production`).
+
+| | development / test / demo | staging / production |
+|---|---|---|
+| Rutas mutadoras | abiertas (o con `REQUIRE_AUTH=true`) | exigen token verificado |
+| Rol | no se comprueba | decide cada acción |
+| `actor` en el cuerpo | se acepta | se ignora |
+| Arranque | siempre | falla si falta Supabase o si CORS apunta a localhost |
+
+Los siete roles son `OWNER`, `ADMIN`, `OPERATOR`, `ANALYST`, `REVIEWER`,
+`VIEWER` y `SYSTEM`. La matriz está en `backend/app/permissions/policies.py` y
+sus tests en `tests/unit/test_permission_matrix.py`. El kill switch solo lo
+accionan OWNER y ADMIN.
+
+**Antes de desplegar en staging o production** hay que crear el primer OWNER,
+porque no hay ningún endpoint que conceda roles:
+
+```bash
+cd backend
+alembic upgrade head
+AMAZONA_BOOTSTRAP=1 python -m app.cli grant-role --email tu@correo.com --role OWNER
+python -m app.cli list-users
+```
+
+La persona queda vinculada a su cuenta de Supabase en su primer inicio de sesión
+verificado.
+
+**Límite conocido de esta versión:** solo están protegidas las rutas mutadoras.
+En producción, quien tenga acceso de red al backend puede *leer* los datos de
+negocio. Cerrar los `GET` es el Milestone 29.1.
 
 ## Notas
 

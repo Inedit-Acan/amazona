@@ -35,6 +35,9 @@ from app.db.session import get_db
 
 settings = get_settings()
 configure_logging(settings.log_level)
+# Refuses to start a staging/production process that would accept anonymous
+# mutations or cannot verify a token at all (Milestone 29, ADR 0007).
+settings.validate_for_startup()
 
 app = FastAPI(title="AMAZONA Backend")
 

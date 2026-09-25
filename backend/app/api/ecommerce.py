@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.storefront import Storefront as StorefrontModel
 from app.db.session import get_db
 from app.ecommerce.service import EcommerceStorefrontService
+from app.permissions.policies import ApiAction
 
 router = APIRouter(tags=["ecommerce"])
 
@@ -37,7 +40,11 @@ def _load_run(correlation_id: str, db: Session) -> StorefrontOut:
 
 
 @router.post("/api/ecommerce/runs", response_model=StorefrontOut, status_code=201)
-def create_storefront_run(payload: StorefrontRunCreate, db: Session = Depends(get_db)) -> StorefrontOut:
+def create_storefront_run(
+    payload: StorefrontRunCreate,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+) -> StorefrontOut:
     correlation_id = new_correlation_id()
     EcommerceStorefrontService(db).run_generation(
         product_id=payload.product_id,

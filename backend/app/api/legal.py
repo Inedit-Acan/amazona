@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.legal_analysis import LegalAnalysis as LegalAnalysisModel
 from app.db.session import get_db
 from app.legal.service import LegalComplianceService
+from app.permissions.policies import ApiAction
 
 router = APIRouter(tags=["legal"])
 
@@ -38,7 +41,11 @@ def _load_run(correlation_id: str, db: Session) -> LegalAnalysisOut:
 
 
 @router.post("/api/legal/runs", response_model=LegalAnalysisOut, status_code=201)
-def create_legal_analysis_run(payload: LegalAnalysisRunCreate, db: Session = Depends(get_db)) -> LegalAnalysisOut:
+def create_legal_analysis_run(
+    payload: LegalAnalysisRunCreate,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+) -> LegalAnalysisOut:
     correlation_id = new_correlation_id()
     LegalComplianceService(db).run_analysis(
         product_id=payload.product_id,

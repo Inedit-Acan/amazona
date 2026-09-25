@@ -4,12 +4,16 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import actor_name, authorize
+from app.core.config import Settings, get_settings
 from app.core.errors import NotFoundError, PipelineReviewNotPendingError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.pipeline_review import PipelineReview as PipelineReviewModel
 from app.db.models.pipeline_run import PipelineRun as PipelineRunModel
 from app.db.session import get_db
+from app.permissions.policies import ApiAction
 from app.pipeline.kill_switch import PipelineKillSwitchService
 from app.pipeline.service import PipelineOrchestrator, PipelineRequest
 
@@ -78,7 +82,11 @@ def _load_run(correlation_id: str, db: Session) -> PipelineRunOut:
 
 
 @router.post("/api/pipeline/runs", response_model=PipelineRunOut, status_code=201)
-def create_pipeline_run(payload: PipelineRunCreate, db: Session = Depends(get_db)) -> PipelineRunOut:
+def create_pipeline_run(
+    payload: PipelineRunCreate,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.PIPELINE_RUN)),
+) -> PipelineRunOut:
     request = PipelineRequest(**payload.model_dump())
     run = PipelineOrchestrator(db).run_pipeline(request)
     return _load_run(run.correlation_id, db)
@@ -106,19 +114,35 @@ def list_pipeline_reviews(db: Session = Depends(get_db)) -> list[PipelineReviewM
 
 @router.post("/api/pipeline/reviews/{review_id}/approve", response_model=PipelineReviewOut)
 def approve_pipeline_review(
-    review_id: str, payload: PipelineReviewActionIn, db: Session = Depends(get_db)
+    review_id: str,
+    payload: PipelineReviewActionIn,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.REVIEW_RESOLVE)),
+    settings: Settings = Depends(get_settings),
 ) -> PipelineReviewModel:
-    return _resolve_review(review_id, payload.actor, "APPROVED", db)
+    return _resolve_review(review_id, "APPROVED", db, identity, payload.actor, settings)
 
 
 @router.post("/api/pipeline/reviews/{review_id}/reject", response_model=PipelineReviewOut)
 def reject_pipeline_review(
-    review_id: str, payload: PipelineReviewActionIn, db: Session = Depends(get_db)
+    review_id: str,
+    payload: PipelineReviewActionIn,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.REVIEW_RESOLVE)),
+    settings: Settings = Depends(get_settings),
 ) -> PipelineReviewModel:
-    return _resolve_review(review_id, payload.actor, "REJECTED", db)
+    return _resolve_review(review_id, "REJECTED", db, identity, payload.actor, settings)
 
 
-def _resolve_review(review_id: str, actor: str, new_status: str, db: Session) -> PipelineReviewModel:
+def _resolve_review(
+    review_id: str,
+    new_status: str,
+    db: Session,
+    identity: Actor,
+    declared: str | None,
+    settings: Settings,
+) -> PipelineReviewModel:
+    actor = actor_name(identity, declared, settings)
     review = db.get(PipelineReviewModel, review_id)
     if review is None:
         raise NotFoundError(f"pipeline review {review_id} not found")
@@ -133,6 +157,8 @@ def _resolve_review(review_id: str, actor: str, new_status: str, db: Session) ->
     db.add(
         AuditLog(
             actor=actor,
+            actor_role=identity.role,
+            actor_source=identity.source,
             action=f"pipeline_review.{action_verb}",
             resource=f"pipeline_review:{review.id}",
             before={"status": before_status},
@@ -152,13 +178,24 @@ def get_kill_switch(db: Session = Depends(get_db)) -> KillSwitchOut:
 
 
 @router.post("/api/pipeline/kill-switch", response_model=KillSwitchOut)
-def set_kill_switch(payload: KillSwitchSetIn, db: Session = Depends(get_db)) -> KillSwitchOut:
+def set_kill_switch(
+    payload: KillSwitchSetIn,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.KILL_SWITCH_WRITE)),
+    settings: Settings = Depends(get_settings),
+) -> KillSwitchOut:
     service = PipelineKillSwitchService(db)
     correlation_id = new_correlation_id()
+    # The kill switch is the one control that must never be attributable to a
+    # name the caller made up (plan maestro §P0.4).
+    actor = actor_name(identity, payload.actor, settings)
     if payload.enabled:
-        state = service.enable(actor=payload.actor, correlation_id=correlation_id)
+        state = service.enable(actor=actor, correlation_id=correlation_id, identity=identity)
     else:
         state = service.disable(
-            reason=payload.reason or "no reason given", actor=payload.actor, correlation_id=correlation_id
+            reason=payload.reason or "no reason given",
+            actor=actor,
+            correlation_id=correlation_id,
+            identity=identity,
         )
     return KillSwitchOut.model_validate(state, from_attributes=True)

@@ -2,10 +2,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.supplier_quote import SupplierQuote as SupplierQuoteModel
 from app.db.session import get_db
+from app.permissions.policies import ApiAction
 from app.sourcing.service import SourcingService
 
 router = APIRouter(tags=["sourcing"])
@@ -51,7 +54,11 @@ def _load_run(correlation_id: str, db: Session) -> SourcingRunOut:
 
 
 @router.post("/api/sourcing/runs", response_model=SourcingRunOut, status_code=201)
-def create_sourcing_run(payload: SourcingRunCreate, db: Session = Depends(get_db)) -> SourcingRunOut:
+def create_sourcing_run(
+    payload: SourcingRunCreate,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+) -> SourcingRunOut:
     correlation_id = new_correlation_id()
     quotes = SourcingService(db).run_sourcing(
         product_id=payload.product_id,

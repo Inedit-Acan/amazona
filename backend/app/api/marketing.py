@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.marketing_campaign import MarketingCampaign as MarketingCampaignModel
 from app.db.session import get_db
 from app.marketing.service import MarketingCampaignService
+from app.permissions.policies import ApiAction
 
 router = APIRouter(tags=["marketing"])
 
@@ -42,7 +45,9 @@ def _load_run(correlation_id: str, db: Session) -> MarketingCampaignOut:
 
 @router.post("/api/marketing/runs", response_model=MarketingCampaignOut, status_code=201)
 def create_marketing_campaign_run(
-    payload: MarketingCampaignRunCreate, db: Session = Depends(get_db)
+    payload: MarketingCampaignRunCreate,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
 ) -> MarketingCampaignOut:
     correlation_id = new_correlation_id()
     MarketingCampaignService(db).run_generation(

@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import authorize
 from app.cfo.service import CFOService
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.cfo_report import CFOReport as CFOReportModel
 from app.db.session import get_db
+from app.permissions.policies import ApiAction
 
 router = APIRouter(tags=["cfo"])
 
@@ -29,7 +32,10 @@ def _load_run(correlation_id: str, db: Session) -> CFOReportOut:
 
 
 @router.post("/api/cfo/runs", response_model=CFOReportOut, status_code=201)
-def create_cfo_run(db: Session = Depends(get_db)) -> CFOReportOut:
+def create_cfo_run(
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+) -> CFOReportOut:
     correlation_id = new_correlation_id()
     CFOService(db).run_generation(correlation_id=correlation_id)
     return _load_run(correlation_id, db)

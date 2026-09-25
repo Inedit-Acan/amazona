@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.marketplace_listing import MarketplaceListing as MarketplaceListingModel
 from app.db.session import get_db
 from app.marketplace.service import MarketplaceListingService
+from app.permissions.policies import ApiAction
 
 router = APIRouter(tags=["marketplace"])
 
@@ -40,7 +43,9 @@ def _load_run(correlation_id: str, db: Session) -> MarketplaceListingOut:
 
 @router.post("/api/marketplace/runs", response_model=MarketplaceListingOut, status_code=201)
 def create_marketplace_listing_run(
-    payload: MarketplaceListingRunCreate, db: Session = Depends(get_db)
+    payload: MarketplaceListingRunCreate,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
 ) -> MarketplaceListingOut:
     correlation_id = new_correlation_id()
     MarketplaceListingService(db).run_generation(

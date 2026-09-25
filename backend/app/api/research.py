@@ -2,11 +2,14 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.product import Product as ProductModel
 from app.db.models.product_analysis import ProductAnalysis as ProductAnalysisModel
 from app.db.session import get_db
+from app.permissions.policies import ApiAction
 from app.research.service import ResearchService
 
 router = APIRouter(prefix="/api/research", tags=["research"])
@@ -63,7 +66,11 @@ def _load_run(correlation_id: str, db: Session) -> ResearchRunOut:
 
 
 @router.post("/runs", response_model=ResearchRunOut, status_code=201)
-def create_research_run(payload: ResearchRunCreate, db: Session = Depends(get_db)) -> ResearchRunOut:
+def create_research_run(
+    payload: ResearchRunCreate,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+) -> ResearchRunOut:
     correlation_id = new_correlation_id()
     products = ResearchService(db).run_research(
         category=payload.category,

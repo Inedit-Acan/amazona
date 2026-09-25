@@ -5,11 +5,15 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import actor_name, authorize
+from app.core.config import Settings, get_settings
 from app.core.errors import IncidentNotOpenError, NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.incident import Incident as IncidentModel
 from app.db.session import get_db
+from app.permissions.policies import ApiAction
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
@@ -45,7 +49,12 @@ def list_incidents(db: Session = Depends(get_db)) -> list[IncidentModel]:
 
 
 @router.post("", response_model=IncidentOut, status_code=201)
-def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)) -> IncidentModel:
+def create_incident(
+    payload: IncidentCreate,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.INCIDENT_WRITE)),
+    settings: Settings = Depends(get_settings),
+) -> IncidentModel:
     """v1: manual reporting only — a human records what they observed.
     Deliberately does not auto-create incidents from system signals (e.g.
     ServiceMap showing the backend down, or a stale PipelineReview) —
@@ -64,7 +73,9 @@ def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)) -> I
 
     db.add(
         AuditLog(
-            actor=payload.actor,
+            actor=actor_name(identity, payload.actor, settings),
+            actor_role=identity.role,
+            actor_source=identity.source,
             action="incident.create",
             resource=f"incident:{incident.id}",
             before=None,
@@ -78,7 +89,13 @@ def create_incident(payload: IncidentCreate, db: Session = Depends(get_db)) -> I
 
 
 @router.post("/{incident_id}/resolve", response_model=IncidentOut)
-def resolve_incident(incident_id: str, payload: IncidentResolveIn, db: Session = Depends(get_db)) -> IncidentModel:
+def resolve_incident(
+    incident_id: str,
+    payload: IncidentResolveIn,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.INCIDENT_WRITE)),
+    settings: Settings = Depends(get_settings),
+) -> IncidentModel:
     incident = db.get(IncidentModel, incident_id)
     if incident is None:
         raise NotFoundError(f"incident {incident_id} not found")
@@ -91,7 +108,9 @@ def resolve_incident(incident_id: str, payload: IncidentResolveIn, db: Session =
 
     db.add(
         AuditLog(
-            actor=payload.actor,
+            actor=actor_name(identity, payload.actor, settings),
+            actor_role=identity.role,
+            actor_source=identity.source,
             action="incident.resolve",
             resource=f"incident:{incident.id}",
             before={"status": before_status},

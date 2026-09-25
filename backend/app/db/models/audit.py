@@ -13,6 +13,11 @@ class AuditLog(IdMixin, Base):
     __tablename__ = "audit_log"
 
     actor: Mapped[str] = mapped_column(String(255))
+    #: Role the actor held when it acted, and where its identity came from
+    #: (token / declared / cli / system). Nullable: rows written before
+    #: Milestone 29 predate verified identity and are never rewritten.
+    actor_role: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    actor_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
     action: Mapped[str] = mapped_column(String(255))
     resource: Mapped[str] = mapped_column(String(255))
     before: Mapped[dict | None] = mapped_column(JSON, nullable=True)

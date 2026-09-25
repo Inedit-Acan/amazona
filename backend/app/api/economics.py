@@ -5,11 +5,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.auth.actor import Actor
+from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.economic_analysis import EconomicAnalysis as EconomicAnalysisModel
 from app.db.session import get_db
 from app.economics.service import EconomicAnalysisService
+from app.permissions.policies import ApiAction
 
 router = APIRouter(tags=["economics"])
 
@@ -45,7 +48,9 @@ def _load_run(correlation_id: str, db: Session) -> EconomicAnalysisOut:
 
 @router.post("/api/economics/runs", response_model=EconomicAnalysisOut, status_code=201)
 def create_economic_analysis_run(
-    payload: EconomicAnalysisRunCreate, db: Session = Depends(get_db)
+    payload: EconomicAnalysisRunCreate,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
 ) -> EconomicAnalysisOut:
     correlation_id = new_correlation_id()
     EconomicAnalysisService(db).run_analysis(

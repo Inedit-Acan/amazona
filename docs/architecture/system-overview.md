@@ -269,3 +269,71 @@ cd apps/control-center && npm run dev   # http://localhost:3000
 - **Trazabilidad de cualquier ejecución:** cada paso (Milestone 1 o
   Fase 3/Pipeline) tiene su propio `correlation_id` — reconstruible vía
   `GET /api/audit?correlation_id=` o la página **Audit**.
+
+---
+
+## 11. Identidad, roles y entornos (Milestone 29)
+
+Añadido después del cierre de Fase 4. Detalle completo en
+[ADR 0007](adr-0007-production-security.md).
+
+### 11.1 El entorno manda
+
+`Settings.environment` (`backend/app/core/config.py`) toma uno de cinco valores
+y de él salen tres propiedades que el resto del backend consulta:
+
+| Propiedad | development · test · demo | staging · production |
+|---|---|---|
+| `enforces_auth` | solo con `REQUIRE_AUTH=true` | siempre |
+| `enforces_rbac` | no | sí |
+| `allows_declared_actor` | sí | no |
+
+`validate_for_startup()` corre al importar `app.main` y aborta el arranque de un
+entorno exigente mal configurado (sin Supabase, o con CORS apuntando a
+localhost en producción).
+
+### 11.2 De token a rol
+
+```text
+Authorization: Bearer …
+        ↓  AuthService.verify()   firma + exp + iss + aud
+      sub, email
+        ↓  RoleService.role_for_subject()
+   users.subject → users.role_id → roles.name
+        ↓
+      Actor(subject, email, role, source)
+```
+
+`users.subject` guarda el `sub` de Supabase. El propietario da de alta a alguien
+por email con `python -m app.cli grant-role`; el primer inicio de sesión
+verificado reclama la fila.
+
+### 11.3 Qué puede cada rol
+
+`ApiAction` en `backend/app/permissions/policies.py`; deny-by-default.
+
+| Acción | OWNER | ADMIN | OPERATOR | ANALYST | REVIEWER | VIEWER | SYSTEM |
+|---|---|---|---|---|---|---|---|
+| `objective.write` | ✅ | ✅ | ✅ | — | — | — | ✅ |
+| `agent.run` | ✅ | ✅ | ✅ | ✅ | — | — | ✅ |
+| `pipeline.run` | ✅ | ✅ | ✅ | — | — | — | ✅ |
+| `approval.resolve` | ✅ | ✅ | — | — | ✅ | — | — |
+| `review.resolve` | ✅ | ✅ | — | — | ✅ | — | — |
+| `incident.write` | ✅ | ✅ | ✅ | — | — | — | ✅ |
+| `kill_switch.write` | ✅ | ✅ | — | — | — | — | — |
+
+Convive con el `PermissionEngine`/`ActionType` de Milestone 1, que resuelve otro
+eje: qué puede hacer un **agente** mientras se ejecuta, y cuya respuesta puede
+ser «pregunta a un humano» (ADR 0007 §4).
+
+### 11.4 Auditoría
+
+`audit_log` gana `actor_role` y `actor_source` (`token` / `declared` / `cli` /
+`system`), así que una fila histórica dice si el nombre que aparece en `actor`
+estaba verificado o solo afirmado por quien llamó.
+
+### 11.5 Lo que sigue abierto
+
+Solo están protegidas las 19 rutas mutadoras. Los `GET` no piden identidad:
+cerrarlos obliga a propagar la sesión al renderizado en servidor del Control
+Center y es el Milestone 29.1.
