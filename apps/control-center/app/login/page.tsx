@@ -19,10 +19,10 @@ export default function LoginPage() {
   if (!isAuthConfigured) {
     return (
       <div>
-        <PageHeader title="Login" />
+        <PageHeader title="Iniciar sesión" />
         <Card className="max-w-md">
           <CardContent className="py-8 text-sm text-muted-foreground">
-            Supabase auth is not configured for this deployment — the Control Center is open, no login required.
+            La autenticación de Supabase no está configurada para este despliegue — el Control Center está abierto, no requiere inicio de sesión.
           </CardContent>
         </Card>
       </div>
@@ -37,7 +37,7 @@ export default function LoginPage() {
       await signInWithPassword(email, password);
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed.");
+      setError(err instanceof Error ? err.message : "No se pudo iniciar sesión.");
     } finally {
       setSubmitting(false);
     }
@@ -45,16 +45,16 @@ export default function LoginPage() {
 
   return (
     <div>
-      <PageHeader title="Login" description="Sign in with your AMAZONA owner/operator account." />
+      <PageHeader title="Iniciar sesión" description="Inicia sesión con tu cuenta de propietario/operador de AMAZONA." />
       <Card className="max-w-md">
         <CardHeader>
-          <CardTitle>Sign in</CardTitle>
+          <CardTitle>Iniciar sesión</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-1.5">
               <label htmlFor="email" className="text-sm font-medium">
-                Email
+                Correo electrónico
               </label>
               <input
                 id="email"
@@ -67,7 +67,7 @@ export default function LoginPage() {
             </div>
             <div className="space-y-1.5">
               <label htmlFor="password" className="text-sm font-medium">
-                Password
+                Contraseña
               </label>
               <input
                 id="password"
@@ -81,12 +81,12 @@ export default function LoginPage() {
             {error ? (
               <Alert variant="destructive">
                 <AlertTriangle className="size-4" />
-                <AlertTitle>Could not sign in</AlertTitle>
+                <AlertTitle>No se pudo iniciar sesión</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             ) : null}
             <Button type="submit" disabled={submitting}>
-              {submitting ? "Signing in…" : "Sign in"}
+              {submitting ? "Iniciando sesión…" : "Iniciar sesión"}
             </Button>
           </form>
         </CardContent>

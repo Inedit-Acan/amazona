@@ -25,7 +25,7 @@ export function SessionBadge() {
   if (!email) {
     return (
       <Link href="/login" className="text-xs text-muted-foreground underline-offset-4 hover:underline">
-        Sign in
+        Iniciar sesión
       </Link>
     );
   }
@@ -39,7 +39,7 @@ export function SessionBadge() {
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <span className="truncate">{email}</span>
-      <Button variant="ghost" size="icon-xs" aria-label="Sign out" onClick={handleSignOut}>
+      <Button variant="ghost" size="icon-xs" aria-label="Cerrar sesión" onClick={handleSignOut}>
         <LogOut className="size-3.5" />
       </Button>
     </div>
