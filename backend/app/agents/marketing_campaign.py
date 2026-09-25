@@ -1,7 +1,10 @@
+from typing import cast
+
 from pydantic import BaseModel
 
 from app.agents.base import Agent, AgentResult, AgentResultStatus
-from app.ai.mock_ad_performance_directory import MockAdPerformanceDirectory
+from app.integrations.ports import AdPerformanceDirectory, IntegrationDomain
+from app.integrations.registry import ProviderRegistry
 from app.marketing.creative import generate_ad_creative, generate_audience_segments, recommend_budget_action
 
 _WEAK_ROAS_THRESHOLD = 1.0
@@ -41,8 +44,10 @@ class MarketingCampaignAgent(Agent):
     capability = "marketing_campaign_planning"
     input_schema = MarketingCampaignInput
 
-    def __init__(self, directory: MockAdPerformanceDirectory | None = None) -> None:
-        self._directory = directory or MockAdPerformanceDirectory()
+    def __init__(self, directory: AdPerformanceDirectory | None = None) -> None:
+        self._directory: AdPerformanceDirectory = directory or cast(
+            AdPerformanceDirectory, ProviderRegistry().resolve(IntegrationDomain.ADS)
+        )
 
     def run(self, task_input: dict) -> AgentResult:
         params = MarketingCampaignInput.model_validate(task_input)

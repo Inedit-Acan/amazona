@@ -1,11 +1,25 @@
+from functools import lru_cache
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.agents.registry import build_default_agent_manager
+from app.agents.registry import AgentRegistry, build_default_agent_manager
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
-_registry, _ = build_default_agent_manager()
+
+@lru_cache
+def _agent_registry() -> AgentRegistry:
+    """Built on first use, not on import.
+
+    Constructing it at import time built every agent — and therefore resolved
+    every external provider — before `app.main` had a chance to validate the
+    configuration, so a misconfigured deployment failed with the message of
+    whichever agent happened to be built first instead of the one the startup
+    check gives (Milestone 30).
+    """
+    registry, _ = build_default_agent_manager()
+    return registry
 
 
 class AgentOut(BaseModel):
@@ -32,5 +46,5 @@ def list_agents() -> list[AgentOut]:
             version=agent.version,
             cost_profile=agent.cost_profile,
         )
-        for agent in _registry.list_all()
+        for agent in _agent_registry().list_all()
     ]

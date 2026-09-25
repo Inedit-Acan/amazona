@@ -1,7 +1,10 @@
+from typing import cast
+
 from pydantic import BaseModel
 
 from app.agents.base import Agent, AgentResult, AgentResultStatus
-from app.ai.mock_regulatory_directory import MockRegulatoryDirectory
+from app.integrations.ports import IntegrationDomain, RegulatoryDirectory
+from app.integrations.registry import ProviderRegistry
 from app.legal.terms_template import generate_terms_and_conditions
 
 
@@ -26,8 +29,10 @@ class LegalComplianceAgent(Agent):
     capability = "legal_compliance_analysis"
     input_schema = LegalComplianceInput
 
-    def __init__(self, directory: MockRegulatoryDirectory | None = None) -> None:
-        self._directory = directory or MockRegulatoryDirectory()
+    def __init__(self, directory: RegulatoryDirectory | None = None) -> None:
+        self._directory: RegulatoryDirectory = directory or cast(
+            RegulatoryDirectory, ProviderRegistry().resolve(IntegrationDomain.REGULATORY)
+        )
 
     def run(self, task_input: dict) -> AgentResult:
         params = LegalComplianceInput.model_validate(task_input)

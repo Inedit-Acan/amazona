@@ -1,7 +1,10 @@
+from typing import cast
+
 from pydantic import BaseModel, Field
 
 from app.agents.base import Agent, AgentResult, AgentResultStatus
-from app.ai.mock_trends_provider import MockTrendsProvider
+from app.integrations.ports import IntegrationDomain, ProductSignalProvider
+from app.integrations.registry import ProviderRegistry
 
 _COMPETITION_FACTOR = {"low": 1.0, "medium": 0.6, "high": 0.3}
 
@@ -20,8 +23,12 @@ class ProductResearchAgent(Agent):
     capability = "product_research"
     input_schema = ProductResearchInput
 
-    def __init__(self, trends_provider: MockTrendsProvider | None = None) -> None:
-        self._trends = trends_provider or MockTrendsProvider()
+    def __init__(self, trends_provider: ProductSignalProvider | None = None) -> None:
+        # Resolved from configuration, not hardcoded: which provider backs this
+        # agent is a deployment decision (Milestone 30).
+        self._trends: ProductSignalProvider = trends_provider or cast(
+            ProductSignalProvider, ProviderRegistry().resolve(IntegrationDomain.PRODUCT_INTELLIGENCE)
+        )
 
     def run(self, task_input: dict) -> AgentResult:
         params = ProductResearchInput.model_validate(task_input)

@@ -337,3 +337,47 @@ estaba verificado o solo afirmado por quien llamó.
 Solo están protegidas las 19 rutas mutadoras. Los `GET` no piden identidad:
 cerrarlos obliga a propagar la sesión al renderizado en servidor del Control
 Center y es el Milestone 29.1.
+
+---
+
+## 12. Proveedores externos: demo vs real (Milestone 30)
+
+Detalle en [ADR 0008](adr-0008-demo-production-isolation.md).
+
+### 12.1 El contrato
+
+`app/integrations/ports.py` declara un `Protocol` por dominio externo y los
+agentes dependen de él, no de una clase concreta:
+
+```text
+Agent → Port (Protocol) → Adapter → External API
+```
+
+| Dominio | Puerto | Agente |
+|---|---|---|
+| `product_intelligence` | `ProductSignalProvider` | `ProductResearchAgent` |
+| `suppliers` | `SupplierDirectory` | `SupplierSourcingAgent` |
+| `regulatory` | `RegulatoryDirectory` | `LegalComplianceAgent` |
+| `ads` | `AdPerformanceDirectory` | `MarketingCampaignAgent` |
+| `marketplaces` | `MarketplaceDirectory` | `MarketplaceListingAgent` |
+
+### 12.2 Quién está activo
+
+`ProviderRegistry` lo resuelve desde Settings (`<DOMINIO>_PROVIDER` =
+`mock` | `sandbox` | `real`). Dos reglas, comprobadas al arrancar y reportadas
+por separado:
+
+- **`staging`/`production` no arrancan** si algún dominio sigue en `mock`.
+- **Pedir un adaptador que no existe falla** en cualquier entorno, en vez de
+  caer al mock en silencio.
+
+`GET /health/detailed` devuelve el entorno y el binding de cada dominio con su
+`simulated: true|false`.
+
+### 12.3 En el frontend
+
+`lib/demo/` sigue alimentando los paneles, marcado con `DataProvenanceBadge`.
+`lib/demo-boundary.test.ts` congela la superficie: los 41 módulos que hoy
+dependen de datos de demostración están listados, la lista solo puede encoger, y
+el núcleo (`api.ts`, `auth.ts`, `format.ts`, `dates.ts`, `utils.ts`) no puede
+tocarlos nunca. Retirarlos panel a panel es el Milestone 30.1.

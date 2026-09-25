@@ -1,7 +1,10 @@
+from typing import cast
+
 from pydantic import BaseModel, Field
 
 from app.agents.base import Agent, AgentResult, AgentResultStatus
-from app.ai.mock_supplier_directory import MockSupplierDirectory
+from app.integrations.ports import IntegrationDomain, SupplierDirectory
+from app.integrations.registry import ProviderRegistry
 from app.sourcing.logistics import estimate_logistics_cost
 
 
@@ -21,8 +24,10 @@ class SupplierSourcingAgent(Agent):
     capability = "supplier_sourcing_research"
     input_schema = SupplierSourcingInput
 
-    def __init__(self, directory: MockSupplierDirectory | None = None) -> None:
-        self._directory = directory or MockSupplierDirectory()
+    def __init__(self, directory: SupplierDirectory | None = None) -> None:
+        self._directory: SupplierDirectory = directory or cast(
+            SupplierDirectory, ProviderRegistry().resolve(IntegrationDomain.SUPPLIERS)
+        )
 
     def run(self, task_input: dict) -> AgentResult:
         params = SupplierSourcingInput.model_validate(task_input)

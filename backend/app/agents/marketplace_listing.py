@@ -1,8 +1,11 @@
+from typing import cast
+
 from pydantic import BaseModel
 
 from app.agents.base import Agent, AgentResult, AgentResultStatus
-from app.ai.mock_marketplace_directory import MockMarketplaceDirectory
 from app.economics.channel_commission import compute_channel_net_margin
+from app.integrations.ports import IntegrationDomain, MarketplaceDirectory
+from app.integrations.registry import ProviderRegistry
 from app.marketplace.listing_content import generate_listing_content
 
 
@@ -37,8 +40,10 @@ class MarketplaceListingAgent(Agent):
     capability = "marketplace_listing_optimization"
     input_schema = MarketplaceListingInput
 
-    def __init__(self, directory: MockMarketplaceDirectory | None = None) -> None:
-        self._directory = directory or MockMarketplaceDirectory()
+    def __init__(self, directory: MarketplaceDirectory | None = None) -> None:
+        self._directory: MarketplaceDirectory = directory or cast(
+            MarketplaceDirectory, ProviderRegistry().resolve(IntegrationDomain.MARKETPLACES)
+        )
 
     def run(self, task_input: dict) -> AgentResult:
         params = MarketplaceListingInput.model_validate(task_input)

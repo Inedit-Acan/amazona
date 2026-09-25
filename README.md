@@ -117,6 +117,8 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   [`AMAZONA_estado_paneles_rediseno.md`](docs/design/AMAZONA_estado_paneles_rediseno.md).
 - **Milestone 29:** base de seguridad para producción
   ([ADR 0007](docs/architecture/adr-0007-production-security.md)) — ver abajo.
+- **Milestone 30:** aislamiento entre datos de demostración y datos reales
+  ([ADR 0008](docs/architecture/adr-0008-demo-production-isolation.md)) — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -135,6 +137,27 @@ contabilidad, facturación, pagos, marketplaces y logística.
 
 El Control Center marca cada dato de demostración con su badge
 `DataProvenanceBadge`. Ningún módulo que use fixtures se describe como "real".
+
+Desde el Milestone 30, **qué proveedor respalda cada dominio es configuración
+explícita**, y `staging`/`production` se niegan a arrancar si alguno sigue en
+`mock`:
+
+| Variable | Dominio | Hoy |
+|---|---|---|
+| `PRODUCT_INTELLIGENCE_PROVIDER` | tendencias y demanda | `mock` |
+| `SUPPLIERS_PROVIDER` | proveedores y sus condiciones | `mock` |
+| `REGULATORY_PROVIDER` | normativa aplicable | `mock` |
+| `ADS_PROVIDER` | rendimiento publicitario | `mock` |
+| `MARKETPLACES_PROVIDER` | competencia en marketplaces | `mock` |
+
+Los valores posibles son `mock`, `sandbox` y `real`. Los adaptadores reales
+llegan en los Milestones 34-35; hasta entonces pedir `real` hace **fallar el
+arranque** con un mensaje claro, en vez de caer en silencio al mock.
+`GET /health/detailed` publica cuál está activo en cada dominio.
+
+**Deuda conocida:** 41 módulos del Control Center todavía importan `lib/demo`.
+Está medido y congelado por `lib/demo-boundary.test.ts`, que impide que la lista
+crezca; quitarlos panel a panel es el Milestone 30.1.
 
 ## Seguridad
 

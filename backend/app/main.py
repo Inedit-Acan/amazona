@@ -32,12 +32,15 @@ from app.core.errors import IncidentNotOpenError, NotFoundError, PipelineDisable
 from app.core.ids import new_correlation_id
 from app.core.logging import configure_logging, set_correlation_id
 from app.db.session import get_db
+from app.integrations.registry import ProviderRegistry, validate_providers
 
 settings = get_settings()
 configure_logging(settings.log_level)
 # Refuses to start a staging/production process that would accept anonymous
-# mutations or cannot verify a token at all (Milestone 29, ADR 0007).
+# mutations or cannot verify a token at all (Milestone 29, ADR 0007), or that
+# would take real decisions on fixture data (Milestone 30, ADR 0008).
 settings.validate_for_startup()
+validate_providers(settings)
 
 app = FastAPI(title="AMAZONA Backend")
 
@@ -121,6 +124,13 @@ def health_detailed(db: Session = Depends(get_db)) -> JSONResponse:
             "database": "ok",
             "migration": migration,
             "supabase_configured": settings.is_supabase_configured,
+            "environment": settings.environment,
+            # Which provider backs each external domain, and whether it is
+            # simulated. The Estado panel can say so instead of guessing.
+            "providers": [
+                {"domain": b.domain, "kind": b.kind, "name": b.name, "simulated": b.is_simulated}
+                for b in ProviderRegistry(settings).bindings()
+            ],
         }
     )
 

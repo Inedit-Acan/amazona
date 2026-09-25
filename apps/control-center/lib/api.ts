@@ -180,10 +180,25 @@ export interface AgentExecution {
   created_at: string;
 }
 
+/** De dónde salen los datos de un dominio externo (Milestone 30). `mock` son
+ * fixtures deterministas: nunca base de una decisión operativa. */
+export type ProviderKind = "mock" | "sandbox" | "real";
+
+export interface ProviderBinding {
+  domain: string;
+  kind: ProviderKind;
+  name: string;
+  simulated: boolean;
+}
+
 export interface DetailedHealth {
   database: "ok" | "error";
   migration: string | null;
   supabase_configured: boolean;
+  /** Ausentes cuando la base de datos no responde, y en backends anteriores al
+   * Milestone 30. */
+  environment?: string;
+  providers?: ProviderBinding[];
 }
 
 export type IncidentSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";

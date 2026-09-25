@@ -4,6 +4,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.integrations.ports import IntegrationDomain, ProviderKind
+
 # Anchored to backend/.env regardless of the process's current working
 # directory. A relative "env_file" is resolved against cwd, and
 # pydantic-settings silently skips a missing .env instead of erroring —
@@ -55,6 +57,17 @@ class Settings(BaseSettings):
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
 
+    # --- Proveedores externos (Milestone 30) ---
+    # Qué implementación se usa en cada dominio. "mock" son fixtures
+    # deterministas: valen para desarrollo, demos y tests, y nunca para una
+    # decisión operativa, así que staging y production se niegan a arrancar con
+    # ellas (ADR 0008).
+    product_intelligence_provider: ProviderKind = ProviderKind.MOCK
+    suppliers_provider: ProviderKind = ProviderKind.MOCK
+    regulatory_provider: ProviderKind = ProviderKind.MOCK
+    ads_provider: ProviderKind = ProviderKind.MOCK
+    marketplaces_provider: ProviderKind = ProviderKind.MOCK
+
     #: `aud` claim Supabase puts in the access tokens it issues. Configurable
     #: because a self-hosted GoTrue can be told to use another one.
     jwt_audience: str = "authenticated"
@@ -86,6 +99,22 @@ class Settings(BaseSettings):
     def allows_declared_actor(self) -> bool:
         """Whether an `actor` field in a request body may be trusted. Never in
         staging or production (plan maestro §P0.3)."""
+        return self.environment not in _ENFORCING
+
+    @property
+    def provider_kinds(self) -> dict[IntegrationDomain, ProviderKind]:
+        return {
+            IntegrationDomain.PRODUCT_INTELLIGENCE: self.product_intelligence_provider,
+            IntegrationDomain.SUPPLIERS: self.suppliers_provider,
+            IntegrationDomain.REGULATORY: self.regulatory_provider,
+            IntegrationDomain.ADS: self.ads_provider,
+            IntegrationDomain.MARKETPLACES: self.marketplaces_provider,
+        }
+
+    @property
+    def allows_simulated_providers(self) -> bool:
+        """Whether fixture data may back an agent here. Everywhere but staging
+        and production (plan maestro §P0.1)."""
         return self.environment not in _ENFORCING
 
     @property

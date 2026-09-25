@@ -100,6 +100,7 @@ Detalle de verificación por panel: `docs/milestones/milestone-28-demo.md`.
 | `lib/neural-nexus.ts` | Director ejecutivo (2.ª pasada) | Panel y Agentes (jerarquía y estado de la flota) |
 | `PrecisionNode` | Director ejecutivo (iteración 2) | Lenguaje visual común de cualquier nodo 3D |
 | `lib/decision-engine.ts` | Director ejecutivo (iteración 3) | Cualquier vista que necesite la geometría del Decision Engine (la vista 2D ya la usa) |
+| `lib/demo-boundary.test.ts` | Milestone 30 | Congela qué módulos dependen de `lib/demo`; la lista solo puede encoger |
 
 ---
 
