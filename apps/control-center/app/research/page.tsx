@@ -1,4 +1,5 @@
-import { api, type Product, type ResearchCandidate } from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { type Product, type ResearchCandidate } from "@/lib/api";
 import { ApiErrorAlert } from "@/components/api-error";
 import { PageHeader } from "@/components/page-header";
 import { RESEARCH_DESCRIPTION, RESEARCH_TITLE } from "./copy";

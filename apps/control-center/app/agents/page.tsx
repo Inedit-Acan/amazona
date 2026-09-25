@@ -1,4 +1,5 @@
-import { api, type Agent, type AgentExecution } from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { type Agent, type AgentExecution } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { AGENTS_DESCRIPTION, AGENTS_TITLE } from "./copy";

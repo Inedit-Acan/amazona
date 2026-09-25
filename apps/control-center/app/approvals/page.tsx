@@ -1,15 +1,5 @@
-import {
-  api,
-  type Agent,
-  type Approval,
-  type EconomicAnalysis,
-  type LegalAnalysis,
-  type MarketingCampaign,
-  type PipelineReview,
-  type Product,
-  type Storefront,
-  type SupplierQuote,
-} from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { type Agent, type Approval, type EconomicAnalysis, type LegalAnalysis, type MarketingCampaign, type PipelineReview, type Product, type Storefront, type SupplierQuote } from "@/lib/api";
 import { projectCodeFor } from "@/lib/projects-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";

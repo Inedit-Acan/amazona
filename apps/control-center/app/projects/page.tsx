@@ -1,12 +1,5 @@
-import {
-  api,
-  type Agent,
-  type AuditEntry,
-  type Decision,
-  type Product,
-  type Project,
-  type Task,
-} from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { type Agent, type AuditEntry, type Decision, type Product, type Project, type Task } from "@/lib/api";
 import { EMPTY_PRODUCT_OPERATIONS_DATA, loadProductOperationsData, type ProductOperationsData } from "@/lib/product-channels";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";

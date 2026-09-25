@@ -24,12 +24,27 @@ export class ApiError extends Error {
   }
 }
 
-async function authHeader(): Promise<Record<string, string>> {
-  // Only relevant in the browser (client components) — server components
-  // only ever issue GETs, which the backend never gates on auth.
-  if (typeof window === "undefined") return {};
+type TokenResolver = () => Promise<string | null>;
+
+/** De dónde sale el token de acceso. Por defecto, de la sesión del navegador.
+ *
+ * `lib/api-server.ts` lo sustituye por la lectura de las cookies de la
+ * petición. Es una inyección y no un `import()` condicional a propósito: este
+ * módulo lo importan también componentes de cliente, y cualquier referencia a
+ * `next/headers` desde aquí —aunque estuviera tras un `typeof window`— entraría
+ * en el bundle del navegador y rompería el build (Milestone 29.1). */
+let resolveAccessToken: TokenResolver = async () => {
+  if (typeof window === "undefined") return null;
   const { getAccessToken } = await import("@/lib/auth");
-  const token = await getAccessToken();
+  return getAccessToken();
+};
+
+export function setAccessTokenResolver(resolver: TokenResolver): void {
+  resolveAccessToken = resolver;
+}
+
+async function authHeader(): Promise<Record<string, string>> {
+  const token = await resolveAccessToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 

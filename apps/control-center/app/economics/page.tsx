@@ -1,4 +1,5 @@
-import { api, type EconomicAnalysis, type Product, type SupplierQuote } from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { type EconomicAnalysis, type Product, type SupplierQuote } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { EconomicsWorkspace } from "./economics-workspace";

@@ -1,4 +1,5 @@
-import { api, type Agent, type AuditEntry, type Product } from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { type Agent, type AuditEntry, type Product } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { AUDIT_DESCRIPTION, AUDIT_TITLE } from "./copy";

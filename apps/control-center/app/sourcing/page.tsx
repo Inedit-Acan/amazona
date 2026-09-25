@@ -1,4 +1,5 @@
-import { api, type Product, type SupplierQuote } from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { type Product, type SupplierQuote } from "@/lib/api";
 import { DEFAULT_SEARCH, type SearchParams } from "@/lib/sourcing-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";

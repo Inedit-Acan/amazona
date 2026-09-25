@@ -1,4 +1,5 @@
-import { ApiError, api, type Agent, type AgentExecution, type DetailedHealth, type Incident } from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { ApiError, type Agent, type AgentExecution, type DetailedHealth, type Incident } from "@/lib/api";
 import type { HealthSignal } from "@/lib/status";
 import { StatusWorkspace } from "./status-workspace";
 

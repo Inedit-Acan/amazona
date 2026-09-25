@@ -1,4 +1,5 @@
-import { api, type Product } from "@/lib/api";
+import { api } from "@/lib/api-server";
+import { type Product } from "@/lib/api";
 import { EMPTY_PRODUCT_MARKETING_DATA, loadProductMarketingData } from "@/lib/product-channels";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
