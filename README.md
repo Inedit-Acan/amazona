@@ -119,6 +119,8 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   ([ADR 0007](docs/architecture/adr-0007-production-security.md)) — ver abajo.
 - **Milestone 30:** aislamiento entre datos de demostración y datos reales
   ([ADR 0008](docs/architecture/adr-0008-demo-production-isolation.md)) — ver abajo.
+- **Milestone 31:** runtime de trabajos asíncronos
+  ([ADR 0009](docs/architecture/adr-0009-async-job-runtime.md)) — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -222,6 +224,32 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 Sin esas dos primeras, el Control Center funciona sin login, como hasta ahora.
+
+## Trabajos asíncronos
+
+Desde el Milestone 31 el trabajo largo no vive dentro de la petición HTTP. Hay
+una cola en PostgreSQL y un worker:
+
+```bash
+cd backend
+python -m app.jobs.worker          # bucle; se pueden levantar varios
+python -m app.jobs.worker --once   # trata un trabajo y termina
+```
+
+Encolar es `POST /api/jobs` con un tipo de `GET /api/jobs/types`. Hoy hay dos:
+`research.run` (una investigación de producto de verdad) y `diagnostic.echo`
+(comprueba el runtime sin tocar negocio; con `{"fail": true}` falla a propósito
+para ver los reintentos).
+
+Un trabajo reintenta con espera exponencial y, al agotar sus intentos, queda en
+`FAILED` — que es la cola de mensajes muertos: se vacía con
+`POST /api/jobs/{id}/requeue`. El panel **Estado** lo enseña todo.
+
+Encolar, cancelar y reencolar requieren el rol OWNER, ADMIN, OPERATOR o SYSTEM;
+mirar la cola, cualquiera.
+
+**Redis no se usa**: PostgreSQL es la cola y la fuente de verdad, por las
+razones de la [ADR 0009](docs/architecture/adr-0009-async-job-runtime.md) §2.
 
 ## Notas
 

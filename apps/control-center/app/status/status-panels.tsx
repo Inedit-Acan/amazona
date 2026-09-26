@@ -21,6 +21,8 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
+import type { Job, JobStatus } from "@/lib/api";
+import { jobCounts, jobRows, queueVerdict, workerSeen } from "@/lib/jobs-view";
 import {
   DEMO_DB_METRICS,
   DEMO_CRON_FAILURES_24H,
@@ -756,6 +758,108 @@ export function CostCard({ lines }: { lines: CostLine[] }) {
         <p className="text-[11px] text-muted-foreground">
           Base de datos, storage, functions y APIs externas son de demostración: no hay medición de consumo.
         </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Nombre legible de cada estado del runtime. */
+const JOB_STATUS_LABEL: Record<JobStatus, string> = {
+  PENDING: "Programado",
+  QUEUED: "En cola",
+  RUNNING: "Ejecutando",
+  RETRYING: "Reintentando",
+  WAITING_APPROVAL: "Esperando aprobación",
+  BLOCKED: "Bloqueado",
+  COMPLETED: "Completado",
+  FAILED: "Agotado",
+  CANCELLED: "Cancelado",
+};
+
+/** Runtime de trabajos (Milestone 31).
+ *
+ * Es el único panel de esta pantalla sin datos de demostración: o el backend
+ * responde la cola, o no se enseña nada. Una cola inventada diría que el sistema
+ * está trabajando cuando no lo está. */
+export function JobRuntimeCard({
+  jobs,
+  now,
+}: {
+  jobs: Job[] | null;
+  now: number;
+}) {
+  if (jobs === null) {
+    return (
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle>Runtime de trabajos</CardTitle>
+          <CardDescription className="text-xs">Sin respuesta del backend</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground">
+            No se pudo leer la cola. No se enseña una estimación: una cola inventada diría que el sistema
+            está trabajando cuando no lo está.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const counts = jobCounts(jobs);
+  const verdict = queueVerdict(counts, workerSeen(jobs));
+  const rows = jobRows(jobs);
+  const tone =
+    verdict.tone === "error" ? "text-destructive" : verdict.tone === "warning" ? "text-warning" : "text-primary";
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Runtime de trabajos
+          <DataProvenanceBadge status="verified" compact tooltip="Cola real del backend: sin datos de demostración." />
+        </CardTitle>
+        <CardDescription className={`text-xs ${tone}`}>{verdict.headline}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-[11px] text-muted-foreground">{verdict.detail}</p>
+
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: "En cola", value: counts.queued + counts.pending },
+            { label: "Ejecutando", value: counts.running },
+            { label: "Reintentando", value: counts.retrying },
+            { label: "Agotados", value: counts.failed },
+          ].map((cell) => (
+            <div key={cell.label} className="rounded-md border p-2">
+              <p className="text-[10px] text-muted-foreground">{cell.label}</p>
+              <p className="text-base font-semibold tabular-nums">{formatInteger(cell.value)}</p>
+            </div>
+          ))}
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Todavía no se ha encolado ningún trabajo.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {rows.map((row) => (
+              <li key={row.id} className="flex items-start justify-between gap-2 text-xs">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium" title={row.type}>
+                    {row.type}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {JOB_STATUS_LABEL[row.status]} · intento {row.attempts} · {relativeTime(row.at, now)}
+                  </span>
+                  {row.error ? (
+                    <span className="block truncate text-[11px] text-destructive" title={row.error}>
+                      {row.error}
+                    </span>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );

@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { ApiError, type Agent, type AgentExecution, type DetailedHealth, type Incident } from "@/lib/api";
+import { ApiError, type Agent, type AgentExecution, type DetailedHealth, type Incident, type Job } from "@/lib/api";
 import type { HealthSignal } from "@/lib/status";
 import { StatusWorkspace } from "./status-workspace";
 
@@ -24,12 +24,13 @@ async function fetchHealth(): Promise<HealthSignal & { migration: string | null 
 }
 
 export default async function StatusPage() {
-  const [health, executions, incidents, agents] = await Promise.all([
+  const [health, executions, incidents, agents, jobs] = await Promise.all([
     fetchHealth(),
     // null = la petición falló: no es lo mismo que «cero» y no se muestra como tal
     api.listAgentExecutions().catch((): AgentExecution[] | null => null),
     api.listIncidents().catch((): Incident[] | null => null),
     api.listAgents().catch((): Agent[] => []),
+    api.listJobs().catch((): Job[] | null => null),
   ]);
   const { migration, ...signal } = health;
 
@@ -44,6 +45,7 @@ export default async function StatusPage() {
       agents={agents}
       executions={executions}
       incidents={incidents}
+      jobs={jobs}
       now={now}
     />
   );

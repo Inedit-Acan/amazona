@@ -53,6 +53,9 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     ("POST", "/api/pipeline/kill-switch", {"enabled": True, "actor": "x"}, ApiAction.KILL_SWITCH_WRITE),
     ("POST", "/api/incidents", {"title": "T", "severity": "LOW", "actor": "x"}, ApiAction.INCIDENT_WRITE),
     ("POST", "/api/incidents/inc-1/resolve", {"actor": "x"}, ApiAction.INCIDENT_WRITE),
+    ("POST", "/api/jobs", {"type": "diagnostic.echo"}, ApiAction.JOB_WRITE),
+    ("POST", "/api/jobs/job-1/cancel", {}, ApiAction.JOB_WRITE),
+    ("POST", "/api/jobs/job-1/requeue", {}, ApiAction.JOB_WRITE),
 ]
 
 USERS: dict[RoleName, str] = {role: f"sub-{role.value.lower()}" for role in RoleName}
@@ -197,6 +200,9 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/pipeline/kill-switch"),
         ("POST", "/api/incidents"),
         ("POST", "/api/incidents/{incident_id}/resolve"),
+        ("POST", "/api/jobs"),
+        ("POST", "/api/jobs/{job_id}/cancel"),
+        ("POST", "/api/jobs/{job_id}/requeue"),
     }
     assert actual == templated
     assert len(declared) == len(templated)

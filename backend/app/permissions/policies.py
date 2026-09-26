@@ -64,6 +64,10 @@ class ApiAction(StrEnum):
     #: Read deployment diagnostics: schema version, environment and which
     #: provider backs each external domain.
     DIAGNOSTICS_READ = "diagnostics.read"
+    #: Enqueue, cancel or requeue a job. Milestone 31. Reading jobs is
+    #: BUSINESS_READ: seeing what the system is doing is not the same as
+    #: making it do something.
+    JOB_WRITE = "job.write"
 
 
 #: Who may do what over HTTP. Deny by default: an action absent from a role's
@@ -83,6 +87,7 @@ API_ROLE_ACTIONS: dict[RoleName, frozenset[ApiAction]] = {
             ApiAction.AGENT_RUN,
             ApiAction.PIPELINE_RUN,
             ApiAction.INCIDENT_WRITE,
+            ApiAction.JOB_WRITE,
             ApiAction.BUSINESS_READ,
             ApiAction.DIAGNOSTICS_READ,
         }
@@ -108,6 +113,7 @@ API_ROLE_ACTIONS: dict[RoleName, frozenset[ApiAction]] = {
             ApiAction.AGENT_RUN,
             ApiAction.PIPELINE_RUN,
             ApiAction.INCIDENT_WRITE,
+            ApiAction.JOB_WRITE,
             ApiAction.BUSINESS_READ,
             ApiAction.DIAGNOSTICS_READ,
         }

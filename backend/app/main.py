@@ -13,6 +13,7 @@ from app.api import (
     ecommerce,
     economics,
     incidents,
+    jobs,
     legal,
     marketing,
     marketplace,
@@ -188,3 +189,4 @@ app.include_router(operations.router, dependencies=BUSINESS)
 app.include_router(cfo.router, dependencies=BUSINESS)
 app.include_router(pipeline.router, dependencies=BUSINESS)
 app.include_router(incidents.router, dependencies=BUSINESS)
+app.include_router(jobs.router, dependencies=BUSINESS)

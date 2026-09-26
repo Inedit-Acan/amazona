@@ -216,6 +216,37 @@ export interface DetailedHealth {
   providers?: ProviderBinding[];
 }
 
+/** Runtime de trabajos (Milestone 31). */
+export type JobStatus =
+  | "PENDING"
+  | "QUEUED"
+  | "RUNNING"
+  | "RETRYING"
+  | "WAITING_APPROVAL"
+  | "BLOCKED"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+
+export interface Job {
+  id: string;
+  type: string;
+  status: JobStatus;
+  payload: Record<string, unknown>;
+  correlation_id: string;
+  attempt: number;
+  max_attempts: number;
+  available_at: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  failed_at: string | null;
+  cancelled_at: string | null;
+  error: string | null;
+  result_reference: string | null;
+  created_by: string | null;
+}
+
 export type IncidentSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type IncidentStatus = "OPEN" | "RESOLVED";
 
@@ -602,6 +633,9 @@ export const api = {
     request<AuditEntry[]>(`/api/audit${correlationId ? `?correlation_id=${correlationId}` : ""}`),
   listAgentExecutions: () => request<AgentExecution[]>("/api/agent-executions"),
   getHealth: () => request<DetailedHealth>("/health/detailed"),
+
+  listJobs: (limit = 50) => request<Job[]>(`/api/jobs?limit=${limit}`),
+  getJob: (id: string) => request<Job>(`/api/jobs/${id}`),
   listIncidents: () => request<Incident[]>("/api/incidents"),
   createIncident: (payload: { title: string; description?: string; severity: IncidentSeverity; actor: string }) =>
     request<Incident>("/api/incidents", { method: "POST", body: JSON.stringify(payload) }),

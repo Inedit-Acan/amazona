@@ -24,6 +24,7 @@ EXPECTED: dict[RoleName, set[ApiAction]] = {
         ApiAction.AGENT_RUN,
         ApiAction.PIPELINE_RUN,
         ApiAction.INCIDENT_WRITE,
+        ApiAction.JOB_WRITE,
     },
     RoleName.ANALYST: READS | {ApiAction.AGENT_RUN},
     RoleName.REVIEWER: READS
@@ -35,6 +36,7 @@ EXPECTED: dict[RoleName, set[ApiAction]] = {
         ApiAction.AGENT_RUN,
         ApiAction.PIPELINE_RUN,
         ApiAction.INCIDENT_WRITE,
+        ApiAction.JOB_WRITE,
     },
 }
 
@@ -101,3 +103,14 @@ def test_reviewer_resolves_decisions_but_cannot_start_work():
 def test_only_owner_and_admin_hold_the_kill_switch():
     holders = {role for role in RoleName if role_can(role, ApiAction.KILL_SWITCH_WRITE)}
     assert holders == {RoleName.OWNER, RoleName.ADMIN}
+
+
+def test_watching_the_queue_is_not_the_same_as_feeding_it():
+    """Milestone 31: ver lo que hace el sistema es lectura de negocio; hacerle
+    trabajar, no."""
+    feeders = {role for role in RoleName if role_can(role, ApiAction.JOB_WRITE)}
+
+    assert feeders == {RoleName.OWNER, RoleName.ADMIN, RoleName.OPERATOR, RoleName.SYSTEM}
+    for role in (RoleName.VIEWER, RoleName.ANALYST, RoleName.REVIEWER):
+        assert role_can(role, ApiAction.BUSINESS_READ) is True
+        assert role_can(role, ApiAction.JOB_WRITE) is False

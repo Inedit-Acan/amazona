@@ -421,3 +421,60 @@ por separado:
 dependen de datos de demostración están listados, la lista solo puede encoger, y
 el núcleo (`api.ts`, `auth.ts`, `format.ts`, `dates.ts`, `utils.ts`) no puede
 tocarlos nunca. Retirarlos panel a panel es el Milestone 30.1.
+
+---
+
+## 13. Runtime de trabajos (Milestone 31)
+
+Detalle en [ADR 0009](adr-0009-async-job-runtime.md).
+
+### 13.1 Qué es un Job, y qué no
+
+```text
+Objective → Task     grafo del CEO (Milestone 1).  Unidad de NEGOCIO.
+Job                  runtime (Milestone 31).       Unidad de EJECUCIÓN.
+```
+
+Son cosas distintas y las dos conservan su nombre. Un día una `Task` se
+ejecutará mediante uno o varios `Job`; hoy no se tocan.
+
+### 13.2 El ciclo
+
+```text
+enqueue → QUEUED ──claim──→ RUNNING ──complete──→ COMPLETED
+             ↑                  │
+             │              fail│
+             │                  ▼
+             └──espera── RETRYING          (agotados los intentos → FAILED)
+                                            FAILED ──requeue──→ QUEUED
+
+WAITING_APPROVAL · BLOCKED    el runtime NO los reclama (Milestone 33)
+CANCELLED                     terminal; el resultado que llegue tarde se descarta
+```
+
+Reclamar es `SELECT … FOR UPDATE SKIP LOCKED` sobre `jobs`: PostgreSQL es la
+cola **y** la fuente de verdad. Redis no interviene.
+
+### 13.3 Arriendos en lugar de una tabla de workers
+
+Un trabajo reclamado lleva `lease_worker` y `lease_expires_at`. `heartbeat()` lo
+extiende; un arriendo vencido es un worker muerto y el segador lo reencola. Por
+eso **no hay tabla `Worker`**: la única pregunta que importa —¿sigue vivo quien
+tiene esto?— ya la responde el arriendo.
+
+`complete()` y `fail()` comprueban que el trabajo sigue siendo del worker que
+llama, así que un worker zombi no puede pisar a su sustituto.
+
+### 13.4 Tablas
+
+| Tabla | Para qué |
+|---|---|
+| `jobs` | la cola y el estado |
+| `job_attempts` | cada pasada por un worker, con su error |
+| `job_events` | bitácora de solo añadir |
+
+### 13.5 Lo que falta
+
+El pipeline sigue ejecutándose dentro de la petición HTTP: moverlo es el
+Milestone 32. `WAITING_APPROVAL` y `BLOCKED` existen pero nadie los pone
+todavía: eso es el 33.
