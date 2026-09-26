@@ -95,10 +95,10 @@ def test_local_environments_may_run_on_mock_data(environment: Environment):
 
 
 def test_a_production_asking_for_real_data_is_no_longer_simulated_but_still_cannot_start():
-    """The honest state of the project today: Milestone 30 builds the mechanism,
-    the real adapters arrive in Milestones 34-35. A production configured for
-    real data stops being simulated and starts failing for the right reason —
-    nobody has written those adapters."""
+    """El estado honesto del proyecto: desde el Milestone 34 existe un adaptador
+    real para Product Intelligence, y para los otros cuatro dominios todavía no.
+    Una producción configurada entera en real deja de ser simulada y falla por
+    el motivo correcto: nadie ha escrito esos cuatro."""
     settings = settings_for(
         Environment.PRODUCTION,
         cors_origins=["https://kova.example"],
@@ -161,3 +161,84 @@ def test_an_injected_provider_still_wins(agent_class, attribute):
     agent = agent_class(sentinel)
 
     assert getattr(agent, attribute) is sentinel
+
+# --- El primer adaptador real (Milestone 34) --------------------------------
+
+
+def test_product_intelligence_has_a_real_adapter_now():
+    """Deja de ser cierto que ningún dominio tenga adaptador real."""
+    from app.integrations.product_intelligence import WikimediaPageviewsProvider
+
+    settings = settings_for(
+        Environment.DEVELOPMENT, product_intelligence_provider=ProviderKind.REAL
+    )
+
+    provider = ProviderRegistry(settings).resolve(IntegrationDomain.PRODUCT_INTELLIGENCE)
+
+    assert isinstance(provider, WikimediaPageviewsProvider)
+    assert ProviderRegistry(settings).simulated_domains() == [
+        IntegrationDomain.SUPPLIERS,
+        IntegrationDomain.REGULATORY,
+        IntegrationDomain.ADS,
+        IntegrationDomain.MARKETPLACES,
+    ]
+
+
+def test_the_real_adapter_takes_its_limits_from_configuration():
+    """El tope de peticiones no es un número escondido en el adaptador: existe
+    por el arriendo del runtime y se configura (ADR 0009, ADR 0012)."""
+    settings = settings_for(
+        Environment.DEVELOPMENT,
+        product_intelligence_provider=ProviderKind.REAL,
+        wikimedia_max_requests=3,
+        wikimedia_months=6,
+    )
+
+    provider = ProviderRegistry(settings).resolve(IntegrationDomain.PRODUCT_INTELLIGENCE)
+
+    assert provider._max_requests == 3
+    assert provider._months == 6
+
+
+def test_a_composite_counts_as_simulated_because_it_can_serve_fixtures():
+    """Aunque la mayoría de sus señales sean reales, puede rellenar con
+    fixtures: un panel que dijera «real» mentiría en la parte que importa."""
+    settings = settings_for(
+        Environment.DEVELOPMENT, product_intelligence_provider=ProviderKind.COMPOSITE
+    )
+    registry = ProviderRegistry(settings)
+
+    assert IntegrationDomain.PRODUCT_INTELLIGENCE in registry.simulated_domains()
+    assert registry.binding_for(IntegrationDomain.PRODUCT_INTELLIGENCE).is_simulated is True
+
+
+def test_an_enforcing_environment_refuses_a_composite():
+    """Lo que no se admite es servir datos inventados donde se toman decisiones
+    reales; que vengan mezclados con reales no lo hace admisible."""
+    settings = settings_for(
+        Environment.PRODUCTION,
+        cors_origins=["https://kova.example"],
+        product_intelligence_provider=ProviderKind.COMPOSITE,
+        **CONFIGURED,
+    )
+
+    with pytest.raises(RuntimeError, match="cannot run on simulated data"):
+        validate_providers(settings)
+
+
+def test_a_composite_resolves_to_the_real_source_first():
+    from app.integrations.product_intelligence import (
+        CompositeProductSignalProvider,
+        MockProductSignalProvider,
+        WikimediaPageviewsProvider,
+    )
+
+    settings = settings_for(
+        Environment.DEVELOPMENT, product_intelligence_provider=ProviderKind.COMPOSITE
+    )
+
+    provider = ProviderRegistry(settings).resolve(IntegrationDomain.PRODUCT_INTELLIGENCE)
+
+    assert isinstance(provider, CompositeProductSignalProvider)
+    assert isinstance(provider._providers[0], WikimediaPageviewsProvider)
+    assert isinstance(provider._providers[1], MockProductSignalProvider)

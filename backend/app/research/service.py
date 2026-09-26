@@ -1,11 +1,26 @@
+import datetime
+
 from sqlalchemy.orm import Session
 
 from app.agents.product_research import ProductResearchAgent
 from app.db.models.audit import AuditLog
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
+from app.db.models.product_signal import ProductSignal
 
 RESEARCH_AGENT_ACTOR = "agent-product-research-1"
+
+
+def _parse_observed_at(value: str | None) -> datetime.datetime:
+    """La marca de tiempo de la señal, o ahora si el proveedor no la puso. No
+    se inventa hacia atrás: una señal sin fecha es una señal de este momento."""
+    if not value:
+        return datetime.datetime.now(datetime.UTC)
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return datetime.datetime.now(datetime.UTC)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=datetime.UTC)
 
 
 class ResearchService:
@@ -25,9 +40,15 @@ class ResearchService:
         keywords: list[str] | None,
         max_results: int,
         correlation_id: str,
+        market: str = "us",
     ) -> list[Product]:
         result = self._agent.run(
-            {"category": category, "keywords": keywords or [], "max_results": max_results}
+            {
+                "category": category,
+                "keywords": keywords or [],
+                "max_results": max_results,
+                "market": market,
+            }
         )
 
         products: list[Product] = []
@@ -52,6 +73,26 @@ class ResearchService:
                     correlation_id=correlation_id,
                 )
             )
+            # Cada número, con de dónde salió (Milestone 34, plan maestro §8).
+            # Sin esto, un valor medido y uno inventado son la misma fila.
+            for signal in candidate.get("signals", []):
+                self._db.add(
+                    ProductSignal(
+                        product_id=product.id,
+                        kind=signal["kind"],
+                        value=signal["value"],
+                        confidence=signal["confidence"],
+                        provider=signal["provider"],
+                        source=signal["source"],
+                        query=signal["query"],
+                        market=signal["market"],
+                        observed_at=_parse_observed_at(signal.get("observed_at")),
+                        method=signal["method"],
+                        raw_reference=signal.get("raw_reference"),
+                        simulated=bool(signal["simulated"]),
+                        correlation_id=correlation_id,
+                    )
+                )
             products.append(product)
 
         self._db.add(
@@ -60,7 +101,14 @@ class ResearchService:
                 action="research.run",
                 resource=f"research:{correlation_id}",
                 before=None,
-                after={"category": category, "candidate_count": len(products)},
+                after={
+                    "category": category,
+                    "candidate_count": len(products),
+                    # Qué parte de lo que se acaba de guardar es real.
+                    "provenance": sorted(
+                        {c.get("provenance", "unknown") for c in result.data["candidates"]}
+                    ),
+                },
                 correlation_id=correlation_id,
             )
         )

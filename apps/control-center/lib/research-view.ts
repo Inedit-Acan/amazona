@@ -52,7 +52,17 @@ export interface ResearchRow {
   radar: Record<RadarKey, number>;
   /** true si las señales del agente son de demostración (no investigado en esta sesión). */
   isDemo: boolean;
+  /** De dónde salen las señales de esta fila (Milestone 34):
+   *
+   * - `real`: medidas contra una fuente externa.
+   * - `mixed`: parte medidas, parte relleno de fixtures.
+   * - `simulated`: fixtures del backend.
+   * - `demo`: ni siquiera eso — las rellena esta pantalla porque el producto
+   *   no se investigó en esta sesión. */
+  provenance: SignalProvenance;
 }
+
+export type SignalProvenance = "real" | "mixed" | "simulated" | "demo";
 
 export function demandLevel(signal: number): Level {
   return signal >= 0.7 ? "Alta" : signal >= 0.5 ? "Media" : "Baja";
@@ -107,6 +117,10 @@ export function buildRows(products: Product[], candidates: ResearchCandidate[]):
       margin,
       risk: riskLevel(regulatoryRisk, competition),
       insights: DEMO_INSIGHTS[product.category] ?? DEMO_INSIGHTS.electronics,
+      // Sin candidato del backend, lo que se enseña lo rellena esta pantalla:
+      // eso es `demo`, y no es lo mismo que un fixture del backend. Un análisis
+      // anterior al Milestone 34 no traía procedencia y era de fixtures.
+      provenance: !candidate ? "demo" : ((d.provenance as SignalProvenance | undefined) ?? "simulated"),
       rationale: d.niche_rationale ?? demo.niche_rationale,
       radar: {
         demand,
@@ -146,4 +160,25 @@ export function topInsight(rows: ResearchRow[]): string | null {
   const pct = Math.round((values / total - 1) * 100);
   if (pct <= 0) return `La demanda está repartida por igual entre categorías; ${label.toLowerCase()} encabeza por poco.`;
   return `Los productos de ${label.toLowerCase()} muestran un ${pct} % más de demanda que la media de los candidatos.`;
+}
+
+/** Qué enseña la pantalla, en una línea, para la cabecera (Milestone 34).
+ *
+ * El orden es de menos a más fiable a propósito: basta con que algo sea de
+ * relleno para que la cabecera no pueda decir «real». Decir «real» de un
+ * conjunto que es medio inventado es la clase de media verdad que este
+ * milestone existe para quitar de en medio. */
+export function signalsMode(rows: ResearchRow[]): { label: string; status: "verified" | "mixed" | "demo" } {
+  if (rows.length === 0) return { label: "Sin señales", status: "demo" };
+  const kinds = new Set(rows.map((row) => row.provenance));
+  if (kinds.has("demo")) {
+    return { label: "Simulación (señales de demostración)", status: "demo" };
+  }
+  if (kinds.has("simulated") && kinds.size === 1) {
+    return { label: "Simulación (señales de fixtures)", status: "demo" };
+  }
+  if (kinds.has("simulated") || kinds.has("mixed")) {
+    return { label: "Mixto (parte medido, parte relleno)", status: "mixed" };
+  }
+  return { label: "Real (señales medidas)", status: "verified" };
 }

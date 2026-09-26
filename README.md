@@ -126,6 +126,9 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   ([ADR 0010](docs/architecture/adr-0010-async-resumable-pipeline.md)) — ver abajo.
 - **Milestone 33:** `ActionGate` — publicar, anunciar y gastar dejan de ocurrir
   solos ([ADR 0011](docs/architecture/adr-0011-action-gate.md)) — ver abajo.
+- **Milestone 34:** señales con procedencia y el primer adaptador real
+  ([ADR 0012](docs/architecture/adr-0012-product-intelligence-adapters.md)) —
+  ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -310,6 +313,35 @@ Qué ha impedido el sistema y por qué se consulta en la auditoría:
 `action_gate.deny`. El razonamiento, en la
 [ADR 0011](docs/architecture/adr-0011-action-gate.md).
 
+## Señales con procedencia
+
+Desde el Milestone 34, cada señal que alimenta la investigación de productos
+lleva de dónde salió: quién la produjo, de qué fuente, preguntando qué, en qué
+mercado, cuándo, con qué método, con cuánta confianza, cómo volver al dato crudo
+y **si es simulada**. Vive en la tabla `product_signals`, así que la pregunta
+«¿esto es real o inventado?» se responde con una consulta.
+
+El primer adaptador real es **Wikimedia Pageviews**: mide cuánta gente consultó
+un artículo de una enciclopedia. Es un **proxy de interés — no demanda de compra,
+no ventas**, y lo dice en el `method` de cada señal que emite.
+
+```bash
+PRODUCT_INTELLIGENCE_PROVIDER=mock       # por defecto: fixtures, como siempre
+PRODUCT_INTELLIGENCE_PROVIDER=real       # solo lo medido; lo que no se sabe, ausente
+PRODUCT_INTELLIGENCE_PROVIDER=composite  # lo real primero, fixtures para los huecos
+```
+
+`composite` no se admite en `staging` ni `production`: puede servir fixtures.
+Ante un fallo de la fuente —404, límite de ritmo, timeout— **no hay señal, nunca
+un cero**: un cero se leería como «no hay demanda» cuando lo cierto es «no lo
+sabemos».
+
+Los términos que se preguntan están versionados en
+`backend/app/integrations/product_intelligence/terms.py`. **Son un arranque, no
+un mecanismo de descubrimiento**: una lista escrita a mano solo mide lo que
+alguien ya pensó. El razonamiento completo, en la
+[ADR 0012](docs/architecture/adr-0012-product-intelligence-adapters.md).
+
 ## Notas
 
 - Amazon SP-API: prohibido usar sus datos para entrenar modelos.
@@ -321,5 +353,5 @@ Qué ha impedido el sistema y por qué se consulta en la auditoría:
   (migraciones sobre PostgreSQL real, la conversión del `steps` histórico,
   la concurrencia de `SKIP LOCKED` y el login/refresco/cierre de sesión real).
   Están registradas en
-  [system-overview §16](docs/architecture/system-overview.md#16-pendientes-de-integración):
+  [system-overview §17](docs/architecture/system-overview.md#17-pendientes-de-integración):
   no bloquean el desarrollo, sí bloquean producción.

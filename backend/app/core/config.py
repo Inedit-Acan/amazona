@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     # decisión operativa, así que staging y production se niegan a arrancar con
     # ellas (ADR 0008).
     product_intelligence_provider: ProviderKind = ProviderKind.MOCK
+    #: Ajustes del adaptador real de Product Intelligence (Milestone 34). El
+    #: tope de peticiones existe por el arriendo de 60 s del runtime (ADR 0009):
+    #: la investigación corre dentro de un trabajo, y una categoría con muchos
+    #: términos no puede acercarse a ese límite.
+    wikimedia_months: int = 12
+    wikimedia_max_requests: int = 8
+    wikimedia_timeout_seconds: float = 6.0
     suppliers_provider: ProviderKind = ProviderKind.MOCK
     regulatory_provider: ProviderKind = ProviderKind.MOCK
     ads_provider: ProviderKind = ProviderKind.MOCK

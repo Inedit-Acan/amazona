@@ -38,7 +38,14 @@ def test_each_candidate_has_the_expected_fields():
             "regulatory_risk_signal",
             "scalability_signal",
             "niche_rationale",
+            # Milestone 34: de qué está hecho lo que se enseña, y la procedencia
+            # completa señal a señal (plan maestro §8).
+            "provenance",
+            "market",
+            "signals",
         }
+        assert candidate["provenance"] == "simulated"
+        assert all(signal["simulated"] for signal in candidate["signals"])
         assert candidate["category"] == "home"
         assert 0.0 <= candidate["future_outlook_signal"] <= 1.0
         assert 0.0 <= candidate["regulatory_risk_signal"] <= 1.0

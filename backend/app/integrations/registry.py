@@ -17,9 +17,13 @@ from app.ai.mock_ad_performance_directory import MockAdPerformanceDirectory
 from app.ai.mock_marketplace_directory import MockMarketplaceDirectory
 from app.ai.mock_regulatory_directory import MockRegulatoryDirectory
 from app.ai.mock_supplier_directory import MockSupplierDirectory
-from app.ai.mock_trends_provider import MockTrendsProvider
 from app.core.config import Settings, get_settings
 from app.integrations.ports import IntegrationDomain, ProviderKind
+from app.integrations.product_intelligence import (
+    CompositeProductSignalProvider,
+    MockProductSignalProvider,
+    WikimediaPageviewsProvider,
+)
 
 
 class ProviderNotAvailableError(RuntimeError):
@@ -38,14 +42,52 @@ class ProviderBinding:
 
     @property
     def is_simulated(self) -> bool:
-        return self.kind is ProviderKind.MOCK
+        """Si esto puede servir datos inventados.
+
+        `COMPOSITE` cuenta como simulado a propósito: aunque la mayoría de sus
+        señales sean reales, puede rellenar con fixtures, y un panel que dijera
+        «real» estaría mintiendo la parte que importa (Milestone 34).
+        """
+        return self.kind in (ProviderKind.MOCK, ProviderKind.COMPOSITE)
 
 
 #: Every implementation the system knows about, per domain and kind. Real and
 #: sandbox adapters are added here as they are built (Milestone 34 onwards); an
 #: absent one is an error, never a silent downgrade to MOCK.
-IMPLEMENTATIONS: dict[IntegrationDomain, dict[ProviderKind, Callable[[], object]]] = {
-    IntegrationDomain.PRODUCT_INTELLIGENCE: {ProviderKind.MOCK: MockTrendsProvider},
+def _wikimedia_provider(settings: Settings) -> WikimediaPageviewsProvider:
+    return WikimediaPageviewsProvider(
+        months=settings.wikimedia_months,
+        max_requests=settings.wikimedia_max_requests,
+        timeout=settings.wikimedia_timeout_seconds,
+    )
+
+
+def _composite_product_intelligence(settings: Settings) -> CompositeProductSignalProvider:
+    """Lo real primero, el relleno después (ADR 0008 y ADR 0012)."""
+    return CompositeProductSignalProvider(
+        [_wikimedia_provider(settings), MockProductSignalProvider()]
+    )
+
+
+#: Adaptadores que necesitan configuración para construirse. Se mantienen aparte
+#: de `IMPLEMENTATIONS` —que sigue siendo quien dice si un proveedor existe y
+#: cómo se llama— para que el nombre que aparece en el panel siga siendo el de
+#: la clase y no el de una función de fábrica.
+BUILDERS: dict[tuple[IntegrationDomain, ProviderKind], Callable[[Settings], object]] = {
+    (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.REAL): _wikimedia_provider,
+    (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.COMPOSITE): _composite_product_intelligence,
+}
+
+
+#: Qué implementación existe para cada dominio y tipo, y cómo se llama. Las que
+#: necesitan configuración se construyen en `BUILDERS`; aquí figuran por su
+#: clase, que es el nombre que el panel enseña.
+IMPLEMENTATIONS: dict[IntegrationDomain, dict[ProviderKind, Callable[..., object]]] = {
+    IntegrationDomain.PRODUCT_INTELLIGENCE: {
+        ProviderKind.MOCK: MockProductSignalProvider,
+        ProviderKind.REAL: WikimediaPageviewsProvider,
+        ProviderKind.COMPOSITE: CompositeProductSignalProvider,
+    },
     IntegrationDomain.SUPPLIERS: {ProviderKind.MOCK: MockSupplierDirectory},
     IntegrationDomain.REGULATORY: {ProviderKind.MOCK: MockRegulatoryDirectory},
     IntegrationDomain.ADS: {ProviderKind.MOCK: MockAdPerformanceDirectory},
@@ -83,13 +125,28 @@ class ProviderRegistry:
             raise ProviderNotAvailableError(
                 f"no {kind} provider exists for {domain}; available: {available or 'none'}"
             )
+        # Un adaptador con ajustes se construye con **estos** settings, no con
+        # los globales: si no, un registro creado con otra configuración
+        # devolvería un proveedor que no la respeta (Milestone 34).
+        builder = BUILDERS.get((domain, kind))
+        if builder is not None:
+            return builder(self._settings)
         return factory()
 
     def simulated_domains(self) -> list[IntegrationDomain]:
-        """Domains configured to run on fixtures. Reads the configured kind
+        """Domains that may serve fixture data. Reads the configured kind
         rather than the resolved binding, so it still answers when some other
-        domain points at an adapter that has not been built yet."""
-        return [domain for domain in IntegrationDomain if self.kind_for(domain) is ProviderKind.MOCK]
+        domain points at an adapter that has not been built yet.
+
+        `COMPOSITE` entra aquí: rellena con fixtures lo que la fuente real no
+        da, así que un entorno que no admite datos simulados tampoco lo admite
+        a él (Milestone 34). Donde importa se usa `real`, y lo que la fuente
+        real no sabe queda ausente en vez de inventado."""
+        return [
+            domain
+            for domain in IntegrationDomain
+            if self.kind_for(domain) in (ProviderKind.MOCK, ProviderKind.COMPOSITE)
+        ]
 
     def missing_implementations(self) -> list[IntegrationDomain]:
         """Domains configured to use a provider that does not exist yet."""

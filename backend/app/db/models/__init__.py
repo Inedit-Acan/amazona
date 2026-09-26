@@ -22,6 +22,7 @@ from app.db.models.pipeline_step import PipelineStep, PipelineStepAttempt
 from app.db.models.policy import Policy
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
+from app.db.models.product_signal import ProductSignal
 from app.db.models.project import Project
 from app.db.models.role import Role
 from app.db.models.storefront import Storefront
@@ -62,6 +63,7 @@ __all__ = [
     "Policy",
     "Product",
     "ProductAnalysis",
+    "ProductSignal",
     "Project",
     "Role",
     "Storefront",

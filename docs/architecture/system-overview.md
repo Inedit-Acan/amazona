@@ -238,6 +238,7 @@ separados, colas) — no se usa activamente hoy.
 | [0009](adr-0009-async-job-runtime.md) | PostgreSQL es la cola y la fuente de verdad; sin Redis, sin Celery, sin tabla de workers |
 | [0010](adr-0010-async-resumable-pipeline.md) | El pipeline se ejecuta en un trabajo por ejecución, con los pasos como filas y reanudación por el paso que falló |
 | [0011](adr-0011-action-gate.md) | El `ActionGate` separa analizar de actuar: los vetos ganan, ninguna firma los levanta, y esperar a una persona es un estado del trabajo |
+| [0012](adr-0012-product-intelligence-adapters.md) | El contrato son señales con procedencia; primer adaptador real (proxy declarado), y ante un fallo ausencia en vez de cero |
 
 ## 9. Índice de milestones
 
@@ -265,6 +266,7 @@ separados, colas) — no se usa activamente hoy.
 | [31](../milestones/milestone-31-demo.md) | Runtime de trabajos asíncronos sobre PostgreSQL (§13) |
 | [32](../milestones/milestone-32-demo.md) | El pipeline se ejecuta en ese runtime, con los pasos persistidos y reanudables (§14) |
 | [33](../milestones/milestone-33-demo.md) | `ActionGate`: publicar, anunciar y gastar dejan de ocurrir solos (§15) |
+| [34](../milestones/milestone-34-demo.md) | Señales con procedencia y el primer adaptador real de Product Intelligence (§16) |
 
 ## 10. Cómo verlo funcionar
 
@@ -587,7 +589,60 @@ Cada evaluación se audita como `action_gate.allow`, `.deny` o
 
 El razonamiento completo está en la [ADR 0011](adr-0011-action-gate.md).
 
-## 16. Pendientes de integración
+## 16. Product Intelligence: señales con procedencia (Milestone 34)
+
+El primer dominio con un adaptador real. Lo que cambia no es solo que se mida
+algo de verdad: es que un número medido y uno inventado dejan de ser la misma
+fila.
+
+### 16.1 El contrato
+
+`ProductSignalProvider.discover()` devuelve candidatos hechos de `Signal`, y cada
+señal lleva los nueve campos del plan maestro §8 —`provider`, `source`, `query`,
+`market`, `observed_at`, `value`, `confidence`, `raw_reference`, `method`— más
+`kind` y `simulated`. `supports()` declara qué sabe medir cada proveedor, que es
+lo que permite componer sin adivinar.
+
+`method` dice qué es y qué no es el número. No es documentación: es el campo que
+viaja con el dato cuando el dato se aleja de donde se produjo.
+
+### 16.2 Los tres modos
+
+| `PRODUCT_INTELLIGENCE_PROVIDER` | Qué hace | Dónde vale |
+|---|---|---|
+| `mock` | fixtures con procedencia, marcados como simulados | desarrollo, demo, test |
+| `real` | solo lo medido; lo que no se sabe, ausente | cualquier entorno |
+| `composite` | lo real primero, fixtures para los huecos | **no** en staging ni producción |
+
+`composite` cuenta como simulado precisamente porque puede servir fixtures: un
+panel que dijera «real» mentiría en la parte que importa.
+
+### 16.3 El adaptador real
+
+Wikimedia Pageviews: interés mensual por término y proyecto lingüístico. **Proxy
+de interés, nunca demanda de compra ni ventas.** Ventana de doce meses completos,
+normalización logarítmica contra un techo declarado, confianza acotada a 0,75, y
+una señal de trayectoria cuando hay al menos seis meses.
+
+Ante cualquier fallo —404, 429, 500, cuerpo raro, timeout— **no hay señal, nunca
+un cero**. Hay tope de peticiones por ejecución, porque la investigación corre
+dentro de un trabajo con arriendo de 60 s (ADR 0009).
+
+### 16.4 Lo que esto todavía no es
+
+Los candidatos salen de un catálogo de términos versionado
+(`product_intelligence/terms.py`): la pregunta, no la respuesta. **No es
+descubrimiento** — solo mide lo que alguien ya pensó— y debe complementarse con
+fuentes y mecanismos reales más adelante.
+
+Y un candidato real hoy **no tiene score**: sin señal de competencia no hay
+fórmula, y la fórmula no se toca en este milestone (§9 del plan). Lo que falta es
+una segunda fuente real, no rellenar mejor.
+
+El razonamiento completo está en la
+[ADR 0012](adr-0012-product-intelligence-adapters.md).
+
+## 17. Pendientes de integración
 
 Cuatro comprobaciones que **no se pueden cerrar en esta máquina** y que no
 pertenecen a ningún milestone concreto: son deuda de verificación, no de código.

@@ -274,6 +274,11 @@ export interface ResearchCandidate {
     regulatory_risk_signal?: number;
     scalability_signal?: number;
     niche_rationale?: string;
+    /** De qué está hecho el score (Milestone 34): `real` si todo lo que cuenta
+     * está medido, `simulated` si nada lo está, `mixed` si es media cosa.
+     * Ausente en análisis guardados antes del Milestone 34, que eran fixtures. */
+    provenance?: "real" | "mixed" | "simulated" | "unknown";
+    market?: string;
     [key: string]: unknown;
   };
 }

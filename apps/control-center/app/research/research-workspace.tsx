@@ -37,6 +37,7 @@ import {
   RADAR_KEYS,
   buildRows,
   radarAverage,
+  signalsMode,
   topInsight,
   type Level,
   type RadarKey,
@@ -307,6 +308,8 @@ export function ResearchWorkspace({
   const average = radarAverage(rows);
   const insight = topInsight(rows);
   const hasDemoSignals = rows.some((r) => r.isDemo);
+  // De qué están hechas las señales que se están enseñando (Milestone 34).
+  const mode = signalsMode(rows);
 
   // Tendencia e interés según el periodo elegido.
   const windowed = (series: number[]) => series.slice(-months);
@@ -473,7 +476,7 @@ export function ResearchWorkspace({
               />
             ) : null}
             <HeaderClock />
-            <HeaderTile label="Modo" value="Simulación (señales de fixtures)" />
+            <HeaderTile label="Modo" value={mode.label} />
           </>
         }
       />
