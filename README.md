@@ -167,6 +167,7 @@ Desde el Milestone 29 el comportamiento depende del entorno
 | | development / test / demo | staging / production |
 |---|---|---|
 | Rutas mutadoras | abiertas (o con `REQUIRE_AUTH=true`) | exigen token verificado |
+| Rutas de lectura | abiertas | exigen token verificado |
 | Rol | no se comprueba | decide cada acción |
 | `actor` en el cuerpo | se acepta | se ignora |
 | Arranque | siempre | falla si falta Supabase o si CORS apunta a localhost |
@@ -189,9 +190,38 @@ python -m app.cli list-users
 La persona queda vinculada a su cuenta de Supabase en su primer inicio de sesión
 verificado.
 
-**Límite conocido de esta versión:** solo están protegidas las rutas mutadoras.
-En producción, quien tenga acceso de red al backend puede *leer* los datos de
-negocio. Cerrar los `GET` es el Milestone 29.1.
+### Lectura (Milestone 29.1)
+
+Las rutas de lectura también exigen identidad, con tres categorías:
+
+| Categoría | Rutas | Quién |
+|---|---|---|
+| Sondas | `/health`, `/health/ready` | **públicas** — un balanceador no puede llevar un token |
+| Negocio | 32 rutas | los 7 roles |
+| Diagnóstico | `/health/detailed` | los 7 roles |
+| Auditoría | `/api/audit` | OWNER, ADMIN y REVIEWER |
+
+`/health` y `/health/ready` no revelan versión de esquema, entorno ni
+proveedores: eso es huella dactilar del despliegue y vive en `/health/detailed`,
+que sí pide identidad.
+
+La auditoría es más estrecha que el resto de lecturas porque no es información
+del negocio sino de las personas que lo operan: lleva el correo de quien hizo
+cada cosa.
+
+### Configuración de la sesión en el Control Center
+
+Desde el Milestone 29.1 la sesión vive en **cookies** y no en `localStorage`,
+para que el renderizado en servidor pueda mandar el token. Necesita, en
+`apps/control-center/.env.local`:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Sin esas dos primeras, el Control Center funciona sin login, como hasta ahora.
 
 ## Notas
 

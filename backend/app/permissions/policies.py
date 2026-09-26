@@ -55,6 +55,15 @@ class ApiAction(StrEnum):
     INCIDENT_WRITE = "incident.write"
     #: Enable or disable the pipeline kill switch.
     KILL_SWITCH_WRITE = "kill_switch.write"
+    #: Read business data: catalogue, projects, suppliers, economics, decisions,
+    #: approvals, incidents, pipeline state. Milestone 29.1.
+    BUSINESS_READ = "business.read"
+    #: Read the audit trail. Separate from BUSINESS_READ because it is not
+    #: information about the business but about the people operating it.
+    AUDIT_READ = "audit.read"
+    #: Read deployment diagnostics: schema version, environment and which
+    #: provider backs each external domain.
+    DIAGNOSTICS_READ = "diagnostics.read"
 
 
 #: Who may do what over HTTP. Deny by default: an action absent from a role's
@@ -74,17 +83,33 @@ API_ROLE_ACTIONS: dict[RoleName, frozenset[ApiAction]] = {
             ApiAction.AGENT_RUN,
             ApiAction.PIPELINE_RUN,
             ApiAction.INCIDENT_WRITE,
+            ApiAction.BUSINESS_READ,
+            ApiAction.DIAGNOSTICS_READ,
         }
     ),
-    RoleName.ANALYST: frozenset({ApiAction.AGENT_RUN}),
-    RoleName.REVIEWER: frozenset({ApiAction.APPROVAL_RESOLVE, ApiAction.REVIEW_RESOLVE}),
-    RoleName.VIEWER: frozenset(),
+    RoleName.ANALYST: frozenset(
+        {ApiAction.AGENT_RUN, ApiAction.BUSINESS_READ, ApiAction.DIAGNOSTICS_READ}
+    ),
+    RoleName.REVIEWER: frozenset(
+        {
+            ApiAction.APPROVAL_RESOLVE,
+            ApiAction.REVIEW_RESOLVE,
+            ApiAction.BUSINESS_READ,
+            ApiAction.AUDIT_READ,
+            ApiAction.DIAGNOSTICS_READ,
+        }
+    ),
+    #: Read-only really is read-only: every read except the audit trail, which
+    #: carries the identity of whoever performed each action.
+    RoleName.VIEWER: frozenset({ApiAction.BUSINESS_READ, ApiAction.DIAGNOSTICS_READ}),
     RoleName.SYSTEM: frozenset(
         {
             ApiAction.OBJECTIVE_WRITE,
             ApiAction.AGENT_RUN,
             ApiAction.PIPELINE_RUN,
             ApiAction.INCIDENT_WRITE,
+            ApiAction.BUSINESS_READ,
+            ApiAction.DIAGNOSTICS_READ,
         }
     ),
 }

@@ -353,11 +353,12 @@ def test_an_incident_records_the_verified_identity(client, key_pair, session_fac
     assert entry.actor_source == "token"
 
 
-# --- Lectura y desarrollo ----------------------------------------------------
+# --- Lectura -----------------------------------------------------------------
+#
+# La política completa de lectura vive en test_api_read_authorization.py; aquí
+# solo queda la comprobación de que dejó de estar abierta.
 
 
-def test_read_endpoints_stay_open_in_this_milestone(client):
-    """Alcance acordado para el Milestone 29: solo mutadores. Cerrar los GET es
-    el 29.1, y este test es el recordatorio de que hoy siguen abiertos."""
-    assert client.get("/api/agents").status_code == 200
-    assert client.get("/api/incidents").status_code == 200
+def test_read_endpoints_are_no_longer_open(client):
+    assert client.get("/api/agents").status_code == 401
+    assert client.get("/api/incidents").status_code == 401

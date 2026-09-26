@@ -1,9 +1,9 @@
 # ADR 0007: Base de seguridad para producción
 
-- **Estado:** Aceptada
+- **Estado:** Aceptada · ampliada por el Milestone 29.1 (lectura)
 - **Fecha:** 2026-09-25
 - **Depende de:** [ADR 0003](adr-0003-rls-deny-by-default.md), [ADR 0006](adr-0006-pipeline-human-controls.md)
-- **Milestone:** 29
+- **Milestone:** 29 y 29.1
 
 ## Contexto
 
@@ -91,18 +91,33 @@ reclama la fila y a partir de ahí la búsqueda es solo por `subject`. Seguir
 emparejando por email permitiría que una cuenta recreada heredara el rol de
 otra.
 
-## Alcance deliberado: solo mutadores
+## Alcance: primero los mutadores, después la lectura
 
-Los `GET` siguen abiertos. El plan maestro pide literalmente que «ningún
-endpoint **mutador**» se ejecute sin identidad (§P0.2), y cerrar además la
-lectura obliga a propagar la sesión de Supabase al servidor de Next.js y a tocar
-los ~14 `page.tsx` que cargan datos en servidor — un cambio de arquitectura de
-sesión en el frontend que no debe mezclarse con el endurecimiento del backend.
+**Esta ADR se escribió cubriendo solo las rutas mutadoras.** La lectura quedó
+fuera a propósito: cerrarla obliga a propagar la sesión de Supabase al servidor
+de Next.js, un cambio de arquitectura de sesión en el frontend que no debía
+mezclarse con el endurecimiento del backend.
 
-**Riesgo residual explícito:** en producción, cualquiera con acceso de red al
-backend puede leer proyectos, proveedores, economía, decisiones y auditoría.
-Queda como Milestone 29.1, y hay un test que lo deja por escrito
-(`test_read_endpoints_stay_open_in_this_milestone`).
+**El Milestone 29.1 la cerró** (25-09-2026). El riesgo residual que esta ADR
+declaraba —que en producción cualquiera con acceso de red pudiera leer
+proyectos, proveedores, economía, decisiones y auditoría— **ya no existe**.
+
+Lo que añadió, en resumen:
+
+- Tres acciones de lectura: `business.read` (los 7 roles), `audit.read` (OWNER,
+  ADMIN y REVIEWER) y `diagnostics.read` (los 7 roles).
+- La autorización se aplica **por router**, no por ruta, para que un `GET`
+  añadido más tarde nazca protegido.
+- `/health` sigue público y se le suma `/health/ready`, porque una sonda de
+  infraestructura no puede llevar un token. `/health/detailed` pasa a exigir
+  identidad: la versión del esquema, el entorno y la lista de dominios
+  simulados describen el despliegue —incluido dónde sus datos son inventados—
+  demasiado bien para dejarlos a la vista.
+- En el frontend, la sesión pasa de `localStorage` a cookies
+  (`@supabase/ssr`), con `middleware.ts` refrescando el token.
+
+Detalle completo en
+[milestone-29-1-read-authorization.md](../milestones/milestone-29-1-read-authorization.md).
 
 ## Consecuencias
 

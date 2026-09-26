@@ -109,7 +109,13 @@ def test_create_objective_accepts_a_valid_token_and_uses_its_sub_as_created_by(a
     assert response.json()["created_by"] == "owner@amazona.local"
 
 
-def test_list_endpoints_do_not_require_auth(auth_client: TestClient):
-    response = auth_client.get("/api/agents")
+def test_read_endpoints_require_auth_too(auth_client: TestClient):
+    """Hasta el Milestone 29.1 las lecturas estaban abiertas. Ya no: donde se
+    exige identidad, se exige para leer igual que para escribir."""
+    assert auth_client.get("/api/agents").status_code == 401
 
-    assert response.status_code == 200
+
+def test_liveness_and_readiness_stay_public(auth_client: TestClient):
+    """Una sonda de infraestructura no puede llevar un token."""
+    assert auth_client.get("/health").status_code == 200
+    assert auth_client.get("/health/ready").status_code == 200

@@ -1,8 +1,9 @@
-"""The RBAC matrix of Milestone 29, asserted role by role.
+"""The RBAC matrix, asserted role by role.
 
 Deliberately exhaustive: every one of the seven roles is checked against every
-one of the seven API actions, so widening a role's powers can only happen by
-changing a test that says so out loud.
+API action, so widening a role's powers can only happen by changing a test that
+says so out loud. Milestone 29 wrote the mutating half; Milestone 29.1 added the
+three read actions.
 """
 
 import pytest
@@ -10,26 +11,35 @@ import pytest
 from app.auth.actor import RoleName
 from app.permissions.policies import API_ROLE_ACTIONS, ApiAction, role_can
 
+#: Every read except the audit trail. Six of the seven roles get exactly this.
+READS = {ApiAction.BUSINESS_READ, ApiAction.DIAGNOSTICS_READ}
+
 #: What each role may do. Anything absent is denied.
 EXPECTED: dict[RoleName, set[ApiAction]] = {
     RoleName.OWNER: set(ApiAction),
     RoleName.ADMIN: set(ApiAction),
-    RoleName.OPERATOR: {
+    RoleName.OPERATOR: READS
+    | {
         ApiAction.OBJECTIVE_WRITE,
         ApiAction.AGENT_RUN,
         ApiAction.PIPELINE_RUN,
         ApiAction.INCIDENT_WRITE,
     },
-    RoleName.ANALYST: {ApiAction.AGENT_RUN},
-    RoleName.REVIEWER: {ApiAction.APPROVAL_RESOLVE, ApiAction.REVIEW_RESOLVE},
-    RoleName.VIEWER: set(),
-    RoleName.SYSTEM: {
+    RoleName.ANALYST: READS | {ApiAction.AGENT_RUN},
+    RoleName.REVIEWER: READS
+    | {ApiAction.APPROVAL_RESOLVE, ApiAction.REVIEW_RESOLVE, ApiAction.AUDIT_READ},
+    RoleName.VIEWER: READS,
+    RoleName.SYSTEM: READS
+    | {
         ApiAction.OBJECTIVE_WRITE,
         ApiAction.AGENT_RUN,
         ApiAction.PIPELINE_RUN,
         ApiAction.INCIDENT_WRITE,
     },
 }
+
+#: Actions that change something. Used to state "read-only" precisely.
+WRITES = set(ApiAction) - READS - {ApiAction.AUDIT_READ}
 
 
 @pytest.mark.parametrize("role", list(RoleName))
@@ -50,8 +60,26 @@ def test_an_unknown_role_grants_nothing():
 
 
 def test_viewer_is_read_only():
-    for action in ApiAction:
-        assert role_can(RoleName.VIEWER, action) is False
+    for action in WRITES:
+        assert role_can(RoleName.VIEWER, action) is False, action
+    for action in READS:
+        assert role_can(RoleName.VIEWER, action) is True, action
+
+
+def test_the_audit_trail_is_narrower_than_the_rest_of_the_reads():
+    """It carries the identity of whoever acted, so it is not "business data
+    anyone with an account may read" (Milestone 29.1)."""
+    readers = {role for role in RoleName if role_can(role, ApiAction.AUDIT_READ)}
+
+    assert readers == {RoleName.OWNER, RoleName.ADMIN, RoleName.REVIEWER}
+    for role in (RoleName.VIEWER, RoleName.OPERATOR, RoleName.ANALYST, RoleName.SYSTEM):
+        assert role_can(role, ApiAction.BUSINESS_READ) is True
+        assert role_can(role, ApiAction.AUDIT_READ) is False
+
+
+def test_every_role_can_read_business_data():
+    for role in RoleName:
+        assert role_can(role, ApiAction.BUSINESS_READ) is True, role
 
 
 def test_analyst_can_run_agents_but_not_touch_the_kill_switch():

@@ -321,6 +321,9 @@ verificado reclama la fila.
 | `review.resolve` | ✅ | ✅ | — | — | ✅ | — | — |
 | `incident.write` | ✅ | ✅ | ✅ | — | — | — | ✅ |
 | `kill_switch.write` | ✅ | ✅ | — | — | — | — | — |
+| `business.read` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `diagnostics.read` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `audit.read` | ✅ | ✅ | — | — | ✅ | — | — |
 
 Convive con el `PermissionEngine`/`ActionType` de Milestone 1, que resuelve otro
 eje: qué puede hacer un **agente** mientras se ejecuta, y cuya respuesta puede
@@ -332,11 +335,48 @@ ser «pregunta a un humano» (ADR 0007 §4).
 `system`), así que una fila histórica dice si el nombre que aparece en `actor`
 estaba verificado o solo afirmado por quien llamó.
 
-### 11.5 Lo que sigue abierto
+### 11.5 Lectura (Milestone 29.1)
 
-Solo están protegidas las 19 rutas mutadoras. Los `GET` no piden identidad:
-cerrarlos obliga a propagar la sesión al renderizado en servidor del Control
-Center y es el Milestone 29.1.
+Las 33 rutas de lectura se reparten en cuatro categorías, aplicadas **por
+router** y no por ruta, para que un `GET` añadido más tarde nazca protegido:
+
+| Categoría | Nº | Acción | Público |
+|---|---|---|---|
+| Sondas (`/health`, `/health/ready`) | 2 | — | **sí** |
+| Negocio | 32 | `business.read` | no |
+| Diagnóstico (`/health/detailed`) | 1 | `diagnostics.read` | no |
+| Auditoría (`/api/audit`) | 1 | `audit.read` | no |
+
+`/health` responde liveness y `/health/ready` readiness (comprueba la base de
+datos, 503 si no responde). Ninguno revela versión de esquema, entorno ni
+proveedores: un balanceador no puede llevar un token, así que lo que ven las
+sondas lo ve cualquiera.
+
+### 11.6 La sesión en el Control Center
+
+Vive en **cookies** (`@supabase/ssr`), no en `localStorage`, porque el
+renderizado en servidor de Next no puede leer `localStorage` y son 14 páginas
+las que cargan sus datos ahí.
+
+```text
+lib/auth.ts         navegador      createBrowserClient
+lib/auth-server.ts  servidor       createServerClient + cookies(), en cache() de React
+middleware.ts       navegación     refresca el token (lo único que puede escribir cookies)
+lib/api-server.ts   servidor       sustituye el resolutor de token de lib/api.ts
+```
+
+Una página de servidor **debe** importar `api` desde `@/lib/api-server`: desde
+`@/lib/api` sus peticiones saldrían sin cabecera `Authorization`, lo que en
+desarrollo no se nota y en producción es un 401.
+`lib/server-api-boundary.test.ts` lo comprueba.
+
+Ambas lecturas de sesión tienen un techo de 4 s: sin él, con Supabase
+inalcanzable, una página tardaba 51 s en responder.
+
+### 11.7 Lo que sigue abierto
+
+Rate limiting, enumeración de identificadores y que el backend siga expuesto sin
+gateway. La multi-tenencia no aplica: hay una sola organización.
 
 ---
 
