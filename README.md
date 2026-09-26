@@ -291,3 +291,9 @@ completo, en la [ADR 0010](docs/architecture/adr-0010-async-resumable-pipeline.m
 - El Agente 1 (Investigación de Productos) usa únicamente fuentes
   simuladas/mock — sin llamadas a APIs externas reales.
 - Toda acción relevante debe quedar auditada; el CEO nunca puede saltarse permisos, límites de presupuesto ni aprobaciones humanas requeridas.
+- Cuatro verificaciones no se pueden cerrar en una máquina de desarrollo
+  (migraciones sobre PostgreSQL real, la conversión del `steps` histórico,
+  la concurrencia de `SKIP LOCKED` y el login/refresco/cierre de sesión real).
+  Están registradas en
+  [system-overview §15](docs/architecture/system-overview.md#15-pendientes-de-integración):
+  no bloquean el desarrollo, sí bloquean producción.

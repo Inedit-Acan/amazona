@@ -233,6 +233,8 @@ separados, colas) — no se usa activamente hoy.
 | [0004](adr-0004-agent-capability-pairs-validate-vs-discover.md) | Convención "validar-uno" vs "descubrir-muchos" para pares de agentes |
 | [0005](adr-0005-fase-3-pipeline-orchestrator.md) | `PipelineOrchestrator` nuevo y separado, nunca detiene la cadena, sin tocar el grafo CEO |
 | [0006](adr-0006-pipeline-human-controls.md) | Revisión humana post-hoc + kill switch pre-hoc sobre el pipeline, sin pausas intermedias |
+| [0007](adr-0007-production-security.md) | El entorno decide si hace falta identidad; cada ruta mutadora declara su acción y cada rol su conjunto, deny by default |
+| [0008](adr-0008-demo-production-isolation.md) | Un `Protocol` por dominio externo y el proveedor activo como configuración; la pantalla dice siempre cuál responde |
 | [0009](adr-0009-async-job-runtime.md) | PostgreSQL es la cola y la fuente de verdad; sin Redis, sin Celery, sin tabla de workers |
 | [0010](adr-0010-async-resumable-pipeline.md) | El pipeline se ejecuta en un trabajo por ejecución, con los pasos como filas y reanudación por el paso que falló |
 
@@ -527,3 +529,19 @@ Ambas usan la acción `pipeline.run` ya existente: no hay rol nuevo.
 | `pipeline_step_attempts` | cada pasada por un paso, con su trabajo y su error |
 
 El razonamiento completo está en la [ADR 0010](adr-0010-async-resumable-pipeline.md).
+
+## 15. Pendientes de integración
+
+Cuatro comprobaciones que **no se pueden cerrar en esta máquina** y que no
+pertenecen a ningún milestone concreto: son deuda de verificación, no de código.
+Se listan aquí —y no solo en el milestone donde aparecieron— para que no se
+pierdan entre milestones, y **ninguna bloquea el siguiente**. Lo que sí hacen es
+bloquear producción: las cuatro deben estar cerradas antes de que AMAZONA
+opere sobre datos reales.
+
+| Pendiente | De dónde viene | Qué lo cierra |
+|---|---|---|
+| **Migraciones sobre PostgreSQL/Supabase real.** La cadena completa (`alembic upgrade head`) no se puede aplicar sobre SQLite: la migración de RLS del Milestone 3 emite `DO $$` de PostgreSQL sin guardia de dialecto. Cada migración nueva sí se ejecuta aislada y con datos en `tests/unit/test_migration_*.py`. | Milestones 29, 31, 32 | CI la aplica sobre PostgreSQL limpio en cada push; falta ejecutarla una vez contra la base real antes de desplegar |
+| **Conversión del JSON histórico (`pipeline_runs.steps` → `pipeline_steps`) sobre datos reales.** Probada ida y vuelta sobre SQLite con ejecuciones completas y `PARTIAL`; nunca ejecutada sobre las filas que haya en Supabase. | Milestone 32 ([ADR 0010](adr-0010-async-resumable-pipeline.md) §2) | Aplicar la migración sobre una copia de la base real y comparar el `steps` reconstruido con el original antes de tocar producción |
+| **Concurrencia real de `SELECT … FOR UPDATE SKIP LOCKED`.** SQLite lo ignora sin error, así que el reclamo único está probado por construcción y por los tests, pero no contra PostgreSQL con varios workers a la vez. | Milestone 31 ([ADR 0009](adr-0009-async-job-runtime.md) §1) | Dos o más `python -m app.jobs.worker` contra la misma base PostgreSQL, comprobando que ningún trabajo se ejecuta dos veces |
+| **Login, refresco y cierre de sesión reales.** El flujo de sesión del Control Center está construido y probado con tokens fabricados; falta ejercerlo contra Supabase con credenciales de prueba. | Milestone 29.1 ([ADR 0007](adr-0007-production-security.md)) | Un usuario de prueba en Supabase: entrar, dejar caducar el token para ver el refresco del middleware, y salir |
