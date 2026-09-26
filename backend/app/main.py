@@ -30,7 +30,13 @@ from app.api import (
 from app.approvals.service import ApprovalNotPendingError
 from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
-from app.core.errors import IncidentNotOpenError, NotFoundError, PipelineDisabledError, PipelineReviewNotPendingError
+from app.core.errors import (
+    IncidentNotOpenError,
+    NotFoundError,
+    PipelineDisabledError,
+    PipelineReviewNotPendingError,
+    PipelineRunStateError,
+)
 from app.core.ids import new_correlation_id
 from app.core.logging import configure_logging, set_correlation_id
 from app.db.session import get_db
@@ -72,6 +78,11 @@ async def approval_not_pending_handler(request: Request, exc: ApprovalNotPending
 async def pipeline_review_not_pending_handler(
     request: Request, exc: PipelineReviewNotPendingError
 ) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(PipelineRunStateError)
+async def pipeline_run_state_handler(request: Request, exc: PipelineRunStateError) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 

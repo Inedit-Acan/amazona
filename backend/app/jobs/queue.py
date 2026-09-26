@@ -191,6 +191,26 @@ class JobQueue:
         self._db.refresh(job)
         return job
 
+    def block(self, job_id: str, *, worker: str, reason: str) -> Job:
+        """Deja el trabajo parado por una condición externa, sin gastar intentos.
+
+        Lo usa un manejador que no puede seguir por algo que el tiempo no
+        arregla —el kill switch apagado (Milestone 32), y en el 33 un veto legal
+        o un presupuesto agotado—. El runtime no reclama `BLOCKED`, así que se
+        queda quieto hasta que una persona lo reencola. El intento en curso se
+        cierra como BLOCKED: no fue un fallo del manejador.
+        """
+        job = self._require_held(job_id, worker)
+        now = _utcnow()
+        self._finish_attempt(job, JobStatus.BLOCKED, reason[:2000], now)
+        job.status = JobStatus.BLOCKED
+        job.error = reason[:2000]
+        self._release(job)
+        self._record(job, JobEventKind.BLOCKED, {"reason": reason})
+        self._db.commit()
+        self._db.refresh(job)
+        return job
+
     def cancel(self, job_id: str, *, actor: str | None = None) -> Job:
         """Cancela un trabajo. Si está en marcha, el worker se entera en su
         siguiente latido; su resultado ya no se aceptará."""

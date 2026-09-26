@@ -12,7 +12,23 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.db.session import get_db
+from app.jobs.worker import Worker
 from app.main import app
+
+#: La fábrica de sesiones de la base que usa el cliente, para poder levantar un
+#: worker contra ella: desde el Milestone 32 la API encola y el worker ejecuta.
+_FACTORY: list = []
+
+
+def drain(rounds: int = 12) -> None:
+    db = _FACTORY[-1]()
+    worker = Worker(name="test-worker")
+    try:
+        for _ in range(rounds):
+            if worker.run_once(db) is None:
+                break
+    finally:
+        db.close()
 
 
 @pytest.fixture()
@@ -22,6 +38,7 @@ def client():
     )
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    _FACTORY.append(session_factory)
 
     def override_get_db():
         session = session_factory()
@@ -35,6 +52,7 @@ def client():
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_db, None)
+        _FACTORY.clear()
         engine.dispose()
 
 
@@ -43,8 +61,11 @@ def test_a_risky_run_is_flagged_reviewed_and_audited(client: TestClient):
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 0.5, "destination_region": "mexico"},
     )
-    assert run_response.status_code == 201
-    run = run_response.json()
+    assert run_response.status_code == 202
+
+    drain()
+
+    run = client.get(f"/api/pipeline/runs/{run_response.json()['correlation_id']}").json()
     assert run["needs_review"] is True
     assert run["steps"]["economics"]["recommendation"] == "NO_GO"
 
@@ -73,7 +94,7 @@ def test_kill_switch_blocks_and_then_unblocks_new_runs(client: TestClient):
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 50.0, "destination_region": "mexico"},
     )
-    assert ok_response.status_code == 201
+    assert ok_response.status_code == 202
 
     disable_response = client.post(
         "/api/pipeline/kill-switch",
@@ -97,4 +118,4 @@ def test_kill_switch_blocks_and_then_unblocks_new_runs(client: TestClient):
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 50.0, "destination_region": "mexico"},
     )
-    assert resumed_response.status_code == 201
+    assert resumed_response.status_code == 202

@@ -233,6 +233,8 @@ separados, colas) — no se usa activamente hoy.
 | [0004](adr-0004-agent-capability-pairs-validate-vs-discover.md) | Convención "validar-uno" vs "descubrir-muchos" para pares de agentes |
 | [0005](adr-0005-fase-3-pipeline-orchestrator.md) | `PipelineOrchestrator` nuevo y separado, nunca detiene la cadena, sin tocar el grafo CEO |
 | [0006](adr-0006-pipeline-human-controls.md) | Revisión humana post-hoc + kill switch pre-hoc sobre el pipeline, sin pausas intermedias |
+| [0009](adr-0009-async-job-runtime.md) | PostgreSQL es la cola y la fuente de verdad; sin Redis, sin Celery, sin tabla de workers |
+| [0010](adr-0010-async-resumable-pipeline.md) | El pipeline se ejecuta en un trabajo por ejecución, con los pasos como filas y reanudación por el paso que falló |
 
 ## 9. Índice de milestones
 
@@ -475,6 +477,53 @@ llama, así que un worker zombi no puede pisar a su sustituto.
 
 ### 13.5 Lo que falta
 
-El pipeline sigue ejecutándose dentro de la petición HTTP: moverlo es el
-Milestone 32. `WAITING_APPROVAL` y `BLOCKED` existen pero nadie los pone
-todavía: eso es el 33.
+`WAITING_APPROVAL` existe pero nadie lo pone todavía: eso es el Milestone 33.
+`BLOCKED` sí se usa desde el 32 (§14).
+
+## 14. El pipeline en el runtime (Milestone 32)
+
+`POST /api/pipeline/runs` **encola** y responde 202: crea la ejecución en
+`QUEUED`, sus nueve pasos en `PENDING` y un trabajo `pipeline.run`. Un worker lo
+reclama y recorre los pasos, escribiendo cada uno al empezar y al terminar; los
+que ya están `COMPLETED` no se repiten, y eso es lo que hace que reanudar
+conserve el trabajo válido.
+
+### 14.1 Los pasos son filas
+
+`pipeline_runs.steps` (JSON) desaparece. La verdad son `pipeline_steps` (un paso
+por fila) y `pipeline_step_attempts` (cada pasada por un paso, con el trabajo que
+la intentó y su error). La API sigue devolviendo el mismo `steps` de siempre,
+reconstruido desde las filas: `status` sigue siendo el estado de **negocio** del
+paso —lo que lee la evaluación de riesgo de la ADR 0006— y el de ejecución viaja
+aparte, en `step_status`.
+
+`pipeline_runs` gana `job_id` y `request`: sin los parámetros de negocio no se
+puede continuar lo que alguien empezó.
+
+### 14.2 Cuatro maneras de pararse
+
+| Estado | Qué pasó | Quién lo mueve |
+|---|---|---|
+| `PARTIAL` | un paso no pudo entregar nada al siguiente | nadie: es negocio, y va a revisión |
+| `FAILED` | un paso reventó | el runtime lo reintenta; si agota intentos, una persona |
+| `BLOCKED` | el kill switch estaba apagado cuando le tocó | una persona: reactivar y reanudar |
+| `CANCELLED` | alguien la paró | una persona: reanudar |
+
+### 14.3 Los controles
+
+- `POST /api/pipeline/runs/{correlation_id}/resume` continúa por el primer paso
+  que no esté `COMPLETED`; con `from_step` rehace ese paso y los siguientes.
+  Reencola **el mismo trabajo**, así que la historia queda en un sitio.
+- `POST /api/pipeline/runs/{correlation_id}/cancel` para la ejecución; una en
+  marcha se entera en su siguiente latido, entre dos pasos.
+
+Ambas usan la acción `pipeline.run` ya existente: no hay rol nuevo.
+
+### 14.4 Tablas
+
+| Tabla | Para qué |
+|---|---|
+| `pipeline_steps` | un paso de una ejecución, con su estado y lo que produjo |
+| `pipeline_step_attempts` | cada pasada por un paso, con su trabajo y su error |
+
+El razonamiento completo está en la [ADR 0010](adr-0010-async-resumable-pipeline.md).

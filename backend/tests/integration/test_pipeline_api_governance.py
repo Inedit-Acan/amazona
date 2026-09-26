@@ -6,7 +6,23 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.db.session import get_db
+from app.jobs.worker import Worker
 from app.main import app
+
+#: La fábrica de sesiones de la base que usa el cliente, para poder levantar un
+#: worker contra ella: desde el Milestone 32 la API encola y el worker ejecuta.
+_FACTORY: list = []
+
+
+def drain(rounds: int = 12) -> None:
+    db = _FACTORY[-1]()
+    worker = Worker(name="test-worker")
+    try:
+        for _ in range(rounds):
+            if worker.run_once(db) is None:
+                break
+    finally:
+        db.close()
 
 
 @pytest.fixture()
@@ -16,6 +32,7 @@ def client():
     )
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    _FACTORY.append(session_factory)
 
     def override_get_db():
         session = session_factory()
@@ -29,6 +46,7 @@ def client():
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_db, None)
+        _FACTORY.clear()
         engine.dispose()
 
 
@@ -62,7 +80,7 @@ def test_re_enabling_the_kill_switch_unblocks_pipeline_runs(client: TestClient):
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 50.0, "destination_region": "mexico"},
     )
-    assert run_response.status_code == 201
+    assert run_response.status_code == 202
 
 
 def test_a_risky_run_appears_in_pending_reviews_and_can_be_approved(client: TestClient):
@@ -70,8 +88,12 @@ def test_a_risky_run_appears_in_pending_reviews_and_can_be_approved(client: Test
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 0.5, "destination_region": "mexico"},
     )
-    assert run_response.status_code == 201
-    assert run_response.json()["needs_review"] is True
+    assert run_response.status_code == 202
+
+    drain()
+
+    run = client.get(f"/api/pipeline/runs/{run_response.json()['correlation_id']}").json()
+    assert run["needs_review"] is True
 
     reviews = client.get("/api/pipeline/reviews").json()
     assert len(reviews) == 1
@@ -94,6 +116,7 @@ def test_approving_an_already_resolved_review_is_409(client: TestClient):
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 0.5, "destination_region": "mexico"},
     )
+    drain()
     review_id = client.get("/api/pipeline/reviews").json()[0]["id"]
     client.post(f"/api/pipeline/reviews/{review_id}/reject", json={"actor": "owner@amazona.local"})
 
@@ -102,7 +125,7 @@ def test_approving_an_already_resolved_review_is_409(client: TestClient):
     )
 
     assert replay_response.status_code == 409
-    assert run_response.status_code == 201
+    assert run_response.status_code == 202
 
 
 def test_a_healthy_run_never_appears_in_pending_reviews(client: TestClient):
@@ -110,5 +133,6 @@ def test_a_healthy_run_never_appears_in_pending_reviews(client: TestClient):
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 50.0, "destination_region": "mexico"},
     )
+    drain()
 
     assert client.get("/api/pipeline/reviews").json() == []

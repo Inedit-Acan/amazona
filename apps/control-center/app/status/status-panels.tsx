@@ -21,8 +21,15 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import type { Job, JobStatus } from "@/lib/api";
+import type { Job, JobStatus, PipelineRun } from "@/lib/api";
 import { jobCounts, jobRows, queueVerdict, workerSeen } from "@/lib/jobs-view";
+import {
+  RUN_STATUS_LABEL,
+  STEP_LABEL,
+  pipelineCounts,
+  pipelineRunRows,
+  pipelineVerdict,
+} from "@/lib/pipeline-view";
 import {
   DEMO_DB_METRICS,
   DEMO_CRON_FAILURES_24H,
@@ -762,6 +769,113 @@ export function CostCard({ lines }: { lines: CostLine[] }) {
     </Card>
   );
 }
+
+
+/** Nombre legible de cada estado de un paso del pipeline. */
+const STEP_STATUS_LABEL: Record<string, string> = {
+  PENDING: "pendiente",
+  RUNNING: "en marcha",
+  COMPLETED: "terminado",
+  FAILED: "fallido",
+  SKIPPED: "no ejecutado",
+  CANCELLED: "cancelado",
+};
+
+/** Ejecuciones del pipeline (Milestone 32).
+ *
+ * Igual que la tarjeta del runtime de trabajos, sin datos de demostración: o el
+ * backend responde las ejecuciones, o no se enseña nada. Una ejecución inventada
+ * diría que el sistema está descubriendo productos cuando no lo está. */
+export function PipelineRunsCard({ runs }: { runs: PipelineRun[] | null }) {
+  if (runs === null) {
+    return (
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle>Pipeline</CardTitle>
+          <CardDescription className="text-xs">Sin respuesta del backend</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-muted-foreground">
+            No se pudieron leer las ejecuciones. No se enseña una estimación: una ejecución inventada diría
+            que el sistema está descubriendo productos cuando no lo está.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const counts = pipelineCounts(runs);
+  const verdict = pipelineVerdict(counts);
+  const rows = pipelineRunRows(runs);
+  const tone =
+    verdict.tone === "error" ? "text-destructive" : verdict.tone === "warning" ? "text-warning" : "text-primary";
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Pipeline
+          <DataProvenanceBadge
+            status="verified"
+            compact
+            tooltip="Ejecuciones reales del backend: sin datos de demostración."
+          />
+        </CardTitle>
+        <CardDescription className={`text-xs ${tone}`}>{verdict.headline}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-[11px] text-muted-foreground">{verdict.detail}</p>
+
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: "En curso", value: counts.queued + counts.running },
+            { label: "Completadas", value: counts.completed },
+            { label: "Incompletas", value: counts.partial },
+            { label: "Paradas", value: counts.failed + counts.blocked + counts.cancelled },
+          ].map((cell) => (
+            <div key={cell.label} className="rounded-md border p-2">
+              <p className="text-[10px] text-muted-foreground">{cell.label}</p>
+              <p className="text-base font-semibold tabular-nums">{formatInteger(cell.value)}</p>
+            </div>
+          ))}
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Todavía no se ha encolado ninguna ejecución.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {rows.map((row) => (
+              <li key={row.correlationId} className="flex items-start justify-between gap-2 text-xs">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">
+                    {row.category} · {row.market.toUpperCase()}
+                  </span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {RUN_STATUS_LABEL[row.status]} · {row.progress.completed}/{row.progress.total} pasos
+                    {row.progress.current
+                      ? ` · ${STEP_LABEL[row.progress.current] ?? row.progress.current} ${
+                          STEP_STATUS_LABEL[row.progress.currentStatus ?? ""] ?? ""
+                        }`
+                      : ""}
+                  </span>
+                  {row.error ? (
+                    <span className="block truncate text-[11px] text-destructive" title={row.error}>
+                      {row.error}
+                    </span>
+                  ) : null}
+                </span>
+                {row.needsReview ? (
+                  <span className="shrink-0 text-[10px] text-warning">revisión</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 
 /** Nombre legible de cada estado del runtime. */
 const JOB_STATUS_LABEL: Record<JobStatus, string> = {

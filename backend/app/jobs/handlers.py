@@ -1,10 +1,8 @@
 """Los tipos de trabajo que el runtime sabe ejecutar.
 
-El plan maestro pide empezar por «una tarea simple async» (§32) y **no** migrar
-todavía el pipeline: eso es el Milestone 32. Así que aquí hay uno de verdad —una
-investigación de producto, el mismo trabajo que hoy hace `POST /api/research/runs`
-de forma síncrona— y uno de diagnóstico para poder comprobar el runtime sin
-tocar datos de negocio.
+Tres: una investigación de producto (`research.run`, Milestone 31), una ejecución
+completa del pipeline de Fase 3 (`pipeline.run`, Milestone 32) y uno de
+diagnóstico para comprobar el runtime sin tocar datos de negocio.
 
 Importar este módulo es lo que registra los manejadores; `app/jobs/worker.py` y
 la API lo importan por ese efecto.
@@ -12,13 +10,16 @@ la API lo importan por ese efecto.
 
 from sqlalchemy.orm import Session
 
+from app.core.errors import PipelineDisabledError
 from app.jobs.registry import register
-from app.jobs.schemas import JobContext, JobResult
+from app.jobs.schemas import JobBlockedError, JobContext, JobResult
+from app.pipeline.service import PIPELINE_RUN_JOB, PipelineOrchestrator
 from app.research.service import ResearchService
 
 #: Tipos, como constantes, para que el que encola y el que ejecuta no dependan
 #: de que una cadena esté bien escrita en dos sitios.
 RESEARCH_RUN = "research.run"
+PIPELINE_RUN = PIPELINE_RUN_JOB
 DIAGNOSTIC_ECHO = "diagnostic.echo"
 
 
@@ -45,6 +46,35 @@ def run_research(payload: dict, context: JobContext, db: Session) -> JobResult:
     )
 
     return JobResult(reference=context.correlation_id, detail={"candidates": len(products)})
+
+
+@register(PIPELINE_RUN)
+def run_pipeline(payload: dict, context: JobContext, db: Session) -> JobResult:
+    """Ejecuta (o continúa) una ejecución del pipeline de Fase 3 fuera de la
+    petición HTTP (Milestone 32, ADR 0010).
+
+    El manejador no sabe nada de los nueve pasos: `execute_run` recorre las filas
+    de `pipeline_steps`, salta las que ya están COMPLETED y persiste cada paso al
+    empezar y al terminar. Por eso un reintento del runtime no repite trabajo ya
+    válido: continúa por donde se quedó.
+
+    Un kill switch apagado no es un fallo que el tiempo arregle, así que el
+    trabajo queda BLOCKED en vez de gastar intentos: vuelve a la cola cuando un
+    operador lo reactiva y alguien lo reencola.
+    """
+    run_id = payload.get("pipeline_run_id")
+    if not run_id:
+        raise ValueError("pipeline.run requires a 'pipeline_run_id' in its payload")
+
+    try:
+        run = PipelineOrchestrator(db).execute_run(str(run_id), context)
+    except PipelineDisabledError as exc:
+        raise JobBlockedError(str(exc)) from exc
+
+    return JobResult(
+        reference=run.correlation_id,
+        detail={"status": run.status, "product_id": run.product_id, "needs_review": run.needs_review},
+    )
 
 
 @register(DIAGNOSTIC_ECHO)

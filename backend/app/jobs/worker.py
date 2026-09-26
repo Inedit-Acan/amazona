@@ -25,7 +25,7 @@ from app.db.session import get_session_factory
 from app.jobs import handlers as _handlers  # noqa: F401 - importar registra los manejadores
 from app.jobs.queue import DEFAULT_LEASE_SECONDS, JobQueue
 from app.jobs.registry import UnknownJobTypeError, resolve
-from app.jobs.schemas import JobCancelledError, JobContext
+from app.jobs.schemas import JobBlockedError, JobCancelledError, JobContext
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,17 @@ class Worker:
             # quien lo tenga ahora decidirá.
             logger.info("job %s was taken away from %s mid-flight", job.id, self.name)
             db.rollback()
+            return
+        except JobBlockedError as exc:
+            # Una condición externa impide seguir y esperar no la arregla: se
+            # queda en BLOCKED sin gastar intentos, hasta que alguien la levante
+            # y lo reencole. Milestone 32 (kill switch), Milestone 33 (gates).
+            logger.info("job %s is blocked: %s", job.id, exc.reason)
+            try:
+                queue.block(job.id, worker=self.name, reason=exc.reason)
+            except JobCancelledError:
+                logger.info("job %s was taken away before it could be blocked", job.id)
+                db.rollback()
             return
         except Exception as exc:  # noqa: BLE001 - cualquier fallo del manejador es un intento fallido
             logger.exception("job %s failed on attempt %s", job.id, job.attempt)

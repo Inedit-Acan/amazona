@@ -4,7 +4,11 @@ the new internal orchestration, as opposed to
 test_operations_to_full_chain_flow.py / test_cfo_aggregation_flow.py,
 which prove the chain works only because the test itself makes 8+
 sequential HTTP calls threading IDs by hand (the manual flow this
-milestone replaces)."""
+milestone replaces).
+
+Desde el Milestone 32 (ADR 0010) esa llamada **encola** y un worker ejecuta, así
+que el recorrido de extremo a extremo incluye ahora el runtime: es lo que de
+verdad corre en producción."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +18,23 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.db.session import get_db
+from app.jobs.worker import Worker
 from app.main import app
+
+#: La fábrica de sesiones de la base que usa el cliente, para poder levantar un
+#: worker contra ella: desde el Milestone 32 la API encola y el worker ejecuta.
+_FACTORY: list = []
+
+
+def drain(rounds: int = 12) -> None:
+    db = _FACTORY[-1]()
+    worker = Worker(name="test-worker")
+    try:
+        for _ in range(rounds):
+            if worker.run_once(db) is None:
+                break
+    finally:
+        db.close()
 
 
 @pytest.fixture()
@@ -24,6 +44,7 @@ def client():
     )
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    _FACTORY.append(session_factory)
 
     def override_get_db():
         session = session_factory()
@@ -37,6 +58,7 @@ def client():
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_db, None)
+        _FACTORY.clear()
         engine.dispose()
 
 
@@ -53,8 +75,13 @@ def test_one_call_produces_the_full_nine_step_chain_with_real_ids_threaded(clien
             "daily_budget": 20.0,
         },
     )
-    assert response.status_code == 201
-    run = response.json()
+    assert response.status_code == 202
+    queued = response.json()
+    assert queued["status"] == "QUEUED"
+
+    drain()
+
+    run = client.get(f"/api/pipeline/runs/{queued['correlation_id']}").json()
     assert run["status"] == "COMPLETED"
     product_id = run["product_id"]
 
@@ -82,6 +109,9 @@ def test_one_call_produces_the_full_nine_step_chain_with_real_ids_threaded(clien
     # Ten distinct correlation_ids: the pipeline's own plus one per step.
     all_correlation_ids = {run["correlation_id"]} | {step["correlation_id"] for step in run["steps"].values()}
     assert len(all_correlation_ids) == 10
+    # El trabajo que lo ejecutó comparte el correlation_id de la ejecución, así
+    # que la bitácora del runtime y la auditoría de negocio se cruzan sin ayuda.
+    assert client.get(f"/api/jobs/{run['job_id']}").json()["correlation_id"] == run["correlation_id"]
 
     # Every step is independently reconstructable via the audit trail,
     # including the pipeline's own top-level run.
@@ -99,14 +129,16 @@ def test_pipeline_completes_even_when_economics_is_no_go(client: TestClient):
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 0.5, "destination_region": "mexico"},
     )
-    assert response.status_code == 201
-    run = response.json()
+    assert response.status_code == 202
 
+    drain()
+
+    run = client.get(f"/api/pipeline/runs/{response.json()['correlation_id']}").json()
     assert run["status"] == "COMPLETED"
     assert run["steps"]["economics"]["recommendation"] == "NO_GO"
     # No auto-halt (ADR 0005) — every downstream step still ran.
-    assert "operations" in run["steps"]
-    assert "cfo" in run["steps"]
+    assert run["steps"]["operations"]["step_status"] == "COMPLETED"
+    assert run["steps"]["cfo"]["step_status"] == "COMPLETED"
 
 
 def test_pipeline_is_partial_when_research_has_no_candidates(client: TestClient):
@@ -114,9 +146,11 @@ def test_pipeline_is_partial_when_research_has_no_candidates(client: TestClient)
         "/api/pipeline/runs",
         json={"category": "does-not-exist", "sale_price": 50.0, "destination_region": "mexico"},
     )
-    assert response.status_code == 201
-    run = response.json()
+    assert response.status_code == 202
 
+    drain()
+
+    run = client.get(f"/api/pipeline/runs/{response.json()['correlation_id']}").json()
     assert run["status"] == "PARTIAL"
     assert run["failed_step"] == "research"
     assert run["product_id"] is None

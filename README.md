@@ -121,6 +121,9 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   ([ADR 0008](docs/architecture/adr-0008-demo-production-isolation.md)) — ver abajo.
 - **Milestone 31:** runtime de trabajos asíncronos
   ([ADR 0009](docs/architecture/adr-0009-async-job-runtime.md)) — ver abajo.
+- **Milestone 32:** el pipeline se ejecuta en ese runtime, con cada paso
+  persistido y con reintentar, reanudar y cancelar
+  ([ADR 0010](docs/architecture/adr-0010-async-resumable-pipeline.md)) — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -236,10 +239,12 @@ python -m app.jobs.worker          # bucle; se pueden levantar varios
 python -m app.jobs.worker --once   # trata un trabajo y termina
 ```
 
-Encolar es `POST /api/jobs` con un tipo de `GET /api/jobs/types`. Hoy hay dos:
-`research.run` (una investigación de producto de verdad) y `diagnostic.echo`
-(comprueba el runtime sin tocar negocio; con `{"fail": true}` falla a propósito
-para ver los reintentos).
+Encolar es `POST /api/jobs` con un tipo de `GET /api/jobs/types`. Hoy hay tres:
+`research.run` (una investigación de producto de verdad), `pipeline.run` (una
+ejecución completa de la cadena de Fase 3 — se encola por
+`POST /api/pipeline/runs`, no a mano) y `diagnostic.echo` (comprueba el runtime
+sin tocar negocio; con `{"fail": true}` falla a propósito para ver los
+reintentos).
 
 Un trabajo reintenta con espera exponencial y, al agotar sus intentos, queda en
 `FAILED` — que es la cola de mensajes muertos: se vacía con
@@ -248,8 +253,36 @@ Un trabajo reintenta con espera exponencial y, al agotar sus intentos, queda en
 Encolar, cancelar y reencolar requieren el rol OWNER, ADMIN, OPERATOR o SYSTEM;
 mirar la cola, cualquiera.
 
+Un trabajo también puede quedar en `BLOCKED` cuando una condición externa
+impide seguir y esperar no la arregla —hoy, el kill switch apagado—: no gasta
+intentos y vuelve con el mismo `requeue`.
+
 **Redis no se usa**: PostgreSQL es la cola y la fuente de verdad, por las
 razones de la [ADR 0009](docs/architecture/adr-0009-async-job-runtime.md) §2.
+
+## El pipeline, paso a paso
+
+Desde el Milestone 32 `POST /api/pipeline/runs` **encola**: responde 202 con la
+ejecución en `QUEUED` y sus nueve pasos en `PENDING`, y un worker la recorre
+escribiendo cada paso al empezar y al terminar. Un fallo a mitad deja los pasos
+anteriores hechos y visibles en vez de huérfanos.
+
+```bash
+curl -X POST localhost:8000/api/pipeline/runs -H 'Content-Type: application/json' \
+  -d '{"category":"electronics","sale_price":45.0,"destination_region":"mexico"}'
+curl -s localhost:8000/api/pipeline/runs/<correlation_id> | python -m json.tool
+```
+
+- `POST /api/pipeline/runs/{correlation_id}/resume` continúa por el paso que
+  falló, sin repetir lo que ya estaba bien; con `{"from_step": "economics"}`
+  rehace ese paso y los siguientes a propósito.
+- `POST /api/pipeline/runs/{correlation_id}/cancel` la para; una ejecución en
+  marcha se entera entre dos pasos.
+
+`PARTIAL` (un paso no pudo entregar nada al siguiente) y `FAILED` (un paso
+reventó) dejan de ser lo mismo: el primero no se reintenta solo y va a la
+bandeja de revisión; el segundo lo reintenta el runtime. El razonamiento
+completo, en la [ADR 0010](docs/architecture/adr-0010-async-resumable-pipeline.md).
 
 ## Notas
 

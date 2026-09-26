@@ -18,6 +18,7 @@ from app.db.models.operations_record import OperationsRecord
 from app.db.models.pipeline_kill_switch import PipelineKillSwitch
 from app.db.models.pipeline_review import PipelineReview
 from app.db.models.pipeline_run import PipelineRun
+from app.db.models.pipeline_step import PipelineStep, PipelineStepAttempt
 from app.db.models.policy import Policy
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
@@ -56,6 +57,8 @@ __all__ = [
     "PipelineKillSwitch",
     "PipelineReview",
     "PipelineRun",
+    "PipelineStep",
+    "PipelineStepAttempt",
     "Policy",
     "Product",
     "ProductAnalysis",

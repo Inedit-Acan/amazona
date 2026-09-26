@@ -48,6 +48,10 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     ("POST", "/api/operations/runs", {}, ApiAction.AGENT_RUN),
     ("POST", "/api/cfo/runs", {}, ApiAction.AGENT_RUN),
     ("POST", "/api/pipeline/runs", {}, ApiAction.PIPELINE_RUN),
+    # Reanudar y cancelar son la misma acción que arrancar: quien puede poner al
+    # sistema a trabajar puede continuar y parar lo que ya empezó (Milestone 32).
+    ("POST", "/api/pipeline/runs/cid-1/resume", {}, ApiAction.PIPELINE_RUN),
+    ("POST", "/api/pipeline/runs/cid-1/cancel", {}, ApiAction.PIPELINE_RUN),
     ("POST", "/api/pipeline/reviews/rev-1/approve", {"actor": "x"}, ApiAction.REVIEW_RESOLVE),
     ("POST", "/api/pipeline/reviews/rev-1/reject", {"actor": "x"}, ApiAction.REVIEW_RESOLVE),
     ("POST", "/api/pipeline/kill-switch", {"enabled": True, "actor": "x"}, ApiAction.KILL_SWITCH_WRITE),
@@ -195,6 +199,8 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/operations/runs"),
         ("POST", "/api/cfo/runs"),
         ("POST", "/api/pipeline/runs"),
+        ("POST", "/api/pipeline/runs/{correlation_id}/resume"),
+        ("POST", "/api/pipeline/runs/{correlation_id}/cancel"),
         ("POST", "/api/pipeline/reviews/{review_id}/approve"),
         ("POST", "/api/pipeline/reviews/{review_id}/reject"),
         ("POST", "/api/pipeline/kill-switch"),

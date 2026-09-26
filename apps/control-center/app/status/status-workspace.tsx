@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { ArrowRight, Bell, Boxes, CircleAlert, Code2, Gauge, ListChecks, ShieldCheck } from "lucide-react";
-import type { Agent, AgentExecution, Incident, Job } from "@/lib/api";
+import type { Agent, AgentExecution, Incident, Job, PipelineRun } from "@/lib/api";
 import { teamOf } from "@/lib/agents";
 import { demoExecutions } from "@/lib/demo/agents";
 import { relativeTime } from "@/lib/dates";
@@ -39,6 +39,7 @@ import {
   IntegrationsCard,
   JobRuntimeCard,
   MetricsCard,
+  PipelineRunsCard,
   MigrationsCard,
   ServiceMapCard,
   ServicesCard,
@@ -55,6 +56,7 @@ export function StatusWorkspace({
   executions,
   incidents,
   jobs,
+  pipelineRuns,
   now,
 }: {
   signal: HealthSignal;
@@ -64,6 +66,8 @@ export function StatusWorkspace({
   executions: AgentExecution[] | null;
   incidents: Incident[] | null;
   jobs: Job[] | null;
+  /** null = la petición falló. Igual que la cola, no se rellena con demo. */
+  pipelineRuns: PipelineRun[] | null;
   now: number;
 }) {
   // Mismo criterio que la pantalla de Agentes: si el log está vacío se usan las
@@ -188,6 +192,7 @@ export function StatusWorkspace({
         <div className="min-w-0 space-y-3 2xl:col-span-2">
           <AgentRuntimeCard runtime={runtime} />
           <JobRuntimeCard jobs={jobs} now={now} />
+          <PipelineRunsCard runs={pipelineRuns} />
         </div>
       </section>
 

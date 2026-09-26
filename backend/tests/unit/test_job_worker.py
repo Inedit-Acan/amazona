@@ -15,7 +15,7 @@ from app.db.models.product import Product
 from app.jobs import registry
 from app.jobs.handlers import DIAGNOSTIC_ECHO, RESEARCH_RUN
 from app.jobs.queue import JobQueue
-from app.jobs.schemas import JobCancelledError, JobResult, JobStatus
+from app.jobs.schemas import JobBlockedError, JobCancelledError, JobResult, JobStatus
 from app.jobs.worker import Worker
 
 
@@ -247,3 +247,25 @@ def test_the_worker_survives_a_handler_that_raises_on_import_of_its_payload(queu
     # Se lo quitaron: el worker no reporta nada y el trabajo se queda como
     # estaba, para que decida quien lo tenga ahora.
     assert job.status == JobStatus.RUNNING
+
+
+def test_a_handler_that_hits_an_external_condition_leaves_the_job_blocked(
+    queue, db, worker, temporary_handler
+):
+    """Milestone 32: `JobBlockedError` es la forma en que un manejador dice «esto
+    no lo arregla esperar». El trabajo queda BLOCKED sin gastar intentos, y el
+    runtime no lo vuelve a reclamar hasta que alguien lo reencole."""
+
+    def blocked(payload, context, session):
+        raise JobBlockedError("pipeline runs are currently disabled by an operator")
+
+    temporary_handler("test.blocked", blocked)
+    job = queue.enqueue(job_type="test.blocked", max_attempts=3)
+
+    worker.run_once(db)
+
+    db.refresh(job)
+    assert job.status == JobStatus.BLOCKED
+    assert job.attempt == 1
+    assert "disabled by an operator" in (job.error or "")
+    assert worker.run_once(db) is None

@@ -12,10 +12,12 @@ from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.pipeline_review import PipelineReview as PipelineReviewModel
 from app.db.models.pipeline_run import PipelineRun as PipelineRunModel
+from app.db.models.pipeline_step import PipelineStep as PipelineStepModel
+from app.db.models.pipeline_step import PipelineStepAttempt as PipelineStepAttemptModel
 from app.db.session import get_db
 from app.permissions.policies import ApiAction
 from app.pipeline.kill_switch import PipelineKillSwitchService
-from app.pipeline.service import PipelineOrchestrator, PipelineRequest
+from app.pipeline.service import PipelineOrchestrator, PipelineRequest, load_steps_views, steps_view
 
 router = APIRouter(tags=["pipeline"])
 
@@ -43,7 +45,41 @@ class PipelineRunOut(BaseModel):
     status: str
     failed_step: str | None
     needs_review: bool
+    #: Reconstruido desde las filas de `pipeline_steps` (ADR 0010): misma forma
+    #: que el JSON que esta API devuelve desde el Milestone 12, más el estado de
+    #: ejecución de cada paso en `step_status`.
     steps: dict
+    #: El trabajo que la ejecuta. Su bitácora está en `GET /api/jobs/{id}`.
+    job_id: str | None
+
+
+class PipelineStepAttemptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    step: str
+    number: int
+    status: str
+    error: str | None
+    job_id: str | None
+    started_at: datetime.datetime
+    finished_at: datetime.datetime | None
+
+
+class PipelineRunDetailOut(PipelineRunOut):
+    #: Cada pasada por cada paso, en orden. Es lo que explica por qué alguien
+    #: tuvo que reanudar una ejecución (plan maestro §21).
+    attempts: list[PipelineStepAttemptOut]
+
+
+class PipelineRunResumeIn(BaseModel):
+    actor: str | None = None
+    #: Paso por el que continuar. Por defecto, el primero que no esté COMPLETED
+    #: —que es el que falló—. Indicarlo fuerza rehacer ese paso y los siguientes.
+    from_step: str | None = None
+
+
+class PipelineRunCancelIn(BaseModel):
+    actor: str | None = None
 
 
 class PipelineReviewOut(BaseModel):
@@ -74,32 +110,118 @@ class KillSwitchSetIn(BaseModel):
     actor: str
 
 
-def _load_run(correlation_id: str, db: Session) -> PipelineRunOut:
+def _require_run(correlation_id: str, db: Session) -> PipelineRunModel:
     record = db.query(PipelineRunModel).filter_by(correlation_id=correlation_id).first()
     if record is None:
         raise NotFoundError(f"pipeline run {correlation_id} not found")
-    return PipelineRunOut.model_validate(record)
+    return record
 
 
-@router.post("/api/pipeline/runs", response_model=PipelineRunOut, status_code=201)
+def _run_fields(record: PipelineRunModel) -> dict:
+    """Los campos de la fila. `steps` no sale de aquí: vive en sus propias filas
+    y se reconstruye aparte (ADR 0010)."""
+    return {
+        "correlation_id": record.correlation_id,
+        "product_id": record.product_id,
+        "category": record.category,
+        "market": record.market,
+        "status": record.status,
+        "failed_step": record.failed_step,
+        "needs_review": record.needs_review,
+        "job_id": record.job_id,
+    }
+
+
+def _view(record: PipelineRunModel, db: Session) -> PipelineRunOut:
+    steps = db.query(PipelineStepModel).filter_by(pipeline_run_id=record.id).all()
+    return PipelineRunOut(**_run_fields(record), steps=steps_view(steps))
+
+
+@router.post("/api/pipeline/runs", response_model=PipelineRunOut, status_code=202)
 def create_pipeline_run(
     payload: PipelineRunCreate,
     db: Session = Depends(get_db),
-    _actor: Actor = Depends(authorize(ApiAction.PIPELINE_RUN)),
+    identity: Actor = Depends(authorize(ApiAction.PIPELINE_RUN)),
 ) -> PipelineRunOut:
+    """Encola una ejecución del pipeline. **No la ejecuta**: de eso se encarga un
+    worker (Milestone 32, ADR 0010), así que responde 202 con la ejecución en
+    QUEUED y sus nueve pasos en PENDING. El resultado se sigue por
+    `GET /api/pipeline/runs/{correlation_id}`."""
     request = PipelineRequest(**payload.model_dump())
-    run = PipelineOrchestrator(db).run_pipeline(request)
-    return _load_run(run.correlation_id, db)
+    run = PipelineOrchestrator(db).enqueue_run(request, created_by=identity.audit_name)
+    return _view(run, db)
 
 
-@router.get("/api/pipeline/runs/{correlation_id}", response_model=PipelineRunOut)
-def get_pipeline_run(correlation_id: str, db: Session = Depends(get_db)) -> PipelineRunOut:
-    return _load_run(correlation_id, db)
+@router.get("/api/pipeline/runs/{correlation_id}", response_model=PipelineRunDetailOut)
+def get_pipeline_run(correlation_id: str, db: Session = Depends(get_db)) -> PipelineRunDetailOut:
+    record = _require_run(correlation_id, db)
+    steps = db.query(PipelineStepModel).filter_by(pipeline_run_id=record.id).all()
+    by_id = {step.id: step for step in steps}
+    attempt_rows = (
+        db.query(PipelineStepAttemptModel)
+        .filter(PipelineStepAttemptModel.pipeline_step_id.in_(list(by_id) or [""]))
+        .order_by(PipelineStepAttemptModel.started_at)
+        .all()
+    )
+    attempts = [
+        PipelineStepAttemptOut(
+            step=by_id[row.pipeline_step_id].name,
+            number=row.number,
+            status=row.status,
+            error=row.error,
+            job_id=row.job_id,
+            started_at=row.started_at,
+            finished_at=row.finished_at,
+        )
+        for row in attempt_rows
+    ]
+    return PipelineRunDetailOut(**_run_fields(record), steps=steps_view(steps), attempts=attempts)
 
 
 @router.get("/api/pipeline/runs", response_model=list[PipelineRunOut])
-def list_pipeline_runs(db: Session = Depends(get_db)) -> list[PipelineRunModel]:
-    return db.query(PipelineRunModel).order_by(PipelineRunModel.created_at.desc()).all()
+def list_pipeline_runs(db: Session = Depends(get_db)) -> list[PipelineRunOut]:
+    records = db.query(PipelineRunModel).order_by(PipelineRunModel.created_at.desc()).all()
+    views = load_steps_views(db, [record.id for record in records])
+    return [
+        PipelineRunOut(**_run_fields(record), steps=views.get(record.id, {})) for record in records
+    ]
+
+
+@router.post("/api/pipeline/runs/{correlation_id}/resume", response_model=PipelineRunOut)
+def resume_pipeline_run(
+    correlation_id: str,
+    payload: PipelineRunResumeIn | None = None,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.PIPELINE_RUN)),
+    settings: Settings = Depends(get_settings),
+) -> PipelineRunOut:
+    """Devuelve a la cola una ejecución parada, conservando los pasos que ya
+    terminaron bien. Reintentar el paso que falló y reanudar la ejecución son la
+    misma operación: el punto por el que se continúa **es** el paso fallido."""
+    body = payload or PipelineRunResumeIn()
+    record = _require_run(correlation_id, db)
+    actor = actor_name(identity, body.actor, settings)
+    run = PipelineOrchestrator(db).resume_run(
+        record, actor=actor, identity=identity, from_step=body.from_step
+    )
+    return _view(run, db)
+
+
+@router.post("/api/pipeline/runs/{correlation_id}/cancel", response_model=PipelineRunOut)
+def cancel_pipeline_run(
+    correlation_id: str,
+    payload: PipelineRunCancelIn | None = None,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.PIPELINE_RUN)),
+    settings: Settings = Depends(get_settings),
+) -> PipelineRunOut:
+    """Para una ejecución. Si un worker la tiene entre manos, se entera en su
+    siguiente latido —entre pasos— y deja el paso en curso en CANCELLED."""
+    body = payload or PipelineRunCancelIn()
+    record = _require_run(correlation_id, db)
+    actor = actor_name(identity, body.actor, settings)
+    run = PipelineOrchestrator(db).cancel_run(record, actor=actor, identity=identity)
+    return _view(run, db)
 
 
 @router.get("/api/pipeline/reviews", response_model=list[PipelineReviewOut])

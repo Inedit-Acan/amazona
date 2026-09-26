@@ -329,3 +329,56 @@ def test_a_failed_job_can_be_requeued(queue, db):
 def test_cancelling_a_job_that_does_not_exist_is_an_error(queue):
     with pytest.raises(LookupError):
         queue.cancel("nope")
+
+
+# --- Bloqueo por una condición externa (Milestone 32) ------------------------
+
+
+def test_a_blocked_job_keeps_its_attempts_and_is_not_claimed_again(queue, db):
+    """Una condición que el tiempo no arregla —el kill switch apagado— no puede
+    gastar los intentos del trabajo: se queda parado hasta que alguien lo
+    reencole (ADR 0010 §5)."""
+    queue.enqueue(job_type="diagnostic.echo", max_attempts=3)
+    job = queue.claim(worker="w1")
+
+    blocked = queue.block(job.id, worker="w1", reason="pipeline runs are disabled by an operator")
+
+    assert blocked.status == JobStatus.BLOCKED
+    assert blocked.status in HELD
+    assert blocked.attempt == 1
+    assert "disabled by an operator" in (blocked.error or "")
+    assert blocked.lease_worker is None
+    # El runtime no lo reclama: no es suyo mientras la condición siga ahí.
+    assert queue.claim(worker="w2") is None
+    assert JobEventKind.BLOCKED in events_of(db, blocked)
+
+
+def test_a_blocked_attempt_is_recorded_as_blocked_not_as_a_failure(queue, db):
+    queue.enqueue(job_type="diagnostic.echo")
+    job = queue.claim(worker="w1")
+
+    queue.block(job.id, worker="w1", reason="kill switch is off")
+
+    attempt = db.query(JobAttempt).filter_by(job_id=job.id, number=1).one()
+    assert attempt.status == JobStatus.BLOCKED
+    assert attempt.finished_at is not None
+
+
+def test_a_blocked_job_comes_back_with_a_requeue(queue, db):
+    queue.enqueue(job_type="diagnostic.echo")
+    job = queue.claim(worker="w1")
+    queue.block(job.id, worker="w1", reason="kill switch is off")
+
+    requeued = queue.requeue(job.id, actor="owner@amazona.local")
+
+    assert requeued.status == JobStatus.QUEUED
+    assert requeued.error is None
+    assert queue.claim(worker="w2") is not None
+
+
+def test_a_worker_that_no_longer_holds_a_job_cannot_block_it(queue):
+    queue.enqueue(job_type="diagnostic.echo")
+    job = queue.claim(worker="w1")
+
+    with pytest.raises(JobCancelledError):
+        queue.block(job.id, worker="someone-else", reason="kill switch is off")

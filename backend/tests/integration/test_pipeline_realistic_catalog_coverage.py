@@ -9,10 +9,23 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import Base
-from app.pipeline.service import PipelineOrchestrator, PipelineRequest
+from app.db.models.pipeline_run import PipelineRun
+from app.db.models.pipeline_step import PipelineStep
+from app.pipeline.service import PipelineOrchestrator, PipelineRequest, steps_view
 
 _KNOWN_CATEGORIES = ["electronics", "home", "accessories"]
 _KNOWN_MARKETS = ["us", "eu", "mx"]
+
+
+def run_now(orchestrator: PipelineOrchestrator, request: PipelineRequest) -> PipelineRun:
+    """Encolar y ejecutar en el acto: este barrido mide resultados de negocio, no
+    el ciclo del runtime (Milestone 32)."""
+    run = orchestrator.enqueue_run(request)
+    return orchestrator.execute_run(run.id)
+
+
+def view(db: Session, run: PipelineRun) -> dict[str, dict]:
+    return steps_view(db.query(PipelineStep).filter_by(pipeline_run_id=run.id).all())
 
 
 @pytest.fixture()
@@ -38,11 +51,12 @@ def test_every_known_category_and_market_combo_completes_without_error(
         category=category, market=market, sale_price=50.0, destination_region="mexico"
     )
 
-    run = orchestrator.run_pipeline(request)
+    run = run_now(orchestrator, request)
 
+    steps = view(db_session, run)
     assert run.status == "COMPLETED"
-    assert run.steps["economics"]["recommendation"] in {"GO", "REVIEW", "NO_GO"}
-    assert run.steps["legal"]["recommendation"] in {"GO", "REVIEW", "NO_GO"}
+    assert steps["economics"]["recommendation"] in {"GO", "REVIEW", "NO_GO"}
+    assert steps["legal"]["recommendation"] in {"GO", "REVIEW", "NO_GO"}
 
 
 @pytest.mark.parametrize("category", _KNOWN_CATEGORIES)
@@ -50,9 +64,9 @@ def test_a_too_low_sale_price_always_produces_no_go_economics(db_session: Sessio
     orchestrator = PipelineOrchestrator(db_session)
     request = PipelineRequest(category=category, sale_price=0.5, destination_region="mexico")
 
-    run = orchestrator.run_pipeline(request)
+    run = run_now(orchestrator, request)
 
-    assert run.steps["economics"]["recommendation"] == "NO_GO"
+    assert view(db_session, run)["economics"]["recommendation"] == "NO_GO"
     # No auto-halt (ADR 0005) — the pipeline still completes every step.
     assert run.status == "COMPLETED"
 
@@ -67,10 +81,11 @@ def test_economics_can_produce_a_review_outcome_near_the_margin_boundary(db_sess
     found_review = False
     sale_price = 30.0
     while sale_price >= 2.0:
-        run = orchestrator.run_pipeline(
-            PipelineRequest(category="home", sale_price=sale_price, destination_region="mexico")
+        run = run_now(
+            orchestrator,
+            PipelineRequest(category="home", sale_price=sale_price, destination_region="mexico"),
         )
-        if run.steps["economics"]["recommendation"] == "REVIEW":
+        if view(db_session, run)["economics"]["recommendation"] == "REVIEW":
             found_review = True
             break
         sale_price -= 0.5
@@ -82,7 +97,7 @@ def test_an_unrecognized_destination_region_still_completes(db_session: Session)
     orchestrator = PipelineOrchestrator(db_session)
     request = PipelineRequest(category="home", sale_price=50.0, destination_region="narnia")
 
-    run = orchestrator.run_pipeline(request)
+    run = run_now(orchestrator, request)
 
     assert run.status == "COMPLETED"
 
@@ -91,7 +106,7 @@ def test_an_unrecognized_market_still_completes_with_a_flagged_legal_risk(db_ses
     orchestrator = PipelineOrchestrator(db_session)
     request = PipelineRequest(category="home", market="ca", sale_price=50.0, destination_region="mexico")
 
-    run = orchestrator.run_pipeline(request)
+    run = run_now(orchestrator, request)
 
     assert run.status == "COMPLETED"
-    assert run.steps["legal"]["recommendation"] == "REVIEW"
+    assert view(db_session, run)["legal"]["recommendation"] == "REVIEW"

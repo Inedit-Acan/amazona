@@ -26,8 +26,9 @@ class JobStatus(StrEnum):
     #: Parado a la espera de una decisión humana. El runtime no lo reclama.
     #: Lo usará el Milestone 33 (ActionGate).
     WAITING_APPROVAL = "WAITING_APPROVAL"
-    #: Parado porque una condición lo impide (legal NO_GO, presupuesto, kill
-    #: switch). Tampoco se reclama. También del Milestone 33.
+    #: Parado porque una condición lo impide y esperar no la arregla (kill
+    #: switch apagado desde el Milestone 32; legal NO_GO y presupuesto agotado
+    #: en el 33). Tampoco se reclama: vuelve cuando alguien lo reencola.
     BLOCKED = "BLOCKED"
     COMPLETED = "COMPLETED"
     #: Agotó sus intentos. Es la cola de mensajes muertos: la fila sigue ahí,
@@ -59,6 +60,7 @@ class JobEventKind(StrEnum):
     CANCELLED = "cancelled"
     LEASE_EXPIRED = "lease_expired"
     REQUEUED = "requeued"
+    BLOCKED = "blocked"
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,21 @@ class JobResult:
 class JobCancelledError(Exception):
     """El trabajo se canceló mientras se ejecutaba. La lanza `heartbeat()` para
     que un manejador cooperativo pare donde esté."""
+
+
+class JobBlockedError(Exception):
+    """Una condición externa impide seguir, y esperar no la arregla: el kill
+    switch apagado, y en el Milestone 33 un veto legal o un presupuesto agotado.
+
+    Un manejador que la lanza deja su trabajo en `BLOCKED` en vez de gastar
+    intentos: el runtime no lo reclamará, y vuelve a la cola cuando una persona
+    levanta la condición (`POST /api/jobs/{id}/requeue`). Es distinto de un
+    fallo —que se reintenta— y de una cancelación —que no vuelve—.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 @dataclass

@@ -571,22 +571,49 @@ export interface CFOReport {
 }
 
 export interface PipelineStep {
-  correlation_id: string;
+  correlation_id: string | null;
   entity_id?: string;
+  /** Estado de NEGOCIO del paso (el listing quedó BLOCKED, el CFO CRITICAL). */
   status?: string;
   recommendation?: string;
   candidate_count?: number;
+  /** Estado de EJECUCIÓN del paso (Milestone 32). Distinto de `status`: un paso
+   * puede estar COMPLETED y su resultado de negocio ser BLOCKED. */
+  step_status: PipelineStepStatus;
+  attempt: number;
+  error?: string;
 }
+
+export type PipelineStepStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "SKIPPED"
+  | "CANCELLED";
+
+/** Estados de una ejecución (Milestone 32). QUEUED/RUNNING son del proceso;
+ * PARTIAL es un resultado de negocio y FAILED un fallo técnico reintentable. */
+export type PipelineRunStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "COMPLETED"
+  | "PARTIAL"
+  | "FAILED"
+  | "BLOCKED"
+  | "CANCELLED";
 
 export interface PipelineRun {
   correlation_id: string;
   product_id: string | null;
   category: string;
   market: string;
-  status: "COMPLETED" | "PARTIAL";
+  status: PipelineRunStatus;
   failed_step: string | null;
   needs_review: boolean;
   steps: Record<string, PipelineStep>;
+  /** El trabajo del runtime que la ejecuta (Milestone 32). */
+  job_id: string | null;
 }
 
 export interface PipelineReview {
