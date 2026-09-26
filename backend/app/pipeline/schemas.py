@@ -13,6 +13,8 @@ ejecución puede sobrevivir a que su job muera.
 
 from enum import StrEnum
 
+from app.gates.action_gate import SideEffectAction
+
 
 class PipelineRunStatus(StrEnum):
     """En qué estado está una ejecución del pipeline."""
@@ -36,6 +38,10 @@ class PipelineRunStatus(StrEnum):
     BLOCKED = "BLOCKED"
     #: Una persona la paró. No vuelve por su cuenta.
     CANCELLED = "CANCELLED"
+    #: Parada delante de una acción con efecto que nadie ha autorizado todavía
+    #: (Milestone 33). El trabajo espera en WAITING_APPROVAL y continúa por el
+    #: mismo paso en cuanto alguien decide.
+    WAITING_APPROVAL = "WAITING_APPROVAL"
 
 
 class PipelineStepStatus(StrEnum):
@@ -51,6 +57,11 @@ class PipelineStepStatus(StrEnum):
     SKIPPED = "SKIPPED"
     #: Estaba en marcha cuando alguien canceló la ejecución.
     CANCELLED = "CANCELLED"
+    #: El ActionGate no dejó ejecutarlo (Milestone 33). No es un fallo: es una
+    #: decisión, y el resto de la cadena sigue.
+    DENIED = "DENIED"
+    #: El ActionGate pide una decisión humana antes de ejecutarlo.
+    WAITING_APPROVAL = "WAITING_APPROVAL"
 
 
 #: Los nueve pasos de Fase 3, en el único orden en que pueden ocurrir: cada uno
@@ -75,6 +86,7 @@ RESUMABLE: frozenset[PipelineRunStatus] = frozenset(
         PipelineRunStatus.PARTIAL,
         PipelineRunStatus.BLOCKED,
         PipelineRunStatus.CANCELLED,
+        PipelineRunStatus.WAITING_APPROVAL,
     }
 )
 
@@ -86,8 +98,32 @@ CANCELLABLE: frozenset[PipelineRunStatus] = frozenset(
         PipelineRunStatus.RUNNING,
         PipelineRunStatus.FAILED,
         PipelineRunStatus.BLOCKED,
+        PipelineRunStatus.WAITING_APPROVAL,
     }
 )
+
+
+#: Las dos clases de decisión humana sobre una ejecución (Milestone 33).
+#: `POST_HOC` mira lo que ya pasó (Milestone 14, ADR 0006); `ACTION_GATE`
+#: autoriza lo que todavía no ha pasado. Comparten tabla y bandeja porque para
+#: quien decide son la misma pregunta.
+REVIEW_KIND_POST_HOC = "POST_HOC"
+REVIEW_KIND_ACTION_GATE = "ACTION_GATE"
+
+
+#: Qué acción con efecto ejecuta cada paso (Milestone 33, plan maestro §7). Los
+#: pasos que no están aquí son análisis: investigar, cotizar, calcular márgenes,
+#: comprobar requisitos legales y agregar finanzas no le hacen nada a nadie fuera
+#: del sistema, así que no pasan por el gate.
+#:
+#: `operations` calcula hoy un plan de fulfillment, no envía nada; el día que
+#: envíe de verdad, entra aquí con SHIP_ORDER y esa es la única línea que hay que
+#: tocar.
+STEP_SIDE_EFFECTS: dict[str, SideEffectAction] = {
+    "ecommerce": SideEffectAction.PUBLISH_PRODUCT,
+    "marketplace": SideEffectAction.PUBLISH_PRODUCT,
+    "marketing": SideEffectAction.ACTIVATE_ADS,
+}
 
 
 def step_ordinal(name: str) -> int:

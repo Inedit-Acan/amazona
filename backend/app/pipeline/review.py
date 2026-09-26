@@ -32,6 +32,13 @@ def assess_pipeline_run(*, status: str, steps: dict[str, dict]) -> PipelineAsses
         if step and step.get("status") == "BLOCKED":
             reasons.append(f"{step_name} status is BLOCKED")
 
+    # Milestone 33: una acción con efecto que el ActionGate no dejó ejecutar es
+    # justo lo que alguien tiene que mirar, aunque el resto de la cadena
+    # terminara bien.
+    for step_name, step in steps.items():
+        if step.get("step_status") == "DENIED":
+            reasons.append(f"{step_name} was denied by the action gate")
+
     cfo_step = steps.get("cfo")
     if cfo_step and cfo_step.get("status") in _AT_RISK_CFO_STATUSES:
         reasons.append(f"cfo financial health status is {cfo_step['status']}")

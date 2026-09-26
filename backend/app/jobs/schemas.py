@@ -23,8 +23,8 @@ class JobStatus(StrEnum):
     RUNNING = "RUNNING"
     #: Falló un intento y espera su ventana de reintento.
     RETRYING = "RETRYING"
-    #: Parado a la espera de una decisión humana. El runtime no lo reclama.
-    #: Lo usará el Milestone 33 (ActionGate).
+    #: Parado a la espera de una decisión humana. El runtime no lo reclama:
+    #: vuelve cuando alguien aprueba y lo reencola (Milestone 33, ActionGate).
     WAITING_APPROVAL = "WAITING_APPROVAL"
     #: Parado porque una condición lo impide y esperar no la arregla (kill
     #: switch apagado desde el Milestone 32; legal NO_GO y presupuesto agotado
@@ -61,6 +61,7 @@ class JobEventKind(StrEnum):
     LEASE_EXPIRED = "lease_expired"
     REQUEUED = "requeued"
     BLOCKED = "blocked"
+    AWAITING_APPROVAL = "awaiting_approval"
 
 
 @dataclass(frozen=True)
@@ -89,6 +90,21 @@ class JobBlockedError(Exception):
     intentos: el runtime no lo reclamará, y vuelve a la cola cuando una persona
     levanta la condición (`POST /api/jobs/{id}/requeue`). Es distinto de un
     fallo —que se reintenta— y de una cancelación —que no vuelve—.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class JobAwaitingApprovalError(Exception):
+    """El trabajo no puede seguir hasta que una persona decida (Milestone 33).
+
+    Lo lanza un manejador que se ha topado con una puerta —el ActionGate pidiendo
+    autorización para una acción con efecto—. El trabajo queda en
+    `WAITING_APPROVAL`: el runtime no lo reclama y no gasta intentos, y vuelve a
+    la cola cuando alguien aprueba. Es distinto de `JobBlockedError`, que es una
+    condición sin decisión humana detrás, y de un fallo, que se reintenta solo.
     """
 
     def __init__(self, reason: str) -> None:

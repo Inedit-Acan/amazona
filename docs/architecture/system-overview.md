@@ -237,6 +237,7 @@ separados, colas) — no se usa activamente hoy.
 | [0008](adr-0008-demo-production-isolation.md) | Un `Protocol` por dominio externo y el proveedor activo como configuración; la pantalla dice siempre cuál responde |
 | [0009](adr-0009-async-job-runtime.md) | PostgreSQL es la cola y la fuente de verdad; sin Redis, sin Celery, sin tabla de workers |
 | [0010](adr-0010-async-resumable-pipeline.md) | El pipeline se ejecuta en un trabajo por ejecución, con los pasos como filas y reanudación por el paso que falló |
+| [0011](adr-0011-action-gate.md) | El `ActionGate` separa analizar de actuar: los vetos ganan, ninguna firma los levanta, y esperar a una persona es un estado del trabajo |
 
 ## 9. Índice de milestones
 
@@ -257,6 +258,13 @@ separados, colas) — no se usa activamente hoy.
 | [13](../milestones/milestone-13-demo.md) | Validación combinatoria real + 3 fixes (colisión de `store_slug`, índices, `CFOService` sin full table scan) (Fase 4.3/4.4) |
 | [14](../milestones/milestone-14-demo.md) | Revisión humana post-hoc + kill switch pre-hoc sobre el pipeline (Fase 4.5) |
 | [15](../milestones/milestone-15-demo.md) | Este documento — cierre de Fase 4 |
+| … | Milestones 16-28: rediseño del Control Center, Neural Nexus y Decision Engine (ver `docs/milestones/`) |
+| [29](../milestones/milestone-29-demo.md) | Seguridad de producción: identidad obligatoria y RBAC por acción (§11) |
+| [29.1](../milestones/milestone-29-1-read-authorization.md) | La lectura también exige identidad y rol |
+| [30](../milestones/milestone-30-demo.md) | Aislamiento demo/real: un contrato por dominio y el proveedor como configuración (§12) |
+| [31](../milestones/milestone-31-demo.md) | Runtime de trabajos asíncronos sobre PostgreSQL (§13) |
+| [32](../milestones/milestone-32-demo.md) | El pipeline se ejecuta en ese runtime, con los pasos persistidos y reanudables (§14) |
+| [33](../milestones/milestone-33-demo.md) | `ActionGate`: publicar, anunciar y gastar dejan de ocurrir solos (§15) |
 
 ## 10. Cómo verlo funcionar
 
@@ -530,7 +538,56 @@ Ambas usan la acción `pipeline.run` ya existente: no hay rol nuevo.
 
 El razonamiento completo está en la [ADR 0010](adr-0010-async-resumable-pipeline.md).
 
-## 15. Pendientes de integración
+## 15. El ActionGate (Milestone 33)
+
+La raya entre **analizar** —que no le hace nada a nadie y sigue pase lo que
+pase— y **actuar** —las nueve acciones con efecto del plan maestro §7—. De los
+nueve pasos del pipeline, tres actúan: `ecommerce` y `marketplace` publican, y
+`marketing` activa publicidad y gasta.
+
+### 15.1 La regla
+
+`app/gates/action_gate.py` es una función pura con las siete entradas del §7 y
+tres salidas. El orden es la decisión:
+
+1. **Vetos** (`DENY`): kill switch apagado, legal `NO_GO`, economía `NO_GO` si la
+   acción gasta, presupuesto insuficiente, permiso denegado, rechazo humano.
+2. **Firma** (`ALLOW`): una persona lo autorizó y no hay ningún veto.
+3. **Dudas** (`REQUIRE_APPROVAL`): `REVIEW` legal o económico, economía `NO_GO`
+   sobre algo que no gasta, rol que requiere aprobación, y cualquier gasto en
+   `staging` o `production`.
+4. Nada que objetar: `ALLOW`.
+
+**Ninguna firma levanta un veto.** Las entradas las recoge `ActionGateService`
+de donde ya viven —kill switch, `BudgetEngine`, `PermissionEngine`, `Settings` y
+los pasos de análisis de la ejecución—: el gate decide, no calcula.
+
+### 15.2 Qué le pasa a la ejecución
+
+| Salida | El paso | La ejecución | El trabajo |
+|---|---|---|---|
+| `ALLOW` | se ejecuta | sigue | sigue |
+| `DENY` | `DENIED`, con motivos | **sigue**: lo que solo analiza no se detiene | termina normal |
+| `REQUIRE_APPROVAL` | `WAITING_APPROVAL` | `WAITING_APPROVAL` | `WAITING_APPROVAL`, sin gastar intentos |
+
+Denegar no es fallar: no se reintenta, y la ejecución entra en la bandeja
+post-hoc porque que el sistema haya impedido algo es lo que alguien tiene que
+mirar.
+
+### 15.3 Dónde se decide
+
+`pipeline_reviews` tiene dos clases: `POST_HOC` (mirar lo que ya pasó, Milestone
+14) y `ACTION_GATE` (autorizar lo que no ha pasado). Misma tabla y misma bandeja
+en `/approvals`; la diferencia es que resolver una puerta **mueve la ejecución**
+—aprobar la continúa por ese paso, rechazar lo deja denegado y la cadena sigue—.
+Una autorización vale para el paso que la pidió: el siguiente vuelve a preguntar.
+
+Cada evaluación se audita como `action_gate.allow`, `.deny` o
+`.require_approval`, con sus motivos.
+
+El razonamiento completo está en la [ADR 0011](adr-0011-action-gate.md).
+
+## 16. Pendientes de integración
 
 Cuatro comprobaciones que **no se pueden cerrar en esta máquina** y que no
 pertenecen a ningún milestone concreto: son deuda de verificación, no de código.

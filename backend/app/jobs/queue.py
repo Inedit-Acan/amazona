@@ -211,6 +211,26 @@ class JobQueue:
         self._db.refresh(job)
         return job
 
+    def hold_for_approval(self, job_id: str, *, worker: str, reason: str) -> Job:
+        """Deja el trabajo esperando a una persona, sin gastar intentos.
+
+        Misma mecánica que `block()` y estado distinto a propósito: `BLOCKED` es
+        una condición que alguien tiene que levantar, `WAITING_APPROVAL` es una
+        decisión que alguien tiene que tomar. Distinguirlas es lo que permite
+        preguntar «¿qué está esperando a que yo diga algo?» sin que la respuesta
+        incluya lo que espera a que se arregle otra cosa.
+        """
+        job = self._require_held(job_id, worker)
+        now = _utcnow()
+        self._finish_attempt(job, JobStatus.WAITING_APPROVAL, reason[:2000], now)
+        job.status = JobStatus.WAITING_APPROVAL
+        job.error = reason[:2000]
+        self._release(job)
+        self._record(job, JobEventKind.AWAITING_APPROVAL, {"reason": reason})
+        self._db.commit()
+        self._db.refresh(job)
+        return job
+
     def cancel(self, job_id: str, *, actor: str | None = None) -> Job:
         """Cancela un trabajo. Si está en marcha, el worker se entera en su
         siguiente latido; su resultado ya no se aceptará."""

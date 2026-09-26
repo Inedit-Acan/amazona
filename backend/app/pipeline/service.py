@@ -35,8 +35,10 @@ from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.supplier_quote import SupplierQuote
 from app.ecommerce.service import EcommerceStorefrontService
 from app.economics.service import EconomicAnalysisService
+from app.gates.action_gate import GateDecision, GateOutcome, HumanApproval, SideEffectAction
+from app.gates.service import ActionGateService
 from app.jobs.queue import JobQueue
-from app.jobs.schemas import JobCancelledError, JobContext, JobStatus
+from app.jobs.schemas import JobAwaitingApprovalError, JobCancelledError, JobContext, JobStatus
 from app.legal.service import LegalComplianceService
 from app.marketing.service import MarketingCampaignService
 from app.marketplace.service import MarketplaceListingService
@@ -46,7 +48,9 @@ from app.pipeline.review import assess_pipeline_run
 from app.pipeline.schemas import (
     CANCELLABLE,
     RESUMABLE,
+    REVIEW_KIND_ACTION_GATE,
     STEP_ORDER,
+    STEP_SIDE_EFFECTS,
     PipelineRunStatus,
     PipelineStepStatus,
     step_ordinal,
@@ -184,13 +188,27 @@ class PipelineOrchestrator:
     (FAILED, reintentable), cuando el kill switch está apagado (BLOCKED) o
     cuando una persona la cancela (CANCELLED)."""
 
-    def __init__(self, db: Session, kill_switch: PipelineKillSwitchService | None = None) -> None:
+    def __init__(
+        self,
+        db: Session,
+        kill_switch: PipelineKillSwitchService | None = None,
+        gate: ActionGateService | None = None,
+    ) -> None:
         self._db = db
         self._kill_switch = kill_switch or PipelineKillSwitchService(db)
+        # El gate comparte el mismo kill switch: una sola verdad sobre si el
+        # sistema está autorizado a actuar (Milestone 33, ADR 0011).
+        self._gate = gate or ActionGateService(db, kill_switch=self._kill_switch)
 
     # --- Encolar -----------------------------------------------------------
 
-    def enqueue_run(self, request: PipelineRequest, *, created_by: str | None = None) -> PipelineRun:
+    def enqueue_run(
+        self,
+        request: PipelineRequest,
+        *,
+        created_by: str | None = None,
+        created_by_role: str | None = None,
+    ) -> PipelineRun:
         """Crea la ejecución, sus nueve pasos y el trabajo que la ejecutará.
 
         No ejecuta nada: de eso se encarga un worker. El kill switch se consulta
@@ -210,6 +228,7 @@ class PipelineOrchestrator:
             needs_review=False,
             correlation_id=correlation_id,
             request=request.to_payload(),
+            requested_by_role=created_by_role,
         )
         self._db.add(run)
         self._db.flush()
@@ -281,6 +300,15 @@ class PipelineOrchestrator:
                 # worker seguirá por aquí mismo.
                 self._reconcile_lost(run)
                 raise
+
+            gate_decision = self._gate_step(run, step, request)
+            if gate_decision is not None and gate_decision.outcome is GateOutcome.DENY:
+                # Denegado, pero la cadena sigue: los pasos de análisis que
+                # vengan después no le hacen nada a nadie (plan maestro §7).
+                self._deny_step(step, gate_decision)
+                continue
+            if gate_decision is not None and gate_decision.outcome is GateOutcome.REQUIRE_APPROVAL:
+                return self._await_approval(run, step, gate_decision, context)
 
             self._start_step(step, context)
             try:
@@ -567,6 +595,126 @@ class PipelineOrchestrator:
             entity_id=report.id,
             detail={"status": report.financial_health_status},
         )
+
+    # --- El ActionGate (Milestone 33) --------------------------------------
+
+    def _gate_step(
+        self, run: PipelineRun, step: PipelineStep, request: PipelineRequest
+    ) -> GateDecision | None:
+        """¿Puede ejecutarse este paso? `None` cuando es análisis puro y no hay
+        nada que preguntar: investigar o calcular márgenes no le hace nada a
+        nadie fuera del sistema (plan maestro §7)."""
+        action = STEP_SIDE_EFFECTS.get(step.name)
+        if action is None:
+            return None
+
+        view = steps_view(self._steps(run))
+        decision = self._gate.evaluate(
+            action,
+            legal_recommendation=view.get("legal", {}).get("recommendation"),
+            economics_recommendation=view.get("economics", {}).get("recommendation"),
+            amount=request.daily_budget if action is SideEffectAction.ACTIVATE_ADS else None,
+            human_approval=self._human_approval(run, step),
+            actor_role=run.requested_by_role,
+        )
+        self._gate.audit(
+            decision,
+            action=action,
+            resource=f"pipeline_step:{run.correlation_id}:{step.name}",
+            correlation_id=run.correlation_id,
+        )
+        self._db.commit()
+        return decision
+
+    def _human_approval(self, run: PipelineRun, step: PipelineStep) -> HumanApproval:
+        """Qué ha decidido una persona sobre **este** paso. Una autorización
+        vale para el paso que la pidió y para nada más — igual que `Approval` en
+        el grafo del CEO, que autoriza una acción concreta y no un permiso
+        general."""
+        review = (
+            self._db.query(PipelineReview)
+            .filter_by(pipeline_run_id=run.id, kind=REVIEW_KIND_ACTION_GATE, step=step.name)
+            .order_by(PipelineReview.created_at.desc())
+            .first()
+        )
+        if review is None:
+            return HumanApproval.NONE
+        if review.status == "APPROVED":
+            return HumanApproval.GRANTED
+        if review.status == "REJECTED":
+            return HumanApproval.REJECTED
+        return HumanApproval.NONE
+
+    def _deny_step(self, step: PipelineStep, decision: GateDecision) -> None:
+        """El paso no se ejecuta. No es un fallo —no hay nada que reintentar—:
+        es una decisión, y queda escrita con sus motivos."""
+        step.status = PipelineStepStatus.DENIED
+        step.detail = decision.as_detail()
+        step.error = "; ".join(decision.reasons) or "denied by the action gate"
+        step.finished_at = _utcnow()
+        self._db.commit()
+
+    def _await_approval(
+        self,
+        run: PipelineRun,
+        step: PipelineStep,
+        decision: GateDecision,
+        context: JobContext | None,
+    ) -> PipelineRun:
+        """La ejecución se para delante de la puerta: el paso queda esperando,
+        se pide la autorización en la misma bandeja que las revisiones del
+        Milestone 14, y el trabajo se va a `WAITING_APPROVAL` sin gastar
+        intentos — lo que falta no es tiempo, es que alguien decida."""
+        step.status = PipelineStepStatus.WAITING_APPROVAL
+        step.detail = decision.as_detail()
+        step.error = None
+        self._db.commit()
+
+        action = STEP_SIDE_EFFECTS[step.name]
+        pending = (
+            self._db.query(PipelineReview)
+            .filter_by(
+                pipeline_run_id=run.id,
+                kind=REVIEW_KIND_ACTION_GATE,
+                step=step.name,
+                status="PENDING",
+            )
+            .first()
+        )
+        if pending is None:
+            self._db.add(
+                PipelineReview(
+                    pipeline_run_id=run.id,
+                    kind=REVIEW_KIND_ACTION_GATE,
+                    step=step.name,
+                    action=action.value,
+                    reasons=decision.reasons,
+                    status="PENDING",
+                    correlation_id=run.correlation_id,
+                )
+            )
+        else:
+            pending.reasons = decision.reasons
+
+        run.status = PipelineRunStatus.WAITING_APPROVAL
+        run.needs_review = True
+        self._audit(
+            "pipeline.await_approval",
+            run,
+            actor=PIPELINE_ACTOR,
+            after={"step": step.name, "action": action.value, "reasons": decision.reasons},
+        )
+        self._db.commit()
+        self._db.refresh(run)
+
+        if context is not None:
+            # Dentro de un worker: el trabajo se queda esperando en vez de
+            # terminar. Fuera (una llamada directa al orquestador), quien llamó
+            # ya tiene la ejecución en el estado correcto.
+            raise JobAwaitingApprovalError(
+                f"pipeline step {step.name} needs human approval to {action.value}"
+            )
+        return run
 
     # --- Estado de los pasos ----------------------------------------------
 

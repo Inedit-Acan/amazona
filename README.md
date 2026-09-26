@@ -124,6 +124,8 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
 - **Milestone 32:** el pipeline se ejecuta en ese runtime, con cada paso
   persistido y con reintentar, reanudar y cancelar
   ([ADR 0010](docs/architecture/adr-0010-async-resumable-pipeline.md)) — ver abajo.
+- **Milestone 33:** `ActionGate` — publicar, anunciar y gastar dejan de ocurrir
+  solos ([ADR 0011](docs/architecture/adr-0011-action-gate.md)) — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -284,6 +286,30 @@ reventó) dejan de ser lo mismo: el primero no se reintenta solo y va a la
 bandeja de revisión; el segundo lo reintenta el runtime. El razonamiento
 completo, en la [ADR 0010](docs/architecture/adr-0010-async-resumable-pipeline.md).
 
+## Qué no ocurre solo
+
+Desde el Milestone 33 hay una raya entre **analizar** y **actuar**. Investigar,
+cotizar, calcular márgenes o comprobar requisitos legales siguen ocurriendo pase
+lo que pase: no le hacen nada a nadie. Las nueve acciones con efecto del plan
+maestro §7 —publicar, anunciar, gastar, comprar, pagar, enviar, reembolsar,
+cambiar un precio, comunicar— pasan antes por el `ActionGate`, que responde
+`ALLOW`, `DENY` o `REQUIRE_APPROVAL` mirando la decisión legal, la económica, el
+presupuesto, los permisos, el entorno, el kill switch y si alguien lo ha
+autorizado.
+
+- Un `NO_GO` legal **deniega** publicar y anunciar; el análisis termina igual.
+- Un `REVIEW` **pregunta**: la ejecución se para en `WAITING_APPROVAL` y la
+  petición aparece en `/approvals` diciendo qué acción y sobre qué paso.
+  Aprobarla continúa la ejecución por ese mismo paso, sin repetir nada.
+- **Ninguna firma levanta un veto**: una aprobación humana resuelve dudas, nunca
+  un `NO_GO` legal, un presupuesto agotado o el kill switch.
+- Gastar **nunca** es automático en `staging` ni en `production` (§33 del plan:
+  todavía no hay autonomía económica).
+
+Qué ha impedido el sistema y por qué se consulta en la auditoría:
+`action_gate.deny`. El razonamiento, en la
+[ADR 0011](docs/architecture/adr-0011-action-gate.md).
+
 ## Notas
 
 - Amazon SP-API: prohibido usar sus datos para entrenar modelos.
@@ -295,5 +321,5 @@ completo, en la [ADR 0010](docs/architecture/adr-0010-async-resumable-pipeline.m
   (migraciones sobre PostgreSQL real, la conversión del `steps` histórico,
   la concurrencia de `SKIP LOCKED` y el login/refresco/cierre de sesión real).
   Están registradas en
-  [system-overview §15](docs/architecture/system-overview.md#15-pendientes-de-integración):
+  [system-overview §16](docs/architecture/system-overview.md#16-pendientes-de-integración):
   no bloquean el desarrollo, sí bloquean producción.

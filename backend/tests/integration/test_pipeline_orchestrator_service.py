@@ -76,18 +76,25 @@ def test_healthy_category_completes_all_nine_steps(db_session: Session):
     assert len(correlation_ids) == 10
 
 
-def test_low_sale_price_produces_a_no_go_economics_step_but_the_pipeline_keeps_going(db_session: Session):
+def test_a_no_go_does_not_stop_analysis_but_does_stop_acting(db_session: Session):
+    """Milestone 33 (ADR 0011) matiza la ADR 0005: la cadena sigue sin detenerse
+    **para analizar**, y deja de seguir **para actuar**. Con economics en NO_GO
+    los pasos de análisis terminan y el primero con efecto se para delante del
+    gate."""
     orchestrator = PipelineOrchestrator(db_session)
     request = PipelineRequest(category="home", sale_price=0.5, destination_region="mexico")
 
     run = run_now(orchestrator, db_session, request)
 
     steps = view(db_session, run)
-    assert run.status == "COMPLETED"
     assert steps["economics"]["recommendation"] == "NO_GO"
-    # downstream steps still ran despite the NO_GO — no auto-halt (ADR 0005).
-    assert steps["operations"]["step_status"] == "COMPLETED"
-    assert steps["cfo"]["step_status"] == "COMPLETED"
+    # El análisis entero se completó: research, sourcing, economics y legal.
+    for name in ("research", "sourcing", "economics", "legal"):
+        assert steps[name]["step_status"] == "COMPLETED", name
+    # Y la primera acción con efecto no se ejecutó.
+    assert run.status == "WAITING_APPROVAL"
+    assert steps["ecommerce"]["step_status"] == "WAITING_APPROVAL"
+    assert steps["cfo"]["step_status"] == "PENDING"
 
 
 def test_unknown_category_with_no_research_candidates_is_partial(db_session: Session):

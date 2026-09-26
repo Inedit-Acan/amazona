@@ -304,14 +304,47 @@ export function requestFromApproval(approval: Approval, now: number): ApprovalRe
   };
 }
 
-/** Revisión de pipeline del backend (ADR 0006) en la misma bandeja. */
+/** Nombre legible de cada acción con efecto (Milestone 33, plan maestro §7). */
+export const SIDE_EFFECT_LABELS: Record<string, string> = {
+  publish_product: "publicar el producto",
+  activate_ads: "activar la publicidad",
+  spend_money: "gastar dinero",
+  purchase_supplier: "comprar al proveedor",
+  make_payment: "realizar el pago",
+  ship_order: "enviar el pedido",
+  refund: "hacer el reembolso",
+  change_price: "cambiar el precio",
+  send_contract_communication: "enviar la comunicación contractual",
+};
+
+export const PIPELINE_STEP_LABELS: Record<string, string> = {
+  research: "Investigación",
+  sourcing: "Proveedores",
+  economics: "Economía",
+  legal: "Legal",
+  ecommerce: "Tienda",
+  marketplace: "Marketplace",
+  marketing: "Marketing",
+  operations: "Operaciones",
+  cfo: "CFO",
+};
+
+/** Revisión de pipeline del backend en la misma bandeja.
+ *
+ * Dos clases, y la diferencia importa para quien decide (Milestone 33):
+ * `POST_HOC` mira una ejecución que ya terminó —aprobarla no cambia nada de lo
+ * hecho—, y `ACTION_GATE` autoriza una acción que **todavía no ha ocurrido** y
+ * que está esperando esta respuesta para ocurrir o no. */
 export function requestFromReview(review: PipelineReview, now: number): ApprovalRequest {
+  const isGate = review.kind === "ACTION_GATE";
+  const actionName = review.action ? (SIDE_EFFECT_LABELS[review.action] ?? review.action) : null;
+  const stepName = review.step ? (PIPELINE_STEP_LABELS[review.step] ?? review.step) : null;
   return {
     id: review.id,
-    code: `REV-${review.id.slice(0, 5).toUpperCase()}`,
+    code: `${isGate ? "ACT" : "REV"}-${review.id.slice(0, 5).toUpperCase()}`,
     kind: "operations",
-    kindLabel: KIND_LABELS.operations,
-    title: "Revisión de ejecución del pipeline",
+    kindLabel: isGate ? "Acción con efecto" : KIND_LABELS.operations,
+    title: isGate && actionName ? `Autorizar: ${actionName}` : "Revisión de ejecución del pipeline",
     severity: "Alta",
     projectCode: null,
     productName: null,
@@ -323,6 +356,7 @@ export function requestFromReview(review: PipelineReview, now: number): Approval
     status: review.status === "PENDING" ? "PENDING" : (review.status as ApprovalRequest["status"]),
     fields: [
       { label: "Ejecución", value: review.pipeline_run_id },
+      ...(stepName ? [{ label: "Paso", value: stepName }] : []),
       { label: "Estado", value: review.status },
       { label: "Motivos", value: String(review.reasons.length) },
     ],
@@ -330,8 +364,18 @@ export function requestFromReview(review: PipelineReview, now: number): Approval
     opinions: [],
     findings: [],
     risks: review.reasons,
-    approveImpact: ["La ejecución del pipeline continúa.", "Queda registrada en la auditoría."],
-    rejectImpact: ["La ejecución del pipeline no continúa.", "Queda registrada en la auditoría."],
+    approveImpact: isGate
+      ? [
+          `Se ejecuta «${actionName ?? "la acción"}» y la ejecución continúa por ese paso.`,
+          "Queda registrada en la auditoría.",
+        ]
+      : ["La ejecución del pipeline continúa.", "Queda registrada en la auditoría."],
+    rejectImpact: isGate
+      ? [
+          `No se ejecuta «${actionName ?? "la acción"}»: ese paso queda denegado.`,
+          "El resto de la cadena sigue: lo que solo analiza no se detiene.",
+        ]
+      : ["La ejecución del pipeline no continúa.", "Queda registrada en la auditoría."],
     budget: null,
     source: "review",
     isDemo: false,

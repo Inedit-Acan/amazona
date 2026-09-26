@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Agent, Approval, EconomicAnalysis, LegalAnalysis, Product, Storefront, SupplierQuote } from "./api.ts";
+import type { Agent, Approval, EconomicAnalysis, LegalAnalysis, PipelineReview, Product, Storefront, SupplierQuote } from "./api.ts";
 import { REQUEST_TEMPLATES, RESOLVED_STATS, SLA_HOURS } from "./demo/approvals.ts";
 import {
   countFor,
@@ -9,6 +9,7 @@ import {
   hoursLeft,
   inboxKpis,
   requestFromApproval,
+  requestFromReview,
   requestsByKind,
   sortRequests,
   statusShares,
@@ -188,4 +189,69 @@ test("hoursLeft: horas hasta el vencimiento, negativas si ya venció", () => {
   const campaign = REQUESTS[0];
   assert.ok(Math.abs(hoursLeft(campaign, NOW) - (SLA_HOURS[campaign.severity] - 0.4)) < 0.01);
   assert.ok(hoursLeft(campaign, campaign.expiresAt + HOUR) < 0);
+});
+
+
+// --- Las dos clases de decisión sobre el pipeline (Milestone 33) -----------
+
+function review(over: Partial<PipelineReview> = {}): PipelineReview {
+  return {
+    id: "3f2a1b9c-0000-4000-8000-000000000000",
+    pipeline_run_id: "run-1",
+    kind: "POST_HOC",
+    step: null,
+    action: null,
+    reasons: ["economics recommendation is NO_GO"],
+    status: "PENDING",
+    resolved_at: null,
+    resolved_by: null,
+    correlation_id: "cid-1",
+    ...over,
+  };
+}
+
+test("una revisión post-hoc se presenta como lo que es: mirar lo ya hecho", () => {
+  const request = requestFromReview(review(), 1_000);
+
+  assert.equal(request.title, "Revisión de ejecución del pipeline");
+  assert.ok(request.code.startsWith("REV-"));
+  assert.deepEqual(request.approveImpact[0], "La ejecución del pipeline continúa.");
+});
+
+test("una puerta del ActionGate dice qué acción se autoriza y sobre qué paso", () => {
+  const request = requestFromReview(
+    review({ kind: "ACTION_GATE", step: "ecommerce", action: "publish_product" }),
+    1_000,
+  );
+
+  assert.equal(request.title, "Autorizar: publicar el producto");
+  assert.equal(request.kindLabel, "Acción con efecto");
+  assert.ok(request.code.startsWith("ACT-"));
+  assert.ok(request.fields.some((f) => f.label === "Paso" && f.value === "Tienda"));
+});
+
+test("aprobar y rechazar una puerta explican consecuencias distintas de una revisión", () => {
+  const request = requestFromReview(
+    review({ kind: "ACTION_GATE", step: "marketing", action: "activate_ads" }),
+    1_000,
+  );
+
+  assert.match(request.approveImpact[0], /Se ejecuta «activar la publicidad»/);
+  assert.match(request.rejectImpact[0], /No se ejecuta «activar la publicidad»/);
+  assert.match(request.rejectImpact[1], /no se detiene/);
+});
+
+test("los motivos del gate son los riesgos que ve quien decide", () => {
+  const request = requestFromReview(
+    review({
+      kind: "ACTION_GATE",
+      step: "ecommerce",
+      action: "publish_product",
+      reasons: ["economics recommendation is NO_GO", "legal recommendation is REVIEW"],
+    }),
+    1_000,
+  );
+
+  assert.equal(request.risks.length, 2);
+  assert.equal(request.status, "PENDING");
 });

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { PipelineRun, PipelineRunStatus, PipelineStep, PipelineStepStatus } from "./api.ts";
 import {
   STEP_ORDER,
+  deniedSteps,
   pipelineCounts,
   pipelineRunRows,
   pipelineVerdict,
@@ -60,7 +61,14 @@ test("pipelineCounts reparte cada estado en su casilla", () => {
     failed: 1,
     blocked: 1,
     cancelled: 1,
+    waitingApproval: 0,
   });
+});
+
+test("pipelineCounts cuenta lo que espera una autorización", () => {
+  const counts = pipelineCounts([run("WAITING_APPROVAL", 4), run("COMPLETED", 9)]);
+
+  assert.equal(counts.waitingApproval, 1);
 });
 
 test("stepProgress cuenta los pasos terminados y señala por dónde va", () => {
@@ -161,4 +169,49 @@ test("sin ejecuciones no se inventa nada", () => {
 
   assert.equal(verdict.tone, "ok");
   assert.equal(verdict.headline, "Sin ejecuciones");
+});
+
+// --- El ActionGate (Milestone 33) ------------------------------------------
+
+test("esperar una autorización pesa más que cualquier otra cosa: nadie más lo va a mover", () => {
+  const verdict = pipelineVerdict(
+    pipelineCounts([run("WAITING_APPROVAL", 4), run("BLOCKED", 0), run("FAILED", 2)]),
+  );
+
+  assert.equal(verdict.tone, "warning");
+  assert.match(verdict.headline, /espera autorización/);
+  assert.match(verdict.detail, /Aprobaciones/);
+});
+
+test("deniedSteps nombra los pasos que el gate no dejó ejecutar", () => {
+  const value = run("COMPLETED", 9);
+  value.steps.marketing = step("DENIED", { error: "legal recommendation is NO_GO" });
+  value.steps.marketplace = step("DENIED");
+
+  assert.deepEqual(deniedSteps(value), ["marketplace", "marketing"]);
+});
+
+test("una ejecución sin nada denegado no inventa denegaciones", () => {
+  assert.deepEqual(deniedSteps(run("COMPLETED", 9)), []);
+});
+
+test("pipelineRunRows lleva las denegaciones a la fila", () => {
+  const value = run("COMPLETED", 9);
+  value.steps.marketing = step("DENIED", { error: "legal recommendation is NO_GO" });
+
+  const [row] = pipelineRunRows([value]);
+
+  assert.deepEqual(row.denied, ["marketing"]);
+  assert.equal(row.error, "legal recommendation is NO_GO");
+});
+
+test("stepProgress señala el paso que espera autorización", () => {
+  const value = run("WAITING_APPROVAL", 4);
+  value.steps.ecommerce = step("WAITING_APPROVAL");
+
+  const progress = stepProgress(value);
+
+  assert.equal(progress.current, "ecommerce");
+  assert.equal(progress.currentStatus, "WAITING_APPROVAL");
+  assert.equal(progress.completed, 4);
 });

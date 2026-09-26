@@ -124,21 +124,40 @@ def test_one_call_produces_the_full_nine_step_chain_with_real_ids_threaded(clien
     assert any(e["action"] == "economics.run" for e in economics_audit)
 
 
-def test_pipeline_completes_even_when_economics_is_no_go(client: TestClient):
+def test_a_no_go_stops_the_actions_and_a_human_can_let_them_through(client: TestClient):
     response = client.post(
         "/api/pipeline/runs",
         json={"category": "home", "sale_price": 0.5, "destination_region": "mexico"},
     )
     assert response.status_code == 202
+    correlation_id = response.json()["correlation_id"]
 
     drain()
 
-    run = client.get(f"/api/pipeline/runs/{response.json()['correlation_id']}").json()
-    assert run["status"] == "COMPLETED"
+    # El análisis termina; la primera acción con efecto se para delante del gate
+    # (Milestone 33, ADR 0011).
+    run = client.get(f"/api/pipeline/runs/{correlation_id}").json()
+    assert run["status"] == "WAITING_APPROVAL"
     assert run["steps"]["economics"]["recommendation"] == "NO_GO"
-    # No auto-halt (ADR 0005) — every downstream step still ran.
-    assert run["steps"]["operations"]["step_status"] == "COMPLETED"
-    assert run["steps"]["cfo"]["step_status"] == "COMPLETED"
+    assert run["steps"]["legal"]["step_status"] == "COMPLETED"
+    assert run["steps"]["ecommerce"]["step_status"] == "WAITING_APPROVAL"
+
+    # Y aparece en la misma bandeja que las revisiones, diciendo qué se pide.
+    reviews = client.get("/api/pipeline/reviews").json()
+    gate_reviews = [r for r in reviews if r["kind"] == "ACTION_GATE"]
+    assert len(gate_reviews) == 1
+    assert gate_reviews[0]["step"] == "ecommerce"
+    assert gate_reviews[0]["action"] == "publish_product"
+
+    # Una persona autoriza: la ejecución continúa por ese mismo paso.
+    approved = client.post(
+        f"/api/pipeline/reviews/{gate_reviews[0]['id']}/approve", json={"actor": "owner@amazona.local"}
+    )
+    assert approved.status_code == 200
+    drain()
+
+    run = client.get(f"/api/pipeline/runs/{correlation_id}").json()
+    assert run["steps"]["ecommerce"]["step_status"] == "COMPLETED"
 
 
 def test_pipeline_is_partial_when_research_has_no_candidates(client: TestClient):

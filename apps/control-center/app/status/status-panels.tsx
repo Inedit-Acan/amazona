@@ -779,6 +779,8 @@ const STEP_STATUS_LABEL: Record<string, string> = {
   FAILED: "fallido",
   SKIPPED: "no ejecutado",
   CANCELLED: "cancelado",
+  DENIED: "denegado",
+  WAITING_APPROVAL: "esperando autorización",
 };
 
 /** Ejecuciones del pipeline (Milestone 32).
@@ -830,7 +832,7 @@ export function PipelineRunsCard({ runs }: { runs: PipelineRun[] | null }) {
           {[
             { label: "En curso", value: counts.queued + counts.running },
             { label: "Completadas", value: counts.completed },
-            { label: "Incompletas", value: counts.partial },
+            { label: "Esperando", value: counts.waitingApproval },
             { label: "Paradas", value: counts.failed + counts.blocked + counts.cancelled },
           ].map((cell) => (
             <div key={cell.label} className="rounded-md border p-2">
@@ -864,7 +866,14 @@ export function PipelineRunsCard({ runs }: { runs: PipelineRun[] | null }) {
                     </span>
                   ) : null}
                 </span>
-                {row.needsReview ? (
+                {row.denied.length > 0 ? (
+                  <span
+                    className="shrink-0 text-[10px] text-destructive"
+                    title={`El ActionGate no dejó ejecutar: ${row.denied.join(", ")}`}
+                  >
+                    {row.denied.length} {row.denied.length === 1 ? "denegada" : "denegadas"}
+                  </span>
+                ) : row.needsReview ? (
                   <span className="shrink-0 text-[10px] text-warning">revisión</span>
                 ) : null}
               </li>

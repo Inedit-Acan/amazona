@@ -17,6 +17,7 @@ from app.db.models.pipeline_step import PipelineStepAttempt as PipelineStepAttem
 from app.db.session import get_db
 from app.permissions.policies import ApiAction
 from app.pipeline.kill_switch import PipelineKillSwitchService
+from app.pipeline.schemas import REVIEW_KIND_ACTION_GATE, PipelineRunStatus
 from app.pipeline.service import PipelineOrchestrator, PipelineRequest, load_steps_views, steps_view
 
 router = APIRouter(tags=["pipeline"])
@@ -87,6 +88,11 @@ class PipelineReviewOut(BaseModel):
 
     id: str
     pipeline_run_id: str
+    #: `POST_HOC` (mirar lo que ya pasó) o `ACTION_GATE` (autorizar lo que no ha
+    #: pasado todavía). Milestone 33.
+    kind: str
+    step: str | None
+    action: str | None
     reasons: list[str]
     status: str
     resolved_at: datetime.datetime | None
@@ -148,7 +154,9 @@ def create_pipeline_run(
     QUEUED y sus nueve pasos en PENDING. El resultado se sigue por
     `GET /api/pipeline/runs/{correlation_id}`."""
     request = PipelineRequest(**payload.model_dump())
-    run = PipelineOrchestrator(db).enqueue_run(request, created_by=identity.audit_name)
+    run = PipelineOrchestrator(db).enqueue_run(
+        request, created_by=identity.audit_name, created_by_role=identity.role
+    )
     return _view(run, db)
 
 
@@ -276,6 +284,16 @@ def _resolve_review(
     review.resolved_at = datetime.datetime.now(datetime.UTC)
     review.resolved_by = actor
     action_verb = "approve" if new_status == "APPROVED" else "reject"
+
+    # Una revisión post-hoc es una anotación de gobernanza sobre algo que ya
+    # ocurrió (ADR 0006). Una puerta del ActionGate no: la ejecución está parada
+    # esperando esta decisión, así que resolverla tiene que moverla —si no,
+    # aprobar no serviría de nada y habría que acordarse de reanudar a mano.
+    if review.kind == REVIEW_KIND_ACTION_GATE:
+        run = db.get(PipelineRunModel, review.pipeline_run_id)
+        if run is not None and run.status == PipelineRunStatus.WAITING_APPROVAL:
+            db.flush()
+            PipelineOrchestrator(db).resume_run(run, actor=actor, identity=identity)
     db.add(
         AuditLog(
             actor=actor,

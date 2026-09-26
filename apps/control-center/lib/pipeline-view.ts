@@ -32,6 +32,7 @@ export const RUN_STATUS_LABEL: Record<PipelineRunStatus, string> = {
   FAILED: "Fallida",
   BLOCKED: "Bloqueada",
   CANCELLED: "Cancelada",
+  WAITING_APPROVAL: "Esperando autorización",
 };
 
 export const STEP_LABEL: Record<string, string> = {
@@ -62,6 +63,8 @@ export interface PipelineCounts {
   failed: number;
   blocked: number;
   cancelled: number;
+  /** Paradas delante de una acción con efecto (Milestone 33). */
+  waitingApproval: number;
 }
 
 const EMPTY: PipelineCounts = {
@@ -72,6 +75,7 @@ const EMPTY: PipelineCounts = {
   failed: 0,
   blocked: 0,
   cancelled: 0,
+  waitingApproval: 0,
 };
 
 const KEY: Record<PipelineRunStatus, keyof PipelineCounts> = {
@@ -82,6 +86,7 @@ const KEY: Record<PipelineRunStatus, keyof PipelineCounts> = {
   FAILED: "failed",
   BLOCKED: "blocked",
   CANCELLED: "cancelled",
+  WAITING_APPROVAL: "waitingApproval",
 };
 
 export function pipelineCounts(runs: PipelineRun[]): PipelineCounts {
@@ -123,6 +128,11 @@ export function stepProgress(run: PipelineRun): StepProgress {
   };
 }
 
+/** Pasos que el ActionGate no dejó ejecutar (Milestone 33). */
+export function deniedSteps(run: PipelineRun): string[] {
+  return STEP_ORDER.filter((name) => run.steps[name]?.step_status === "DENIED");
+}
+
 /** El error que explica por qué una ejecución está parada, si lo hay. */
 export function runError(run: PipelineRun): string | null {
   if (run.failed_step) {
@@ -142,6 +152,8 @@ export interface PipelineRunRow {
   needsReview: boolean;
   error: string | null;
   jobId: string | null;
+  /** Acciones que el gate no dejó ejecutar, por su paso. */
+  denied: string[];
 }
 
 export function pipelineRunRows(runs: PipelineRun[], limit = 6): PipelineRunRow[] {
@@ -154,6 +166,7 @@ export function pipelineRunRows(runs: PipelineRun[], limit = 6): PipelineRunRow[
     needsReview: run.needs_review,
     error: runError(run),
     jobId: run.job_id,
+    denied: deniedSteps(run),
   }));
 }
 
@@ -170,6 +183,17 @@ export interface PipelineVerdict {
  * falló —esa el runtime la reintenta— y más que una en cola. */
 export function pipelineVerdict(counts: PipelineCounts): PipelineVerdict {
   const stopped = counts.blocked + counts.cancelled;
+  if (counts.waitingApproval > 0) {
+    // Lo primero de todo: nadie más va a mover esto. El sistema ya ha hecho lo
+    // que podía y está esperando a una persona (Milestone 33).
+    return {
+      tone: "warning",
+      headline: `${counts.waitingApproval} ${
+        counts.waitingApproval === 1 ? "ejecución espera autorización" : "ejecuciones esperan autorización"
+      }`,
+      detail: "Paradas delante de una acción con efecto. Se deciden en Aprobaciones.",
+    };
+  }
   if (counts.blocked > 0) {
     return {
       tone: "error",

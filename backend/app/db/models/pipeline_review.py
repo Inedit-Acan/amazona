@@ -19,6 +19,22 @@ class PipelineReview(IdMixin, TimestampMixin, Base):
     __tablename__ = "pipeline_reviews"
 
     pipeline_run_id: Mapped[str] = mapped_column(ForeignKey("pipeline_runs.id"))
+    #: Qué clase de decisión se pide (Milestone 33):
+    #:
+    #: - `POST_HOC`: mirar una ejecución de riesgo que **ya terminó** (M14). No
+    #:   revierte nada; es gobernanza.
+    #: - `ACTION_GATE`: autorizar una acción con efecto que **todavía no se ha
+    #:   ejecutado**. Aprobarla continúa la ejecución; rechazarla deja ese paso
+    #:   denegado.
+    #:
+    #: Viven en la misma tabla y en la misma bandeja porque para quien decide
+    #: son la misma pregunta —«¿esto sigue adelante?»—, y separarlas habría
+    #: significado dos bandejas que revisar en vez de una.
+    kind: Mapped[str] = mapped_column(String(16), default="POST_HOC", index=True)
+    #: Sobre qué paso, y qué acción con efecto. Nulos en las post-hoc: esas
+    #: hablan de la ejecución entera.
+    step: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    action: Mapped[str | None] = mapped_column(String(40), nullable=True)
     reasons: Mapped[list] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(16), default="PENDING")
     resolved_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

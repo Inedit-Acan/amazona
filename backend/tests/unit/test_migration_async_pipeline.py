@@ -18,7 +18,6 @@ import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
-from app.db.models.pipeline_run import PipelineRun
 from app.db.models.pipeline_step import PipelineStep, PipelineStepAttempt
 
 MIGRATION = Path(__file__).resolve().parents[2] / "alembic" / "versions" / "f4a1c7d9e2b8_async_pipeline.py"
@@ -112,7 +111,7 @@ def test_upgrade_creates_the_two_tables(connection):
     assert {"pipeline_steps", "pipeline_step_attempts"} <= tables(connection)
 
 
-@pytest.mark.parametrize("model", [PipelineRun, PipelineStep, PipelineStepAttempt])
+@pytest.mark.parametrize("model", [PipelineStep, PipelineStepAttempt])
 def test_the_migration_matches_the_model(connection, model):
     """El desajuste clásico: añadir una columna al modelo y olvidarla en la
     migración. En desarrollo no se nota porque los tests crean el esquema desde
@@ -121,6 +120,11 @@ def test_the_migration_matches_the_model(connection, model):
 
     expected = {column.name for column in model.__table__.columns}
     assert expected == columns(connection, model.__tablename__)
+
+
+# `PipelineRun` no entra en la comparación de arriba: el Milestone 33 le añadió
+# `requested_by_role` en su propia migración, así que el modelo completo se
+# compara en `test_migration_action_gate.py`, que aplica las dos.
 
 
 def test_upgrade_drops_the_steps_json_and_adds_the_new_columns(connection):

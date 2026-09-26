@@ -34,6 +34,13 @@ class PipelineRun(IdMixin, TimestampMixin, Base):
     #: ejecución en un solo sitio (ADR 0010).
     job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id"), nullable=True, index=True)
 
+    #: El rol verificado de quien la pidió. Lo consulta el ActionGate
+    #: (Milestone 33) para saber si ese actor puede autorizar gasto externo:
+    #: sin guardarlo, un worker que ejecuta horas después no tendría forma de
+    #: saber en nombre de quién actúa. Nulo cuando se encoló sin identidad, que
+    #: en desarrollo es normal y no es lo mismo que un rol sin permiso.
+    requested_by_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     #: Los parámetros con los que se pidió (precio de venta, región de destino,
     #: plataformas, presupuesto…). Hacen falta para reanudar: un paso que no se
     #: ejecutó necesita los mismos datos que habría usado la primera vez.

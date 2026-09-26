@@ -590,7 +590,11 @@ export type PipelineStepStatus =
   | "COMPLETED"
   | "FAILED"
   | "SKIPPED"
-  | "CANCELLED";
+  | "CANCELLED"
+  /** El ActionGate no dejó ejecutarlo (Milestone 33). No es un fallo. */
+  | "DENIED"
+  /** El ActionGate pide una decisión humana antes de ejecutarlo. */
+  | "WAITING_APPROVAL";
 
 /** Estados de una ejecución (Milestone 32). QUEUED/RUNNING son del proceso;
  * PARTIAL es un resultado de negocio y FAILED un fallo técnico reintentable. */
@@ -601,7 +605,10 @@ export type PipelineRunStatus =
   | "PARTIAL"
   | "FAILED"
   | "BLOCKED"
-  | "CANCELLED";
+  | "CANCELLED"
+  /** Parada delante de una acción con efecto que nadie ha autorizado
+   * todavía (Milestone 33). */
+  | "WAITING_APPROVAL";
 
 export interface PipelineRun {
   correlation_id: string;
@@ -616,9 +623,17 @@ export interface PipelineRun {
   job_id: string | null;
 }
 
+/** Qué clase de decisión se pide (Milestone 33): mirar lo que ya pasó, o
+ * autorizar lo que todavía no ha pasado. */
+export type PipelineReviewKind = "POST_HOC" | "ACTION_GATE";
+
 export interface PipelineReview {
   id: string;
   pipeline_run_id: string;
+  kind: PipelineReviewKind;
+  /** Paso y acción con efecto, solo en las de tipo ACTION_GATE. */
+  step: string | null;
+  action: string | null;
   reasons: string[];
   status: "PENDING" | "APPROVED" | "REJECTED";
   resolved_at: string | null;
