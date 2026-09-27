@@ -36,6 +36,7 @@ import { DEMO_FILTERS, DEMO_INTEREST_BY_SOURCE } from "@/lib/demo/research";
 import {
   CATEGORY_LABEL,
   RADAR_KEYS,
+  alsoKnownAsNote,
   buildRows,
   comparisonView,
   interestChart,
@@ -183,6 +184,7 @@ function OpportunityCard({
   onAnalyze: () => void;
   onFollow: () => void;
 }) {
+  const identityNote = alsoKnownAsNote(row.alsoKnownAs);
   return (
     <div
       className={cn(
@@ -197,6 +199,9 @@ function OpportunityCard({
           <p className="flex items-center gap-1 text-xs text-muted-foreground">
             {row.categoryLabel} <ChevronRight className="size-3" /> {row.subcategory}
           </p>
+          {/* Qué nombres se unieron en este producto, y por qué vía (Milestone
+              36): una fusión que no se ve es indistinguible de un error. */}
+          {identityNote ? <p className="mt-0.5 text-xs text-muted-foreground/80">{identityNote}</p> : null}
         </div>
         <span className="rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary">
           #{rank}

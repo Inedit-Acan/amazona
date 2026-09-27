@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Product, ResearchCandidate } from "./api.ts";
 import {
+  alsoKnownAsNote,
   buildRows,
   comparisonView,
   demandLevel,
+  identityMethodLabel,
   interestChart,
   opportunityScore,
   radarAverage,
@@ -329,4 +331,45 @@ test("sin confianza no se inventa un cero", () => {
   );
 
   assert.equal(view.rows.find((row) => row.label === "Confianza media")?.candidate, "—");
+});
+
+// --- Identidad de los candidatos (Milestone 36) ----------------------------
+
+test("alsoKnownAsNote: sin otros nombres no hay nota que dar", () => {
+  assert.equal(alsoKnownAsNote([]), null);
+});
+
+test("alsoKnownAsNote: dice el nombre y por qué vía se unió", () => {
+  const note = alsoKnownAsNote([
+    { alias: "airfryer", method: "alias:v1" },
+    { alias: "AIR FRYER", method: "normalised" },
+  ]);
+
+  assert.equal(
+    note,
+    "También llegó como «airfryer» (alias declarado (catálogo v1)), «AIR FRYER» (misma escritura)",
+  );
+});
+
+test("identityMethodLabel: un método que no conocemos se enseña tal cual", () => {
+  assert.equal(identityMethodLabel("normalised"), "misma escritura");
+  assert.equal(identityMethodLabel("alias:v2"), "alias declarado (catálogo v2)");
+  assert.equal(identityMethodLabel("algo-nuevo"), "algo-nuevo");
+});
+
+test("buildRows: los otros nombres del producto llegan a la fila", () => {
+  const withAliases: Product = {
+    ...product("p-alias"),
+    also_known_as: [{ alias: "airfryer", method: "alias:v1" }],
+  };
+
+  const [row] = buildRows([withAliases], []);
+
+  assert.deepEqual(row.alsoKnownAs, [{ alias: "airfryer", method: "alias:v1" }]);
+});
+
+test("buildRows: un producto sin identidad resuelta no inventa nombres", () => {
+  const [row] = buildRows([product("p-plain")], []);
+
+  assert.deepEqual(row.alsoKnownAs, []);
 });

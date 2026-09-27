@@ -20,6 +20,8 @@ que ya sabíamos buscar. Decirlo aquí es parte del trabajo: lo contrario sería
 que dentro de tres milestones alguien lo tomara por un buscador.
 """
 
+from app.integrations.product_intelligence.identity import resolve
+
 #: Términos por categoría. Nombres comunes, no marcas: se consulta interés
 #: general por el tipo de producto, y una marca mediría otra cosa.
 SEED_TERMS: dict[str, list[str]] = {
@@ -51,13 +53,41 @@ SEED_TERMS: dict[str, list[str]] = {
 
 
 def terms_for(category: str, keywords: list[str] | None = None, *, limit: int = 8) -> list[str]:
-    """Qué se va a preguntar para una categoría.
+    """Qué se va a preguntar para una categoría, cada cosa una sola vez.
 
     Los términos de quien llama van primero: son más específicos que una lista
     general y quien pregunta sabe mejor qué busca. El catálogo completa hasta el
     tope. Si no hay ni lo uno ni lo otro, la lista es vacía — y eso significa que
     no se pregunta nada, no que no haya demanda.
+
+    ## Dos términos que son el mismo producto se preguntan una vez
+
+    Hasta el Milestone 36 esto se comparaba con `term not in asked`, igualdad
+    exacta de cadena, y por eso `terms_for("home", ["air fryer"])` devolvía `air
+    fryer` **y** `Air fryer`: dos de las ocho peticiones disponibles gastadas en
+    lo mismo, y dos candidatos para un solo producto. Ahora se comparan claves de
+    identidad (ADR 0014).
+
+    ## Y se pregunta con la forma del catálogo
+
+    Cuando el término de quien llama y uno del catálogo son el mismo producto, se
+    manda **el del catálogo**: está escrito a mano, revisado y versionado, y el
+    de quien llama es texto libre. No es una preferencia estética. Medido contra
+    la API real: `Air_fryer` devuelve 30.897 visitas en doce meses y `air_fryer`
+    —una redirección con vida propia— devuelve 5 en cuatro. Quedarse con la forma
+    de quien pregunta conservaría la peor medición de las dos.
+
+    El recorte a `limit` se hace **después** de resolver, para que el tope sean
+    tantos productos distintos y no tantas casillas con duplicados dentro.
     """
     asked = [term.strip() for term in (keywords or []) if term and term.strip()]
-    seeded = [term for term in SEED_TERMS.get(category, []) if term not in asked]
-    return (asked + seeded)[:limit]
+    catalogue = SEED_TERMS.get(category, [])
+    curated = {resolve(term).key: term for term in catalogue}
+
+    chosen: dict[str, str] = {}
+    for term in asked:
+        identity = resolve(term)
+        chosen.setdefault(identity.key, curated.get(identity.key, identity.name))
+    for term in catalogue:
+        chosen.setdefault(resolve(term).key, term)
+    return list(chosen.values())[:limit]

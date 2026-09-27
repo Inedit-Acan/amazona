@@ -132,6 +132,8 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
 - **Milestone 35:** la evidencia detrás de cada señal, y qué dice cada proveedor
   ([ADR 0013](docs/architecture/adr-0013-signal-evidence-and-comparison.md)) —
   ver abajo.
+- **Milestone 36:** cuándo dos nombres son el mismo producto
+  ([ADR 0014](docs/architecture/adr-0014-entity-resolution.md)) — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -363,6 +365,31 @@ fuente real y, antes, resolver la identificación de entidades
 
 La comparación **no se puede ejecutar en `staging` ni `production`**: exige
 correr el mock, y ahí los datos simulados no se admiten.
+
+### Cuándo dos nombres son el mismo producto (Milestone 36)
+
+Dos nombres se unen por **normalización determinista** —sin diacríticos, en
+minúsculas, sin puntuación, sin el paréntesis de desambiguación de Wikipedia— o por
+**alias escrito a mano** en `aliases.py`, versionado en git. **Por nada más: no hay
+umbral de parecido**, porque un 0,85 de similitud uniría «Air fryer» con «Air
+dryer» algún día y nadie sabría qué día empezó.
+
+Hacía falta antes de la segunda fuente real, y resultó hacer falta ya con una sola.
+Medido contra Wikimedia: preguntar `air fryer` en minúsculas y tener `Air fryer` en
+el catálogo consultaba **dos artículos distintos** —30.897 visitas contra 5— y
+persistía dos productos para un solo objeto, uno con 0,7483 de demanda y un gemelo
+con 0,1297. Ahora se pregunta una vez, con la forma del catálogo, y una
+investigación que vuelve a encontrar un producto **no crea otra fila**: sus señales
+y sus doce observaciones mensuales se acumulan sobre el que ya estaba.
+
+Cada fusión guarda su motivo —`normalised` o `alias:<versión>`—, incluida la
+palabra que escribió quien pidió la investigación, y la pantalla de Investigación lo
+dice: una fusión que no se ve es indistinguible de un error.
+
+Lo que **no** resuelve son las traducciones: medido, aliasar «Freidora de aire» a
+«Air fryer» cambiaría 12.099 visitas reales de `es.wikipedia` por un 404, porque eso
+necesita un nombre **por mercado** y no un nombre canónico único
+([ADR 0014](docs/architecture/adr-0014-entity-resolution.md)).
 
 ## Notas
 

@@ -135,19 +135,25 @@ def test_cfo_report_reflects_the_product_this_pipeline_run_created(db_session: S
     assert cfo_report.data["total_products_analyzed"] == 1
 
 
-def test_two_runs_for_the_same_category_never_collide_on_store_slug(db_session: Session):
+def test_two_runs_for_the_same_category_land_on_the_same_product_and_slug(db_session: Session):
     orchestrator = PipelineOrchestrator(db_session)
     request = PipelineRequest(category="home", sale_price=50.0, destination_region="mexico")
 
     first_run = run_now(orchestrator, db_session, request)
     second_run = run_now(orchestrator, db_session, request)
 
-    # Both runs pick the same top-ranked mock candidate ("Silicone kitchen
-    # organizer") since research creates a fresh Product every time — the
-    # slug must still differ because it identifies the real product.
+    # Las dos ejecuciones eligen el mismo candidato del mock («Silicone kitchen
+    # organizer»), y desde el Milestone 36 eso es **el mismo producto**: la
+    # investigación resuelve su identidad en vez de crear otra fila. Así que el
+    # slug coincide, que es exactamente lo que `generate_store_slug` promete —
+    # sigue al producto, no a la ejecución—. Lo que no puede coincidir es el slug
+    # de dos productos distintos con el mismo nombre, y eso lo cubre
+    # `tests/unit/test_ecommerce_content.py`.
+    assert first_run.product_id == second_run.product_id
+
     first_storefront = db_session.get(Storefront, view(db_session, first_run)["ecommerce"]["entity_id"])
     second_storefront = db_session.get(Storefront, view(db_session, second_run)["ecommerce"]["entity_id"])
-    assert first_storefront.store_slug != second_storefront.store_slug
+    assert first_storefront.store_slug == second_storefront.store_slug
 
 
 def test_enqueueing_raises_when_the_kill_switch_is_disabled(db_session: Session):

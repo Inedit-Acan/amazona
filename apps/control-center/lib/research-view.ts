@@ -1,4 +1,10 @@
-import type { ComparisonProviderSummary, Product, ResearchCandidate, ResearchComparison } from "./api.ts";
+import type {
+  ComparisonProviderSummary,
+  Product,
+  ProductAlias,
+  ResearchCandidate,
+  ResearchComparison,
+} from "./api.ts";
 import {
   DEMO_INSIGHTS,
   DEMO_SUBCATEGORY,
@@ -60,9 +66,36 @@ export interface ResearchRow {
    * - `demo`: ni siquiera eso — las rellena esta pantalla porque el producto
    *   no se investigó en esta sesión. */
   provenance: SignalProvenance;
+  /** Otros nombres que se resolvieron a este producto (Milestone 36). Vacío
+   * cuando siempre llegó igual: no hubo nada que resolver. */
+  alsoKnownAs: ProductAlias[];
 }
 
 export type SignalProvenance = "real" | "mixed" | "simulated" | "demo";
+
+/** Por qué dos nombres son el mismo producto, en palabras (Milestone 36).
+ *
+ * Se dice en la pantalla porque una fusión que no se ve es indistinguible de un
+ * error: quien mira tiene que poder saber que su «air fryer» acabó en el
+ * producto «Air fryer», y por qué vía. */
+export function identityMethodLabel(method: string): string {
+  if (method.startsWith("alias:")) {
+    return `alias declarado (catálogo ${method.slice("alias:".length)})`;
+  }
+  if (method === "normalised") {
+    return "misma escritura";
+  }
+  return method;
+}
+
+/** La nota de identidad de una fila, o null si no hay nada que contar. */
+export function alsoKnownAsNote(aliases: ProductAlias[]): string | null {
+  if (aliases.length === 0) {
+    return null;
+  }
+  const names = aliases.map((entry) => `«${entry.alias}» (${identityMethodLabel(entry.method)})`);
+  return `También llegó como ${names.join(", ")}`;
+}
 
 export function demandLevel(signal: number): Level {
   return signal >= 0.7 ? "Alta" : signal >= 0.5 ? "Media" : "Baja";
@@ -131,6 +164,7 @@ export function buildRows(products: Product[], candidates: ResearchCandidate[]):
         scalability,
       },
       isDemo: !candidate,
+      alsoKnownAs: product.also_known_as ?? [],
     };
   });
   return rows.sort((a, b) => b.score - a.score);

@@ -68,7 +68,10 @@ def test_cfo_report_aggregates_a_mixed_catalog(client: TestClient):
     assert econ_go_2["recommendation"] == "GO"
     correlation_ids.add(econ_go_2["correlation_id"])
 
-    product_no_go, quote_no_go = _research_and_source(client, "home")
+    # Una categoría distinta a propósito: desde el Milestone 36 investigar «home»
+    # dos veces devuelve **el mismo** producto —su identidad se resuelve— y este
+    # caso necesita tres productos distintos, no tres ejecuciones.
+    product_no_go, quote_no_go = _research_and_source(client, "electronics")
     econ_no_go = client.post(
         "/api/economics/runs",
         json={"product_id": product_no_go, "supplier_quote_id": quote_no_go, "sale_price": 1.0},

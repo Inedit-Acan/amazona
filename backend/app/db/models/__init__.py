@@ -22,6 +22,7 @@ from app.db.models.pipeline_step import PipelineStep, PipelineStepAttempt
 from app.db.models.policy import Policy
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
+from app.db.models.product_identity_alias import ProductIdentityAlias
 from app.db.models.product_signal import ProductSignal
 from app.db.models.product_signal_observation import ProductSignalObservation
 from app.db.models.project import Project
@@ -65,6 +66,7 @@ __all__ = [
     "Policy",
     "Product",
     "ProductAnalysis",
+    "ProductIdentityAlias",
     "ProductSignal",
     "ProductSignalObservation",
     "Project",

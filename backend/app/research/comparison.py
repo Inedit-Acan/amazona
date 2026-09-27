@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 
 from app.integrations.ports import CandidateSignals, SignalKind
+from app.integrations.product_intelligence.identity import resolve
 
 #: Las señales que el `opportunity_score` necesita. Se miran aparte porque su
 #: ausencia no es una carencia cualquiera: sin ellas no hay score (ADR 0012 §8).
@@ -28,15 +29,19 @@ SCORING_SIGNALS = (SignalKind.DEMAND, SignalKind.COMPETITION)
 
 
 def normalise(name: str) -> str:
-    """La clave con la que se busca solapamiento: el nombre sin mayúsculas ni
-    espacios de sobra.
+    """La clave con la que se busca solapamiento.
 
-    Es deliberadamente ingenua. Emparejar «Air fryer» con «Airfryer» o con un
-    ASIN es **resolución de entidades**, y hacerla ahora sería resolver un
-    conjunto vacío: este informe existe, entre otras cosas, para demostrar con
-    números que hará falta cuando entre la segunda fuente real (ADR 0013).
+    Hasta el Milestone 36 era `casefold()` a secas, y su docstring anunciaba este
+    trabajo: emparejar «Air fryer» con «Airfryer» es resolución de entidades.
+    Ahora usa la misma clave que todo lo demás (ADR 0014), de modo que el informe
+    no pueda decir «cero en común» por una mayúscula.
+
+    Y el informe sigue diciendo cero en común, porque sigue siendo verdad: los
+    nombres del mock son inventados y no tienen alias hacia ningún producto real
+    —dárselos fabricaría un solapamiento falso, que es lo que la ADR 0013
+    rechazó—.
     """
-    return " ".join(name.split()).casefold()
+    return resolve(name).key
 
 
 @dataclass

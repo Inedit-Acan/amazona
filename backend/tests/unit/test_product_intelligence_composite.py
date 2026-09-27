@@ -191,3 +191,51 @@ def test_real_plus_fixtures_produces_a_mixed_candidate_end_to_end():
     assert candidate.signal(SignalKind.COMPETITION) is None or candidate.signal(
         SignalKind.COMPETITION
     ).simulated is True
+
+
+# --- Identidad entre proveedores (Milestone 36, ADR 0014) ------------------
+
+
+@pytest.mark.parametrize(
+    ("real_name", "filler_name"),
+    [
+        # Lo que la clave anterior (`casefold`) ya juntaba.
+        ("Air fryer", "air fryer"),
+        # Y lo que no: el paréntesis de desambiguación y la palabra compuesta.
+        ("Belt (clothing)", "Belt"),
+        ("Air fryer", "Airfryer"),
+        ("Smartwatch", "smart watch"),
+    ],
+)
+def test_the_filler_completes_a_candidate_whose_name_has_another_shape(real_name, filler_name):
+    """Antes esto producía dos candidatos: uno real sin competencia y otro de
+    relleno. Con dos fuentes reales, duplicar en vez de componer es el fallo que
+    este milestone paga."""
+    composite = CompositeProductSignalProvider(
+        [
+            Fake("real", [real_candidate(real_name)], {SignalKind.DEMAND}),
+            Fake("fixtures", [filler_candidate(filler_name)], set(SignalKind)),
+        ]
+    )
+
+    candidates = composite.discover(category="home", keywords=[], market="us", max_results=5)
+
+    assert len(candidates) == 1
+    [candidate] = candidates
+    # El nombre del primero manda: el real, no el del relleno.
+    assert candidate.name == real_name
+    assert candidate.signal(SignalKind.DEMAND).simulated is False
+    assert candidate.signal(SignalKind.COMPETITION).simulated is True
+
+
+def test_two_candidates_nobody_declared_equal_stay_two():
+    composite = CompositeProductSignalProvider(
+        [
+            Fake("real", [real_candidate("Air fryer")], {SignalKind.DEMAND}),
+            Fake("otra-real", [real_candidate("Air dryer")], {SignalKind.DEMAND}),
+        ]
+    )
+
+    candidates = composite.discover(category="home", keywords=[], market="us", max_results=5)
+
+    assert {c.name for c in candidates} == {"Air fryer", "Air dryer"}

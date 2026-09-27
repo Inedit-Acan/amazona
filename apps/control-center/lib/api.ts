@@ -98,6 +98,14 @@ export interface Objective {
   context: Record<string, unknown> | null;
 }
 
+/** Otro nombre con el que llegó un producto (Milestone 36). */
+export interface ProductAlias {
+  alias: string;
+  /** `normalised` si bastó la normalización, `alias:<versión>` si hizo falta el
+   * catálogo escrito a mano. Nunca por parecido: eso no existe. */
+  method: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -105,6 +113,12 @@ export interface Product {
   status: string;
   created_by: string;
   source: string;
+  /** Quién es este producto, independientemente de cómo se escribiera su nombre.
+   * Nulo en las filas anteriores al Milestone 36 que nadie ha reinvestigado. */
+  identity_key?: string | null;
+  /** Los nombres distintos que se resolvieron a este producto. Vacío cuando
+   * siempre llegó igual: no hubo nada que resolver. */
+  also_known_as?: ProductAlias[];
 }
 
 export interface Project {

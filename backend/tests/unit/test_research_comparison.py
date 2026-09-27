@@ -160,11 +160,19 @@ def test_names_match_ignoring_case_and_spacing():
     assert report.shared == ["air fryer"]
 
 
-def test_normalise_is_deliberately_naive():
-    """Emparejar «Airfryer» con «Air fryer» es resolución de entidades, y hoy
-    resolvería un conjunto vacío (ADR 0013)."""
+def test_normalise_uses_the_same_identity_as_everything_else():
+    """Desde el Milestone 36 el informe ya no puede decir «cero en común» por una
+    mayúscula ni por una palabra escrita junta (ADR 0014)."""
     assert normalise("Air Fryer") == normalise("  air   fryer ")
-    assert normalise("Airfryer") != normalise("Air fryer")
+    assert normalise("Airfryer") == normalise("Air fryer")
+    assert normalise("Belt (clothing)") == normalise("Belt")
+
+
+def test_normalise_still_keeps_apart_what_nobody_declared_equal():
+    """Y sigue sin unir por parecido: eso es lo que impide que un día «Air
+    fryer» y «Air dryer» sean el mismo producto."""
+    assert normalise("Air fryer") != normalise("Air dryer")
+    assert normalise("Mini projector") != normalise("Video projector")
 
 
 def test_the_verdict_counts_what_can_be_contrasted():

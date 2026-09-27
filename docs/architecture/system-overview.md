@@ -240,6 +240,7 @@ separados, colas) — no se usa activamente hoy.
 | [0011](adr-0011-action-gate.md) | El `ActionGate` separa analizar de actuar: los vetos ganan, ninguna firma los levanta, y esperar a una persona es un estado del trabajo |
 | [0012](adr-0012-product-intelligence-adapters.md) | El contrato son señales con procedencia; primer adaptador real (proxy declarado), y ante un fallo ausencia en vez de cero |
 | [0013](adr-0013-signal-evidence-and-comparison.md) | La evidencia de cada señal se persiste en filas; comparar es contrastar qué sabe cada proveedor, no restar cifras que no hablan de lo mismo |
+| [0014](adr-0014-entity-resolution.md) | Dos nombres son el mismo producto por normalización determinista o por alias declarado, nunca por parecido; y cada fusión guarda su motivo |
 
 ## 9. Índice de milestones
 
@@ -269,6 +270,7 @@ separados, colas) — no se usa activamente hoy.
 | [33](../milestones/milestone-33-demo.md) | `ActionGate`: publicar, anunciar y gastar dejan de ocurrir solos (§15) |
 | [34](../milestones/milestone-34-demo.md) | Señales con procedencia y el primer adaptador real de Product Intelligence (§16) |
 | [35](../milestones/milestone-35-demo.md) | La evidencia mensual detrás de cada señal y el informe de contraste contra el mock (§16.5) |
+| [36](../milestones/milestone-36-demo.md) | Cuándo dos nombres son el mismo producto: identidad determinista o declarada, y sin duplicar filas por ejecución (§16.6) |
 
 ## 10. Cómo verlo funcionar
 
@@ -676,11 +678,50 @@ Lo medido es más fiable y no alcanza para puntuar. Y **no hay ningún candidato
 en común**: los nombres del mock no existen fuera de la demo, así que restar sus
 cifras no significaría nada — lo comparable es qué sabe medir cada uno.
 
+Esas cifras son **las del día en que se midieron**. La conclusión se repite —cero
+candidatos en común, y lo real sin nada que puntuar—, pero los recuentos exactos se
+mueven porque la fuente está viva: el 27-09-2026, al cerrar el Milestone 36, la
+misma comparación con los mismos términos dio 5 candidatos y confianza 0,7063
+porque la API contestó a los cinco. El informe es una foto, no una serie.
+
 El razonamiento completo está en la
 [ADR 0012](adr-0012-product-intelligence-adapters.md) y en la
 [ADR 0013](adr-0013-signal-evidence-and-comparison.md); las fuentes candidatas
 para cerrar el hueco, con sus costes, en
 [fuentes comerciales](../design/fuentes-comerciales-product-intelligence.md).
+
+### 16.6 Quién es un candidato (Milestone 36)
+
+Dos nombres son el mismo producto por **normalización determinista** —sin
+diacríticos, en minúsculas, sin puntuación, sin el paréntesis de desambiguación de
+Wikipedia— o por **alias escrito a mano** en un catálogo versionado. Por nada más:
+no hay umbral de similitud, y no es una simplificación temporal. Un 0,85 de
+parecido uniría «Air fryer» con «Air dryer» algún día y nadie sabría qué día
+empezó.
+
+Hacía falta antes de la segunda fuente, y resultó hacer falta ya con una sola.
+Medido: `terms_for("home", ["air fryer"])` preguntaba por `air fryer` **y** por
+`Air fryer`, que en Wikimedia son dos artículos distintos —30.897 visitas contra
+5—, así que un solo producto se persistía dos veces, uno con 0,7483 de demanda y
+un gemelo con 0,1297.
+
+La misma clave se usa en los cuatro sitios donde se comparan nombres: el catálogo
+de términos (para no preguntar dos veces), la composición de proveedores (para
+componer en vez de duplicar), el informe de comparación y `ResearchService`, que
+**busca el producto antes de crearlo** por identidad y categoría. Las señales y
+observaciones se acumulan sobre el producto que ya estaba; cada ejecución sigue
+dejando su propio análisis.
+
+Cada fusión guarda su motivo en filas (`product_identity_aliases`): con qué nombre
+llegó, a qué identidad, por qué vía (`normalised` o `alias:<versión>`) y en qué
+ejecución — incluida la palabra que escribió quien pidió la investigación, que la
+canonicalización haría desaparecer. `/api/products` lo publica y la pantalla de
+Investigación lo dice: una fusión que no se ve es indistinguible de un error.
+
+Lo que **no** resuelve: las traducciones. Medido, aliasar «Freidora de aire» a
+«Air fryer» cambiaría 12.099 visitas reales de `es.wikipedia` por un 404, porque
+resolver idiomas necesita un nombre **por mercado**. El razonamiento está en la
+[ADR 0014](adr-0014-entity-resolution.md).
 
 ## 17. Pendientes de integración
 

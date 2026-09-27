@@ -18,10 +18,17 @@ van marcadas como simuladas, que es justo lo que se ve hoy con el mock a solas.
 """
 
 from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalKind
+from app.integrations.product_intelligence.identity import resolve
 
 
 def _key(name: str) -> str:
-    return name.strip().casefold()
+    """Quién es este candidato (Milestone 36, ADR 0014).
+
+    Era `name.strip().casefold()`, que juntaba `Air fryer` con `air fryer` y no
+    juntaba nada más: ni `Belt (clothing)` con `Belt` ni `airfryer` con `Air
+    fryer`. Con dos fuentes reales eso no compone señales, duplica candidatos.
+    """
+    return resolve(name).key
 
 
 class CompositeProductSignalProvider(ProductSignalProvider):
