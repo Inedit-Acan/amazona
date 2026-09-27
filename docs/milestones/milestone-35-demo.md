@@ -138,6 +138,23 @@ curl -s localhost:8000/api/research/comparisons | python -m json.tool
 - Los tests de inventario del Milestone 29 hicieron su trabajo: las tres rutas
   nuevas fallaron hasta darles su acción y su categoría de lectura.
 
+## Incidencia abierta: un fallo intermitente sin identificar
+
+Durante la verificación, **una** ejecución de la suite de backend terminó en
+`1 failed, 1189 passed`. El nombre del test **no quedó capturado**.
+
+Lo que se hizo después: cuatro pasadas completas de la suite y varias pasadas
+dirigidas a los tests del runtime de trabajos y del pipeline. **Ninguna lo
+reprodujo** (1190 en verde en todas).
+
+Lo que **no** se sabe: qué test era y por qué falló. No se le atribuye causa:
+cualquier explicación hoy sería una conjetura, y una conjetura escrita en un
+documento acaba leyéndose como un diagnóstico.
+
+Queda anotado aquí para que, si vuelve a ocurrir —en local o en CI—, exista el
+antecedente y se capture el nombre en ese momento. CI ejecuta la suite completa
+en cada push, así que es el sitio donde más probablemente vuelva a verse.
+
 ## No verificado
 
 - Los **cinco pendientes de integración** siguen igual (ver
