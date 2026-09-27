@@ -102,6 +102,15 @@ competencia, que es Milestone 35 en adelante.
 El relleno tampoco aporta candidatos propios cuando la fuente real encontró
 alguno: eso convertiría un fallo de red en un descubrimiento.
 
+**Y hay un problema debajo que este milestone no resuelve: identificar la misma
+entidad entre proveedores.** Hoy dos señales se juntan si sus nombres coinciden
+ignorando mayúsculas y espacios. Eso basta para un mock y una fuente, y **no
+basta para dos fuentes reales**: «Air fryer», «Airfryer», «Freidora de aire» y un
+ASIN de Amazon son el mismo producto para una persona y cuatro candidatos
+distintos para este código. Sin resolución de entidades, añadir la segunda fuente
+real no compone señales: duplica candidatos. Es un requisito del Milestone 35 en
+adelante, no una mejora opcional.
+
 ### 7. `composite` cuenta como simulado donde no se admite lo simulado
 
 Un despliegue en `staging` o `production` no puede usar `composite`, porque
@@ -147,6 +156,8 @@ por un valor por defecto.
 - **La señal es un proxy.** Se dice en todas partes, y aun así alguien la leerá
   algún día como demanda. La comparación mock/real del Milestone 35 existe en
   parte para poner ese límite a la vista con números.
+- **La coincidencia por nombre no escala a dos fuentes reales.** Ver arriba: sin
+  resolución de entidades, componer se convierte en duplicar.
 
 ## Alternativas descartadas
 

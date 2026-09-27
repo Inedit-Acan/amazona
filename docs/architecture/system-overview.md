@@ -639,6 +639,18 @@ Y un candidato real hoy **no tiene score**: sin señal de competencia no hay
 fórmula, y la fórmula no se toca en este milestone (§9 del plan). Lo que falta es
 una segunda fuente real, no rellenar mejor.
 
+Cuatro límites conocidos, escritos para que no se descubran por sorpresa:
+
+| Límite | Qué significa | Qué hace falta |
+|---|---|---|
+| **Wikimedia es un proxy de interés** | mide consultas a una enciclopedia; **no** demanda de compra, ventas ni intención de gasto | contrastarlo (M35) y, cuando haya decisión de gasto, una fuente comercial |
+| **No hay segunda fuente real** | competencia y demanda comercial siguen sin medirse; un candidato real se queda sin score | un adaptador real de marketplace o de búsqueda comercial |
+| **No hay descubrimiento real** | los candidatos salen de un catálogo escrito a mano: solo se mide lo que alguien ya pensó | marketplaces, minería de reseñas, señales sociales, distribución de precios |
+| **No hay resolución de entidades** | dos señales se juntan si el nombre coincide; «Air fryer», «Airfryer» y «Freidora de aire» son hoy tres candidatos | identificar la misma entidad entre proveedores **antes** de añadir la segunda fuente real, o componer se convierte en duplicar |
+
+Ninguno se tapa con datos inventados: una señal que falta se queda ausente, y el
+`opportunity_score` no se toca fuera del milestone que le corresponda (§9).
+
 El razonamiento completo está en la
 [ADR 0012](adr-0012-product-intelligence-adapters.md).
 

@@ -149,12 +149,27 @@ PRODUCT_INTELLIGENCE_PROVIDER=real python -m app.jobs.worker
 
 ## Lo que queda abierto
 
-1. **El catálogo de términos no es descubrimiento** (arriba, y en la ADR 0012
-   §5). Hace falta un mecanismo real.
-2. **Un candidato real no tiene score** mientras no haya una fuente real de
-   competencia.
-3. **Milestone 35**: primera investigación real de verdad, comparando resultados
+1. **Wikimedia es un proxy de interés**, no demanda de compra ni ventas. Se dice
+   en cada señal (`method`), en la ADR y aquí; el riesgo es que alguien lo lea
+   como demanda de todos modos.
+2. **No hay una segunda fuente real** de competencia ni de demanda comercial, y
+   por eso **un candidato real no tiene score**: sin competencia no hay fórmula,
+   y la fórmula no se toca (§9).
+3. **El catálogo de términos no es descubrimiento** (arriba, y en la ADR 0012
+   §5). Hace falta un mecanismo real: marketplaces, minería de reseñas, señales
+   sociales, distribución de precios.
+4. **No hay resolución de entidades entre proveedores.** Hoy dos señales se
+   juntan si el nombre coincide ignorando mayúsculas y espacios. Con dos fuentes
+   reales eso deja de bastar —«Air fryer», «Airfryer», «Freidora de aire» y un
+   ASIN son el mismo producto para una persona y cuatro candidatos para este
+   código—, así que hace falta **antes** de añadir la segunda fuente: si no,
+   componer no compone, duplica.
+5. **Milestone 35**: primera investigación real de verdad, comparando resultados
    contra el mock, sin eliminar el mock.
-4. **El `opportunity_score` v2** del §9 sigue sin tocarse, a propósito.
-5. **Los otros cuatro dominios** (proveedores, regulatorio, publicidad,
+6. **El `opportunity_score` v2** del §9 sigue sin tocarse, a propósito, y no debe
+   tocarse fuera del milestone que le corresponda.
+7. **Los otros cuatro dominios** (proveedores, regulatorio, publicidad,
    marketplaces) siguen solo con mock.
+
+Ninguno de estos cuatro se tapa rellenando con datos inventados: una señal que
+falta se queda **ausente**, que es la regla que sostiene todo lo demás.
