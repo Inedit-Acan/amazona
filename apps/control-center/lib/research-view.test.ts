@@ -3,9 +3,12 @@ import { test } from "node:test";
 import type { Product, ResearchCandidate } from "./api.ts";
 import {
   buildRows,
+  comparisonView,
   demandLevel,
+  interestChart,
   opportunityScore,
   radarAverage,
+  realInterestSeries,
   riskLevel,
   signalsMode,
   topInsight,
@@ -152,4 +155,178 @@ test("si algo lo rellena la propia pantalla, eso manda sobre lo demás", () => {
 
 test("sin filas no se dice nada de nada", () => {
   assert.deepEqual(signalsMode([]), { label: "Sin señales", status: "demo" });
+});
+
+
+// --- La evidencia real en el gráfico (Milestone 35) ------------------------
+
+const DEMO_SOURCES = [
+  { key: "google", label: "Google", color: "#0f0", series: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+  { key: "social", label: "Redes", color: "#00f", series: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
+];
+
+function measuredCandidate(
+  productId: string,
+  observations: { period: string; value: number }[],
+  over: Record<string, unknown> = {},
+) {
+  return {
+    product_id: productId,
+    name: "Air fryer",
+    category: "home",
+    opportunity_score: null,
+    confidence: 0.6,
+    data: {
+      provenance: "real",
+      signals: [
+        {
+          kind: "demand",
+          value: 0.62,
+          confidence: 0.6,
+          provider: "wikimedia-pageviews",
+          source: "wikimedia.org",
+          query: "Air fryer",
+          market: "us",
+          observed_at: "2026-09-01T00:00:00Z",
+          method: "PROXY FOR INTEREST",
+          raw_reference: "https://wikimedia.org/…",
+          simulated: false,
+          observations,
+        },
+      ],
+      ...over,
+    },
+  } as unknown as Parameters<typeof interestChart>[0][number];
+}
+
+test("sin observaciones medidas el gráfico enseña la demo y lo dice", () => {
+  const chart = interestChart([], DEMO_SOURCES, 12);
+
+  assert.equal(chart.provenance, "demo");
+  assert.equal(chart.series.length, 2);
+  assert.match(chart.caption, /demostración/);
+});
+
+test("con observaciones medidas el gráfico las usa y avisa de que es un proxy", () => {
+  const chart = interestChart(
+    [measuredCandidate("p-1", [{ period: "2026-07", value: 100 }, { period: "2026-08", value: 140 }])],
+    DEMO_SOURCES,
+    12,
+  );
+
+  assert.equal(chart.provenance, "real");
+  assert.equal(chart.series.length, 1);
+  assert.equal(chart.series[0].label, "Wikipedia (visitas/mes)");
+  assert.deepEqual(chart.series[0].points, [{ x: 0, y: 100 }, { x: 1, y: 140 }]);
+  assert.match(chart.caption, /no son ventas/);
+});
+
+test("las observaciones de varios candidatos se suman por periodo", () => {
+  const chart = interestChart(
+    [
+      measuredCandidate("p-1", [{ period: "2026-08", value: 100 }]),
+      measuredCandidate("p-2", [{ period: "2026-08", value: 40 }]),
+    ],
+    DEMO_SOURCES,
+    12,
+  );
+
+  assert.deepEqual(chart.series[0].points, [{ x: 0, y: 140 }]);
+});
+
+test("una señal simulada nunca entra en la serie real", () => {
+  const candidate = measuredCandidate("p-1", [{ period: "2026-08", value: 100 }]);
+  (candidate.data.signals as { simulated: boolean }[])[0].simulated = true;
+
+  assert.equal(realInterestSeries([candidate], 12), null);
+  assert.equal(interestChart([candidate], DEMO_SOURCES, 12).provenance, "demo");
+});
+
+test("la serie respeta el periodo elegido", () => {
+  const observations = Array.from({ length: 12 }, (_, i) => ({
+    period: `2026-${String(i + 1).padStart(2, "0")}`,
+    value: i + 1,
+  }));
+
+  const chart = interestChart([measuredCandidate("p-1", observations)], DEMO_SOURCES, 3);
+
+  assert.equal(chart.series[0].points.length, 3);
+  assert.deepEqual(chart.series[0].points.at(-1), { x: 2, y: 12 });
+});
+
+// --- El informe de contraste ------------------------------------------------
+
+function comparison(over: Record<string, unknown> = {}) {
+  return {
+    id: "cmp-1",
+    category: "home",
+    market: "us",
+    baseline_provider: "fixtures",
+    candidate_provider: "wikimedia-pageviews",
+    correlation_id: "cid-1",
+    created_at: "2026-09-27T10:00:00Z",
+    summary: {
+      category: "home",
+      market: "us",
+      baseline: {
+        provider: "fixtures",
+        candidates: 4,
+        coverage: { demand: 4, competition: 4 },
+        scorable: 4,
+        mean_confidence: 0.3,
+        measured_signals: 0,
+        simulated_signals: 20,
+      },
+      candidate: {
+        provider: "wikimedia-pageviews",
+        candidates: 2,
+        coverage: { demand: 2 },
+        scorable: 0,
+        mean_confidence: 0.65,
+        measured_signals: 4,
+        simulated_signals: 0,
+      },
+      shared: [],
+      only_baseline: ["silicone kitchen organizer"],
+      only_candidate: ["air fryer"],
+      deltas: [],
+      verdict: "Ningún candidato en común",
+      ...over,
+    },
+  } as unknown as Parameters<typeof comparisonView>[0];
+}
+
+test("el informe traduce los proveedores y sus recuentos", () => {
+  const view = comparisonView(comparison());
+
+  assert.equal(view.baselineLabel, "Fixtures");
+  assert.equal(view.candidateLabel, "Wikipedia (visitas/mes)");
+  assert.equal(view.verdict, "Ningún candidato en común");
+  assert.equal(view.shared, 0);
+});
+
+test("una cobertura ausente se enseña como cero candidatos, no como un hueco", () => {
+  const view = comparisonView(comparison());
+
+  const competition = view.rows.find((row) => row.label === "Con competencia");
+  assert.equal(competition?.baseline, "4");
+  assert.equal(competition?.candidate, "0");
+});
+
+test("sin confianza no se inventa un cero", () => {
+  const view = comparisonView(
+    comparison({
+      candidate: {
+        provider: "wikimedia-pageviews",
+        candidates: 0,
+        coverage: {},
+        scorable: 0,
+        mean_confidence: null,
+        measured_signals: 0,
+        simulated_signals: 0,
+      },
+    }),
+  );
+
+  assert.equal(view.rows.find((row) => row.label === "Confianza media")?.candidate, "—");
 });

@@ -1,4 +1,4 @@
-import type { Product, ResearchCandidate } from "./api.ts";
+import type { ComparisonProviderSummary, Product, ResearchCandidate, ResearchComparison } from "./api.ts";
 import {
   DEMO_INSIGHTS,
   DEMO_SUBCATEGORY,
@@ -181,4 +181,126 @@ export function signalsMode(rows: ResearchRow[]): { label: string; status: "veri
     return { label: "Mixto (parte medido, parte relleno)", status: "mixed" };
   }
   return { label: "Real (señales medidas)", status: "verified" };
+}
+
+// --- La evidencia real en el gráfico (Milestone 35) ------------------------
+
+export interface InterestSeries {
+  key: string;
+  label: string;
+  color: string;
+  points: { x: number; y: number }[];
+}
+
+export interface InterestChart {
+  series: InterestSeries[];
+  /** `real` cuando las series vienen de observaciones medidas; `demo` cuando
+   * las rellena esta pantalla. Nunca se mezclan en el mismo gráfico: un
+   * gráfico mitad medido y mitad inventado no se puede leer. */
+  provenance: "real" | "demo";
+  caption: string;
+}
+
+/** Suma por periodo las observaciones reales de todas las señales de demanda.
+ *
+ * Devuelve `null` cuando no hay ninguna: eso no es un cero, es que nadie ha
+ * medido todavía, y el gráfico enseñará entonces su serie de demostración
+ * diciendo que lo es. */
+export function realInterestSeries(candidates: ResearchCandidate[], months: number): InterestSeries[] | null {
+  const byProvider = new Map<string, Map<string, number>>();
+  for (const candidate of candidates) {
+    for (const signal of candidate.data.signals ?? []) {
+      if (signal.simulated || !signal.observations?.length || signal.kind !== "demand") continue;
+      const periods = byProvider.get(signal.provider) ?? new Map<string, number>();
+      for (const observation of signal.observations) {
+        periods.set(observation.period, (periods.get(observation.period) ?? 0) + observation.value);
+      }
+      byProvider.set(signal.provider, periods);
+    }
+  }
+  if (byProvider.size === 0) return null;
+
+  const colors = ["var(--emerald)", "#5aa9e6", "#b57bff", "#f8925c"];
+  return [...byProvider.entries()].map(([provider, periods], index) => {
+    const ordered = [...periods.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-months);
+    return {
+      key: provider,
+      label: PROVIDER_LABEL[provider] ?? provider,
+      color: colors[index % colors.length],
+      points: ordered.map(([, value], x) => ({ x, y: value })),
+    };
+  });
+}
+
+export const PROVIDER_LABEL: Record<string, string> = {
+  "wikimedia-pageviews": "Wikipedia (visitas/mes)",
+  fixtures: "Fixtures",
+};
+
+/** Qué serie enseña el gráfico de interés, y de dónde sale. */
+export function interestChart(
+  candidates: ResearchCandidate[],
+  demo: { key: string; label: string; color: string; series: number[] }[],
+  months: number,
+): InterestChart {
+  const real = realInterestSeries(candidates, months);
+  if (real) {
+    return {
+      series: real,
+      provenance: "real",
+      caption:
+        "Visitas mensuales medidas. Es un proxy de interés: no son ventas ni intención de compra.",
+    };
+  }
+  return {
+    series: demo.map((source) => ({
+      key: source.key,
+      label: source.label,
+      color: source.color,
+      points: source.series.slice(-months).map((y, x) => ({ x, y })),
+    })),
+    provenance: "demo",
+    caption: "Datos de demostración: todavía no hay observaciones medidas para estos candidatos.",
+  };
+}
+
+/** Lo que hay que enseñar de una comparación entre proveedores (Milestone 35). */
+export interface ComparisonView {
+  verdict: string;
+  baselineLabel: string;
+  candidateLabel: string;
+  rows: { label: string; baseline: string; candidate: string }[];
+  shared: number;
+}
+
+export function comparisonView(comparison: ResearchComparison): ComparisonView {
+  const { baseline, candidate } = comparison.summary;
+  const coverage = (summary: ComparisonProviderSummary, kind: string) =>
+    String(summary.coverage[kind] ?? 0);
+  return {
+    verdict: comparison.summary.verdict,
+    baselineLabel: PROVIDER_LABEL[baseline.provider] ?? baseline.provider,
+    candidateLabel: PROVIDER_LABEL[candidate.provider] ?? candidate.provider,
+    shared: comparison.summary.shared.length,
+    rows: [
+      { label: "Candidatos", baseline: String(baseline.candidates), candidate: String(candidate.candidates) },
+      { label: "Con demanda", baseline: coverage(baseline, "demand"), candidate: coverage(candidate, "demand") },
+      {
+        label: "Con competencia",
+        baseline: coverage(baseline, "competition"),
+        candidate: coverage(candidate, "competition"),
+      },
+      { label: "Puntuables", baseline: String(baseline.scorable), candidate: String(candidate.scorable) },
+      {
+        label: "Confianza media",
+        baseline: baseline.mean_confidence === null ? "—" : baseline.mean_confidence.toFixed(2),
+        candidate: candidate.mean_confidence === null ? "—" : candidate.mean_confidence.toFixed(2),
+      },
+      {
+        label: "Señales medidas",
+        baseline: String(baseline.measured_signals),
+        candidate: String(candidate.measured_signals),
+      },
+    ],
+  };
 }

@@ -25,17 +25,20 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Tag,
+  Scale,
   Target,
   Trash2,
   TrendingUp,
   Truck,
 } from "lucide-react";
-import { ApiError, api, type Product, type ResearchCandidate } from "@/lib/api";
+import { ApiError, api, type Product, type ResearchCandidate, type ResearchComparison } from "@/lib/api";
 import { DEMO_FILTERS, DEMO_INTEREST_BY_SOURCE } from "@/lib/demo/research";
 import {
   CATEGORY_LABEL,
   RADAR_KEYS,
   buildRows,
+  comparisonView,
+  interestChart,
   radarAverage,
   signalsMode,
   topInsight,
@@ -276,10 +279,14 @@ function OpportunityCard({
 export function ResearchWorkspace({
   products,
   candidates,
+  comparisons,
   runIds,
 }: {
   products: Product[];
   candidates: ResearchCandidate[];
+  /** Informes de «qué dice cada proveedor» (Milestone 35). Vacío si no hay
+   * ninguno: no se estima uno. */
+  comparisons: ResearchComparison[];
   runIds: string[];
 }) {
   const router = useRouter();
@@ -310,6 +317,8 @@ export function ResearchWorkspace({
   const hasDemoSignals = rows.some((r) => r.isDemo);
   // De qué están hechas las señales que se están enseñando (Milestone 34).
   const mode = signalsMode(rows);
+  // Y el último informe de contraste contra el mock (Milestone 35).
+  const comparison = comparisons.length > 0 ? comparisonView(comparisons[0]) : null;
 
   // Tendencia e interés según el periodo elegido.
   const windowed = (series: number[]) => series.slice(-months);
@@ -318,6 +327,9 @@ export function ResearchWorkspace({
     return Math.round((w[w.length - 1] / w[0] - 1) * 100);
   };
   const monthLabels = MONTHS.slice(-months);
+  // Serie medida si la hay; si no, la de demostración, diciendo cuál es cuál
+  // (Milestone 35). Nunca las dos en el mismo gráfico.
+  const chart = interestChart(candidates, DEMO_INTEREST_BY_SOURCE, months);
 
   async function analyzeMarket() {
     setError(null);
@@ -701,18 +713,18 @@ export function ResearchWorkspace({
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="size-5 text-primary" /> Tendencia de interés por fuente
+                  <DataProvenanceBadge
+                    status={chart.provenance === "real" ? "verified" : "demo"}
+                    compact
+                    tooltip={chart.caption}
+                  />
                 </CardTitle>
-                <CardDescription>Interés relativo en los últimos {months} meses.</CardDescription>
+                <CardDescription>{chart.caption}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <LineChart
                   ariaLabel="Interés relativo por fuente"
-                  series={DEMO_INTEREST_BY_SOURCE.map((s) => ({
-                    key: s.key,
-                    label: s.label,
-                    color: s.color,
-                    points: windowed(s.series).map((y, x) => ({ x, y })),
-                  }))}
+                  series={chart.series}
                   formatY={(v) => String(Math.round(v))}
                   formatX={(x) => monthLabels[x] ?? ""}
                   hoverTitle={(x) => monthLabels[x] ?? ""}
@@ -729,6 +741,42 @@ export function ResearchWorkspace({
                 ) : null}
               </CardContent>
             </Card>
+
+            {comparison ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Scale className="size-5 text-primary" /> Qué dice cada proveedor
+                  </CardTitle>
+                  <CardDescription>{comparison.verdict}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-muted-foreground">
+                        <th className="pb-2 font-medium"> </th>
+                        <th className="pb-2 font-medium">{comparison.baselineLabel}</th>
+                        <th className="pb-2 font-medium">{comparison.candidateLabel}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparison.rows.map((row) => (
+                        <tr key={row.label} className="border-t">
+                          <td className="py-1.5 text-muted-foreground">{row.label}</td>
+                          <td className="py-1.5 tabular-nums">{row.baseline}</td>
+                          <td className="py-1.5 tabular-nums">{row.candidate}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="mt-3 text-[11px] text-muted-foreground">
+                    {comparison.shared === 0
+                      ? "Sin candidatos en común no se pueden restar cifras: lo comparable es qué sabe medir cada uno."
+                      : `${comparison.shared} candidato(s) en común.`}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : null}
           </div>
         </div>
       )}

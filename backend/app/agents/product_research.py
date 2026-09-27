@@ -157,6 +157,11 @@ class ProductResearchAgent(Agent):
                     "method": signal.method,
                     "raw_reference": signal.raw_reference,
                     "simulated": signal.simulated,
+                    # La evidencia mensual, cuando la fuente la da (M35).
+                    "observations": [
+                        {"period": observation.period, "value": observation.value}
+                        for observation in signal.observations
+                    ],
                 }
                 for signal in candidate.signals
             ],

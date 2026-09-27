@@ -279,13 +279,65 @@ export interface ResearchCandidate {
      * Ausente en análisis guardados antes del Milestone 34, que eran fixtures. */
     provenance?: "real" | "mixed" | "simulated" | "unknown";
     market?: string;
+    /** Las señales con su procedencia, y la evidencia mensual de cada una
+     * cuando la fuente la da (Milestone 35). */
+    signals?: ResearchSignal[];
     [key: string]: unknown;
   };
+}
+
+export interface ResearchSignal {
+  kind: string;
+  value: number;
+  confidence: number;
+  provider: string;
+  source: string;
+  query: string;
+  market: string;
+  observed_at: string;
+  method: string;
+  raw_reference: string | null;
+  simulated: boolean;
+  /** Las medidas que componen el valor. Vacío no es cero: es que esta señal no
+   * viene de una serie. */
+  observations?: { period: string; value: number }[];
 }
 
 export interface ResearchRun {
   correlation_id: string;
   candidates: ResearchCandidate[];
+}
+
+/** Qué dice cada proveedor sobre la misma pregunta (Milestone 35). */
+export interface ResearchComparison {
+  id: string;
+  category: string;
+  market: string;
+  baseline_provider: string;
+  candidate_provider: string;
+  summary: {
+    category: string;
+    market: string;
+    baseline: ComparisonProviderSummary;
+    candidate: ComparisonProviderSummary;
+    shared: string[];
+    only_baseline: string[];
+    only_candidate: string[];
+    deltas: { candidate: string; kind: string; baseline_value: number; candidate_value: number; difference: number }[];
+    verdict: string;
+  };
+  correlation_id: string;
+  created_at: string;
+}
+
+export interface ComparisonProviderSummary {
+  provider: string;
+  candidates: number;
+  coverage: Record<string, number>;
+  scorable: number;
+  mean_confidence: number | null;
+  measured_signals: number;
+  simulated_signals: number;
 }
 
 export interface SupplierQuote {
@@ -753,6 +805,7 @@ export const api = {
     certification_available?: boolean;
     max_results?: number;
   }) => request<PipelineRun>("/api/pipeline/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listResearchComparisons: () => request<ResearchComparison[]>("/api/research/comparisons"),
   listPipelineRuns: () => request<PipelineRun[]>("/api/pipeline/runs"),
   listPipelineReviews: () => request<PipelineReview[]>("/api/pipeline/reviews"),
   approvePipelineReview: (reviewId: string, actor: string) =>

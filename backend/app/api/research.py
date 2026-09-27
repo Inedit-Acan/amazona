@@ -1,5 +1,7 @@
+import datetime
+
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
@@ -8,8 +10,10 @@ from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.product import Product as ProductModel
 from app.db.models.product_analysis import ProductAnalysis as ProductAnalysisModel
+from app.db.models.research_comparison import ResearchComparison as ResearchComparisonModel
 from app.db.session import get_db
 from app.permissions.policies import ApiAction
+from app.research.comparison_service import ResearchComparisonService
 from app.research.service import ResearchService
 
 router = APIRouter(prefix="/api/research", tags=["research"])
@@ -33,6 +37,28 @@ class ResearchCandidateOut(BaseModel):
 class ResearchRunOut(BaseModel):
     correlation_id: str
     candidates: list[ResearchCandidateOut]
+
+
+class ComparisonCreate(BaseModel):
+    category: str
+    market: str = "us"
+    keywords: list[str] = Field(default_factory=list)
+    max_results: int = Field(default=5, ge=1, le=20)
+
+
+class ComparisonOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    category: str
+    market: str
+    baseline_provider: str
+    candidate_provider: str
+    #: El informe entero: recuentos, solapamiento, cobertura por tipo de señal,
+    #: confianza, disponibilidad de score y el veredicto en una línea.
+    summary: dict
+    correlation_id: str
+    created_at: datetime.datetime
 
 
 def _load_run(correlation_id: str, db: Session) -> ResearchRunOut:
@@ -86,3 +112,46 @@ def create_research_run(
 @router.get("/runs/{correlation_id}", response_model=ResearchRunOut)
 def get_research_run(correlation_id: str, db: Session = Depends(get_db)) -> ResearchRunOut:
     return _load_run(correlation_id, db)
+
+
+@router.post("/comparisons", response_model=ComparisonOut, status_code=201)
+def create_research_comparison(
+    payload: ComparisonCreate,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+) -> ResearchComparisonModel:
+    """Contrasta lo que mide la fuente real con lo que se inventa el mock
+    (Milestone 35).
+
+    Ejecuta los dos proveedores para la misma pregunta y guarda qué produjo cada
+    uno. **Se niega en `staging` y `production`**: comparar exige ejecutar el
+    mock, y ahí los datos simulados no se admiten (ADR 0008). Hacer una
+    excepción «solo para un informe» sería vaciar la regla.
+    """
+    return ResearchComparisonService(db).run(
+        category=payload.category,
+        market=payload.market,
+        keywords=payload.keywords,
+        max_results=payload.max_results,
+        actor=identity.audit_name,
+    )
+
+
+@router.get("/comparisons", response_model=list[ComparisonOut])
+def list_research_comparisons(db: Session = Depends(get_db)) -> list[ResearchComparisonModel]:
+    return (
+        db.query(ResearchComparisonModel)
+        .order_by(ResearchComparisonModel.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
+
+@router.get("/comparisons/{comparison_id}", response_model=ComparisonOut)
+def get_research_comparison(
+    comparison_id: str, db: Session = Depends(get_db)
+) -> ResearchComparisonModel:
+    comparison = db.get(ResearchComparisonModel, comparison_id)
+    if comparison is None:
+        raise NotFoundError(f"research comparison {comparison_id} not found")
+    return comparison

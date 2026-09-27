@@ -26,7 +26,13 @@ from urllib.parse import quote
 
 import httpx
 
-from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalKind
+from app.integrations.ports import (
+    CandidateSignals,
+    Observation,
+    ProductSignalProvider,
+    Signal,
+    SignalKind,
+)
 from app.integrations.product_intelligence.terms import terms_for
 
 logger = logging.getLogger(__name__)
@@ -77,6 +83,12 @@ _OUTLOOK_METHOD = (
     "ratio of the last 3 months of Wikipedia pageviews against the 3 before them, "
     "clamped to 0-1 around parity. PROXY FOR TRAJECTORY of public interest — not a sales forecast."
 )
+
+
+def _period_of(timestamp: str) -> str:
+    """`2026080100` → `2026-08`. La etiqueta del mes tal y como la fuente lo
+    expresa, sin convertir a nada."""
+    return f"{timestamp[:4]}-{timestamp[4:6]}"
 
 
 def _month_range(months: int, today: datetime.date) -> tuple[str, str]:
@@ -190,7 +202,7 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
 
     def _series_for(
         self, client: httpx.Client, project: str, term: str, start: str, end: str
-    ) -> tuple[list[int] | None, str]:
+    ) -> tuple[list[tuple[str, int]] | None, str]:
         """La serie mensual de un término, o `None` si no se pudo saber.
 
         Todos los caminos de fallo acaban igual a propósito: sin dato. Un
@@ -218,7 +230,9 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
 
         try:
             items = response.json()["items"]
-            series = [int(item["views"]) for item in items]
+            # Mes y visitas, no solo visitas: la serie es la evidencia de la
+            # señal y se persiste con ella (Milestone 35).
+            series = [(_period_of(item["timestamp"]), int(item["views"])) for item in items]
         except (ValueError, KeyError, TypeError) as exc:
             logger.warning("wikimedia answered an unexpected body for %r: %s", term, exc)
             return None, url
@@ -228,12 +242,14 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
     def _signals_for(
         self,
         term: str,
-        series: list[int],
+        series: list[tuple[str, int]],
         market: str,
         url: str,
         observed_at: datetime.datetime,
     ) -> list[Signal]:
-        total = sum(series)
+        views = [value for _period, value in series]
+        observations = [Observation(period=period, value=float(value)) for period, value in series]
+        total = sum(views)
         if total <= 0:
             # Medido y vacío. Se distingue de «no medido» en el log, pero
             # tampoco se convierte en una señal: un cero aquí diría más de lo
@@ -254,10 +270,11 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
                 method=_DEMAND_METHOD.format(months=self._months),
                 raw_reference=url,
                 simulated=False,
+                observations=observations,
             )
         ]
 
-        outlook = outlook_from(series)
+        outlook = outlook_from(views)
         if outlook is not None:
             signals.append(
                 Signal(
@@ -272,6 +289,7 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
                     method=_OUTLOOK_METHOD,
                     raw_reference=url,
                     simulated=False,
+                    observations=observations,
                 )
             )
         return signals

@@ -63,6 +63,10 @@ BUSINESS_ROUTES = [
     "/api/pipeline/reviews",
     "/api/pipeline/runs",
     "/api/pipeline/runs/cid-1",
+    # Los informes de comparación son datos de negocio: qué sabe medir cada
+    # proveedor (Milestone 35).
+    "/api/research/comparisons",
+    "/api/research/comparisons/cmp-1",
     "/api/products",
     "/api/products/p-1/campaigns",
     "/api/products/p-1/economics",
@@ -233,6 +237,8 @@ def test_the_inventory_covers_every_read_route():
         "/api/products/{product_id}/suppliers",
         "/api/projects",
         "/api/projects/{project_id}",
+        "/api/research/comparisons",
+        "/api/research/comparisons/{comparison_id}",
         "/api/research/runs/{correlation_id}",
         "/api/sourcing/runs/{correlation_id}",
         "/api/tasks",

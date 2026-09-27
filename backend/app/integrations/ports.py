@@ -70,6 +70,22 @@ class SignalKind(StrEnum):
 
 
 @dataclass(frozen=True)
+class Observation:
+    """Una medida suelta de las que componen una señal (Milestone 35).
+
+    La señal dice «0,7483 de demanda»; las observaciones dicen de qué está hecho
+    ese 0,7483: 41.000 visitas en marzo, 38.000 en abril… Es la evidencia, y sin
+    ella el número solo se puede creer o no creer.
+
+    `period` es una etiqueta legible del tramo medido (`2026-08` para un mes).
+    No se interpreta ni se convierte: se guarda como la fuente lo expresa.
+    """
+
+    period: str
+    value: float
+
+
+@dataclass(frozen=True)
 class Signal:
     """Una medición, con todo lo que hace falta para saber de dónde salió.
 
@@ -103,6 +119,9 @@ class Signal:
     raw_reference: str | None = None
     #: True si es dato de relleno. Nunca se deduce del proveedor por su nombre.
     simulated: bool = False
+    #: Las medidas que componen el valor, si la fuente las da. Vacío no significa
+    #: cero: significa que esta señal no viene de una serie (Milestone 35).
+    observations: list[Observation] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

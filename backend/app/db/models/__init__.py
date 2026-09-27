@@ -23,7 +23,9 @@ from app.db.models.policy import Policy
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.product_signal import ProductSignal
+from app.db.models.product_signal_observation import ProductSignalObservation
 from app.db.models.project import Project
+from app.db.models.research_comparison import ResearchComparison
 from app.db.models.role import Role
 from app.db.models.storefront import Storefront
 from app.db.models.supplier import Supplier
@@ -64,7 +66,9 @@ __all__ = [
     "Product",
     "ProductAnalysis",
     "ProductSignal",
+    "ProductSignalObservation",
     "Project",
+    "ResearchComparison",
     "Role",
     "Storefront",
     "Supplier",

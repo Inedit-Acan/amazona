@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type Product, type ResearchCandidate } from "@/lib/api";
+import { type Product, type ResearchCandidate, type ResearchComparison } from "@/lib/api";
 import { ApiErrorAlert } from "@/components/api-error";
 import { PageHeader } from "@/components/page-header";
 import { RESEARCH_DESCRIPTION, RESEARCH_TITLE } from "./copy";
@@ -17,14 +17,19 @@ export default async function ResearchPage({ searchParams }: PageProps<"/researc
 
   let products: Product[] = [];
   let candidates: ResearchCandidate[] = [];
+  // Informes de «qué dice cada proveedor» (Milestone 35). Si falla, no se
+  // enseña ninguno: es un informe, no un dato que se pueda estimar.
+  let comparisons: ResearchComparison[] = [];
   let error: string | null = null;
   try {
-    const [list, runs] = await Promise.all([
+    const [list, runs, reports] = await Promise.all([
       api.listProducts(),
       Promise.all(runIds.map((id) => api.getResearchRun(id).catch(() => null))),
+      api.listResearchComparisons().catch((): ResearchComparison[] => []),
     ]);
     products = list;
     candidates = runs.flatMap((run) => run?.candidates ?? []);
+    comparisons = reports;
   } catch (err) {
     error = err instanceof Error ? err.message : "Error desconocido";
   }
@@ -38,5 +43,13 @@ export default async function ResearchPage({ searchParams }: PageProps<"/researc
     );
   }
 
-  return <ResearchWorkspace key={runIds.join(",")} products={products} candidates={candidates} runIds={runIds} />;
+  return (
+    <ResearchWorkspace
+      key={runIds.join(",")}
+      products={products}
+      candidates={candidates}
+      comparisons={comparisons}
+      runIds={runIds}
+    />
+  );
 }

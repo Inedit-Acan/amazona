@@ -239,6 +239,7 @@ separados, colas) — no se usa activamente hoy.
 | [0010](adr-0010-async-resumable-pipeline.md) | El pipeline se ejecuta en un trabajo por ejecución, con los pasos como filas y reanudación por el paso que falló |
 | [0011](adr-0011-action-gate.md) | El `ActionGate` separa analizar de actuar: los vetos ganan, ninguna firma los levanta, y esperar a una persona es un estado del trabajo |
 | [0012](adr-0012-product-intelligence-adapters.md) | El contrato son señales con procedencia; primer adaptador real (proxy declarado), y ante un fallo ausencia en vez de cero |
+| [0013](adr-0013-signal-evidence-and-comparison.md) | La evidencia de cada señal se persiste en filas; comparar es contrastar qué sabe cada proveedor, no restar cifras que no hablan de lo mismo |
 
 ## 9. Índice de milestones
 
@@ -267,6 +268,7 @@ separados, colas) — no se usa activamente hoy.
 | [32](../milestones/milestone-32-demo.md) | El pipeline se ejecuta en ese runtime, con los pasos persistidos y reanudables (§14) |
 | [33](../milestones/milestone-33-demo.md) | `ActionGate`: publicar, anunciar y gastar dejan de ocurrir solos (§15) |
 | [34](../milestones/milestone-34-demo.md) | Señales con procedencia y el primer adaptador real de Product Intelligence (§16) |
+| [35](../milestones/milestone-35-demo.md) | La evidencia mensual detrás de cada señal y el informe de contraste contra el mock (§16.5) |
 
 ## 10. Cómo verlo funcionar
 
@@ -651,8 +653,34 @@ Cuatro límites conocidos, escritos para que no se descubran por sorpresa:
 Ninguno se tapa con datos inventados: una señal que falta se queda ausente, y el
 `opportunity_score` no se toca fuera del milestone que le corresponda (§9).
 
+### 16.5 La evidencia y el contraste (Milestone 35)
+
+Cada señal guarda **las medidas que la componen** (`product_signal_observations`):
+doce meses de visitas detrás de un 0,7483, con el valor crudo de la fuente. En
+filas porque es consultable; la normalización vive en la señal.
+
+`POST /api/research/comparisons` contrasta los dos proveedores para la misma
+pregunta y guarda el informe (`research_comparisons`). **No se puede ejecutar
+donde los datos simulados están prohibidos**: comparar exige correr el mock.
+
+Lo que el informe dice hoy, medido y no supuesto:
+
+| | Fixtures | Wikimedia |
+|---|---|---|
+| Candidatos | 3 | 4 |
+| Con competencia | 3 | **0** |
+| Puntuables | 3 | **0** |
+| Confianza media | 0,30 | **0,71** |
+
+Lo medido es más fiable y no alcanza para puntuar. Y **no hay ningún candidato
+en común**: los nombres del mock no existen fuera de la demo, así que restar sus
+cifras no significaría nada — lo comparable es qué sabe medir cada uno.
+
 El razonamiento completo está en la
-[ADR 0012](adr-0012-product-intelligence-adapters.md).
+[ADR 0012](adr-0012-product-intelligence-adapters.md) y en la
+[ADR 0013](adr-0013-signal-evidence-and-comparison.md); las fuentes candidatas
+para cerrar el hueco, con sus costes, en
+[fuentes comerciales](../design/fuentes-comerciales-product-intelligence.md).
 
 ## 17. Pendientes de integración
 

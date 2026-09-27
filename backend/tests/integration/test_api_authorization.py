@@ -39,6 +39,8 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     ("POST", "/api/approvals/ap-1/approve", {"actor": "x"}, ApiAction.APPROVAL_RESOLVE),
     ("POST", "/api/approvals/ap-1/reject", {"actor": "x"}, ApiAction.APPROVAL_RESOLVE),
     ("POST", "/api/research/runs", {"category": "c", "keywords": [], "max_results": 1}, ApiAction.AGENT_RUN),
+    # Comparar ejecuta los dos proveedores: es correr agentes (Milestone 35).
+    ("POST", "/api/research/comparisons", {"category": "c"}, ApiAction.AGENT_RUN),
     ("POST", "/api/sourcing/runs", {}, ApiAction.AGENT_RUN),
     ("POST", "/api/economics/runs", {}, ApiAction.AGENT_RUN),
     ("POST", "/api/legal/runs", {}, ApiAction.AGENT_RUN),
@@ -190,6 +192,7 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/approvals/{approval_id}/approve"),
         ("POST", "/api/approvals/{approval_id}/reject"),
         ("POST", "/api/research/runs"),
+        ("POST", "/api/research/comparisons"),
         ("POST", "/api/sourcing/runs"),
         ("POST", "/api/economics/runs"),
         ("POST", "/api/legal/runs"),

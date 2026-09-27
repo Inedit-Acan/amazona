@@ -42,6 +42,7 @@ from app.core.logging import configure_logging, set_correlation_id
 from app.db.session import get_db
 from app.integrations.registry import ProviderRegistry, validate_providers
 from app.permissions.policies import ApiAction
+from app.research.comparison_service import ComparisonNotAllowedError
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -78,6 +79,15 @@ async def approval_not_pending_handler(request: Request, exc: ApprovalNotPending
 async def pipeline_review_not_pending_handler(
     request: Request, exc: PipelineReviewNotPendingError
 ) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(ComparisonNotAllowedError)
+async def comparison_not_allowed_handler(
+    request: Request, exc: ComparisonNotAllowedError
+) -> JSONResponse:
+    # 409: no es que falte permiso, es que en este entorno esa operación no
+    # tiene sentido — exigiría ejecutar datos simulados (ADR 0008).
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 

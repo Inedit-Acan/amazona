@@ -7,6 +7,7 @@ from app.db.models.audit import AuditLog
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.product_signal import ProductSignal
+from app.db.models.product_signal_observation import ProductSignalObservation
 
 RESEARCH_AGENT_ACTOR = "agent-product-research-1"
 
@@ -76,23 +77,34 @@ class ResearchService:
             # Cada número, con de dónde salió (Milestone 34, plan maestro §8).
             # Sin esto, un valor medido y uno inventado son la misma fila.
             for signal in candidate.get("signals", []):
-                self._db.add(
-                    ProductSignal(
-                        product_id=product.id,
-                        kind=signal["kind"],
-                        value=signal["value"],
-                        confidence=signal["confidence"],
-                        provider=signal["provider"],
-                        source=signal["source"],
-                        query=signal["query"],
-                        market=signal["market"],
-                        observed_at=_parse_observed_at(signal.get("observed_at")),
-                        method=signal["method"],
-                        raw_reference=signal.get("raw_reference"),
-                        simulated=bool(signal["simulated"]),
-                        correlation_id=correlation_id,
-                    )
+                row = ProductSignal(
+                    product_id=product.id,
+                    kind=signal["kind"],
+                    value=signal["value"],
+                    confidence=signal["confidence"],
+                    provider=signal["provider"],
+                    source=signal["source"],
+                    query=signal["query"],
+                    market=signal["market"],
+                    observed_at=_parse_observed_at(signal.get("observed_at")),
+                    method=signal["method"],
+                    raw_reference=signal.get("raw_reference"),
+                    simulated=bool(signal["simulated"]),
+                    correlation_id=correlation_id,
                 )
+                self._db.add(row)
+                self._db.flush()
+                # La evidencia detrás del número, si la fuente la dio
+                # (Milestone 35). Una señal sin observaciones no es una señal
+                # con cero: es una que no se midió así.
+                for observation in signal.get("observations") or []:
+                    self._db.add(
+                        ProductSignalObservation(
+                            signal_id=row.id,
+                            period=observation["period"],
+                            value=observation["value"],
+                        )
+                    )
             products.append(product)
 
         self._db.add(

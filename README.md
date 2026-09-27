@@ -129,6 +129,9 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
 - **Milestone 34:** señales con procedencia y el primer adaptador real
   ([ADR 0012](docs/architecture/adr-0012-product-intelligence-adapters.md)) —
   ver abajo.
+- **Milestone 35:** la evidencia detrás de cada señal, y qué dice cada proveedor
+  ([ADR 0013](docs/architecture/adr-0013-signal-evidence-and-comparison.md)) —
+  ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -341,6 +344,25 @@ Los términos que se preguntan están versionados en
 un mecanismo de descubrimiento**: una lista escrita a mano solo mide lo que
 alguien ya pensó. El razonamiento completo, en la
 [ADR 0012](docs/architecture/adr-0012-product-intelligence-adapters.md).
+
+Desde el Milestone 35, cada señal guarda además **las medidas que la componen**
+—doce meses de visitas detrás de un 0,7483— con el valor crudo de la fuente, y
+hay un informe que contrasta lo real con el mock:
+
+```bash
+curl -X POST localhost:8000/api/research/comparisons \
+  -H 'Content-Type: application/json' -d '{"category":"home","market":"us"}'
+```
+
+Lo que ese informe dice hoy, medido: el mock puntúa el 100 % de sus candidatos
+con confianza 0,30 y la fuente real el 0 % con confianza 0,71 — **no hay señal
+de competencia**, así que no hay score. Y **ningún candidato en común**: los
+nombres del mock no existen fuera de la demo. Por eso hace falta una segunda
+fuente real y, antes, resolver la identificación de entidades
+([candidatas y costes](docs/design/fuentes-comerciales-product-intelligence.md)).
+
+La comparación **no se puede ejecutar en `staging` ni `production`**: exige
+correr el mock, y ahí los datos simulados no se admiten.
 
 ## Notas
 
