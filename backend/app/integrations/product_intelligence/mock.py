@@ -62,8 +62,21 @@ class MockProductSignalProvider(ProductSignalProvider):
         return frozenset(SignalKind)
 
     def discover(
-        self, *, category: str, keywords: list[str], market: str, max_results: int
+        self,
+        *,
+        category: str,
+        keywords: list[str],
+        market: str,
+        max_results: int,
+        channels: list[str] | None = None,
     ) -> list[CandidateSignals]:
+        """Los fixtures no miden en ningún canal, así que `channels` se ignora y
+        sus señales salen **sin canal** (Milestone 38).
+
+        No es descuido: un fixture que se atribuyera un canal estaría afirmando
+        haber medido allí. Y como una señal ligada a canal sin canal solo sirve
+        para una decisión sin canal, el relleno no puede colarse en una decisión
+        sobre Amazon — que es justo lo que había que impedir."""
         raw = self._directory.get_candidates(
             category=category, keywords=keywords, max_results=max_results
         )

@@ -40,7 +40,7 @@ class _OneNamed(ProductSignalProvider):
     def supports(self) -> frozenset[SignalKind]:
         return frozenset({SignalKind.DEMAND})
 
-    def discover(self, *, category, keywords, market, max_results):
+    def discover(self, *, category, keywords, market, max_results, channels=None):
         return [
             CandidateSignals(
                 name=self._name,

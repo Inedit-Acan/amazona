@@ -55,6 +55,9 @@ logger = logging.getLogger(__name__)
 PROVIDER_NAME = "ebay-browse"
 SOURCE = "api.ebay.com/buy/browse/v1/item_summary/search"
 
+#: El canal que mide este adaptador, declarado en `channels.py` (Milestone 38).
+CHANNEL = "marketplace:ebay"
+
 #: Producción y pruebas. El mismo adaptador sirve para los dos: lo único que
 #: cambia es el host, que es justo lo que hace que `ProviderKind.SANDBOX` valga
 #: para algo (Milestone 37).
@@ -175,8 +178,21 @@ class EbayBrowseProvider(ProductSignalProvider):
         self._token: str | None = None
 
     def discover(
-        self, *, category: str, keywords: list[str], market: str, max_results: int
+        self,
+        *,
+        category: str,
+        keywords: list[str],
+        market: str,
+        max_results: int,
+        channels: list[str] | None = None,
     ) -> list[CandidateSignals]:
+        # Este adaptador mide un canal y solo uno. Si se investiga para otros,
+        # calla: responder de eBay cuando se pregunta por una web propia sería
+        # dejar que quien lea lo confunda (Milestone 38).
+        if channels is not None and CHANNEL not in channels:
+            logger.info("ebay was not asked about %s; channels requested: %s", CHANNEL, channels)
+            return []
+
         marketplace = MARKETPLACE_FOR_MARKET.get(market)
         if marketplace is None:
             # Preguntar por el mercado de al lado mediría otra cosa y lo
@@ -310,6 +326,9 @@ class EbayBrowseProvider(ProductSignalProvider):
             method=_COMPETITION_METHOD.format(marketplace=marketplace),
             raw_reference=url,
             basis=SignalBasis.MEASURED,
+            # Competencia **de este canal**. Sin esto, el número podría leerse
+            # como competencia de una web propia, que es otra magnitud.
+            channel=CHANNEL,
             # Un recuento no es una serie. Vacío no significa cero observaciones:
             # significa que esta señal no se mide así (Milestone 35).
             observations=[],

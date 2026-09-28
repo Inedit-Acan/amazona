@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
+from app.integrations.channels import channel_for
+
 
 class IntegrationDomain(StrEnum):
     """The external data domains the system depends on. One provider is active
@@ -103,7 +105,25 @@ class SignalKind(StrEnum):
     nombrados: antes vivían como claves sueltas de un diccionario del mock."""
 
     #: Cuánto interés hay. 0-1, más alto = más demanda.
+    #:
+    #: Es **interés**, y en su acepción más amplia: cuánta gente se ocupa de este
+    #: tipo de producto. No es intención de compra ni volumen de búsqueda
+    #: comercial: esos son `SEARCH_DEMAND` y `MARKETPLACE_DEMAND`, y se separaron
+    #: en el Milestone 38 precisamente para que no acabaran aquí dentro.
     DEMAND = "demand"
+    #: Cuánta gente **busca** esto, en una superficie de búsqueda. Mide intención:
+    #: quien busca «comprar freidora de aire» está más cerca de pagar que quien
+    #: consulta qué es una freidora de aire (plan maestro §8, «Search demand»).
+    #:
+    #: **Nadie la emite todavía**: no hay fuente gratuita fiable de volumen de
+    #: búsqueda comercial. Existe para que el día que la haya no aterrice en
+    #: `DEMAND` y contamine una medida de interés con una de intención.
+    SEARCH_DEMAND = "search_demand"
+    #: Cuánta demanda hay **dentro de un marketplace**: búsquedas, ventas o
+    #: rotación en ese canal (plan maestro §8, «Marketplace demand»).
+    #:
+    #: Tampoco la emite nadie todavía, por el mismo motivo: no hay fuente.
+    MARKETPLACE_DEMAND = "marketplace_demand"
     #: Cuánta competencia. 0-1, más alto = MÁS competencia (no se invierte aquí:
     #: el que la use decide si eso es bueno o malo).
     COMPETITION = "competition"
@@ -113,6 +133,22 @@ class SignalKind(StrEnum):
     REGULATORY_RISK = "regulatory_risk"
     #: Facilidad de escalar fabricación y logística. 0-1, más alto = más fácil.
     SCALABILITY = "scalability"
+
+
+#: Las señales que **no significan nada sin decir dónde se midieron** (Milestone
+#: 38, ADR 0016).
+#:
+#: «Cuánta competencia hay» es una pregunta incompleta: dentro de un marketplace
+#: es cuántos vendedores compiten por la misma búsqueda; para una web propia es
+#: cuánto cuesta el clic y cuánto cuesta posicionar. Son magnitudes distintas, y
+#: hasta el Milestone 38 compartían casilla sin etiqueta.
+#:
+#: Las demás —interés, trayectoria, riesgo regulatorio, escalabilidad— son
+#: propiedades del producto y no del sitio donde se vende, así que pueden no tener
+#: canal sin perder significado.
+CHANNEL_BOUND_KINDS: frozenset[SignalKind] = frozenset(
+    {SignalKind.COMPETITION, SignalKind.SEARCH_DEMAND, SignalKind.MARKETPLACE_DEMAND}
+)
 
 
 @dataclass(frozen=True)
@@ -169,6 +205,14 @@ class Signal:
     raw_reference: str | None = None
     #: Observado, modelado o inventado. Nunca se deduce del nombre del proveedor.
     basis: SignalBasis = SignalBasis.MEASURED
+    #: Dónde se midió (Milestone 38, ADR 0016). Una clave declarada en
+    #: `channels.py`: `own_web`, `marketplace:amazon`, `search:google`…
+    #:
+    #: `None` significa **agnóstica del canal**, no «válida para todos»: el
+    #: interés por un tipo de producto no depende de dónde se venda, y por eso
+    #: puede no tenerlo. Quien decida sobre un canal concreto **no puede** usar una
+    #: señal ligada a canal que no sea de ese canal.
+    channel: str | None = None
     #: Las medidas que componen el valor, si la fuente las da. Vacío no significa
     #: cero: significa que esta señal no viene de una serie (Milestone 35).
     observations: list[Observation] = field(default_factory=list)
@@ -188,6 +232,11 @@ class Signal:
                 f"a {self.basis} signal cannot declare confidence {self.confidence}: "
                 f"the ceiling for {self.basis} is {ceiling}"
             )
+        # Un canal sin declarar no se acepta: un typo se convertiría en un canal
+        # fantasma con sus propias señales, invisible para cualquier consulta que
+        # buscara el canal de verdad (Milestone 38).
+        if self.channel is not None:
+            channel_for(self.channel)
 
     @property
     def simulated(self) -> bool:
@@ -196,6 +245,23 @@ class Signal:
         dos fuentes de verdad para lo mismo era el problema que el Milestone 34
         vino a arreglar."""
         return self.basis is SignalBasis.SIMULATED
+
+
+@dataclass(frozen=True)
+class DeclaredAlias:
+    """Otro nombre de este candidato, **declarado por una fuente** (Milestone 38).
+
+    La ADR 0014 admite dos vías para la identidad: determinista o declarada. Hasta
+    aquí lo declarado era un catálogo escrito a mano; esto es lo mismo firmado por
+    otro: Wikimedia dice que «Freidora de aire» es el artículo español de «Air
+    fryer», y eso no lo deduce este código de que dos cadenas se parezcan.
+
+    `method` dice quién lo declaró (`langlinks:es.wikipedia`), porque una fusión sin
+    motivo escrito es indistinguible de un error.
+    """
+
+    name: str
+    method: str
 
 
 @dataclass(frozen=True)
@@ -208,6 +274,29 @@ class CandidateSignals:
     #: Por qué este candidato, en una frase. `None` cuando la fuente no da
     #: explicaciones — que es lo normal en una API de métricas.
     rationale: str | None = None
+    #: Nombres que una fuente declara equivalentes a este candidato. Vacío es lo
+    #: normal: la mayoría de las fuentes no dicen nada sobre cómo se llama esto en
+    #: otro idioma (Milestone 38).
+    declared_aliases: list[DeclaredAlias] = field(default_factory=list)
+
+    def usable_for_channel(self, signal: Signal, channel: str | None) -> bool:
+        """Si esta señal sirve para decidir sobre **ese** canal (Milestone 38).
+
+        La regla, y es estrecha a propósito:
+
+        - Una señal **no** ligada a canal —interés, trayectoria, riesgo,
+          escalabilidad— sirve siempre: mide una propiedad del producto, no del
+          sitio donde se vende.
+        - Una señal **ligada** a canal sirve solo si declara exactamente ese canal.
+          Una competencia medida en eBay no dice nada sobre una web propia.
+        - Y una señal ligada a canal **sin** canal declarado solo sirve para una
+          decisión igualmente sin canal. Es la diferencia entre «agnóstica» y
+          «válida para todos», que es la lectura que hay que impedir: si valiera
+          para todos, el relleno de un fixture decidiría sobre Amazon.
+        """
+        if signal.kind not in CHANNEL_BOUND_KINDS:
+            return True
+        return signal.channel == channel
 
     def signal(
         self, kind: SignalKind, *, only: Callable[[Signal], bool] | None = None
@@ -236,7 +325,12 @@ class ProductSignalProvider(Protocol):
 
     `supports()` existe para poder componer sin adivinar: un proveedor real que
     solo sabe de demanda lo dice, y quien compone sabe qué hueco queda por
-    rellenar en vez de descubrirlo por la ausencia de una clave."""
+    rellenar en vez de descubrirlo por la ausencia de una clave.
+
+    `channels` (Milestone 38) dice **para qué canales** se investiga. Un adaptador
+    que solo sabe de un canal calla cuando no se le pregunta por él, en vez de
+    responder de otro sitio y dejar que quien lea lo confunda. `None` significa
+    una investigación agnóstica del canal — el comportamiento de siempre."""
 
     #: Nombre estable del proveedor, el que se persiste en cada señal.
     name: str
@@ -244,7 +338,13 @@ class ProductSignalProvider(Protocol):
     def supports(self) -> frozenset[SignalKind]: ...
 
     def discover(
-        self, *, category: str, keywords: list[str], market: str, max_results: int
+        self,
+        *,
+        category: str,
+        keywords: list[str],
+        market: str,
+        max_results: int,
+        channels: list[str] | None = None,
     ) -> list[CandidateSignals]: ...
 
 

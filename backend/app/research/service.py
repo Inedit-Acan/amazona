@@ -128,6 +128,7 @@ class ResearchService:
                     method=signal["method"],
                     raw_reference=signal.get("raw_reference"),
                     basis=signal["basis"],
+                    channel=signal.get("channel"),
                     correlation_id=correlation_id,
                 )
                 self._db.add(row)
@@ -256,17 +257,60 @@ class ResearchService:
             self._db.add(product)
             self._db.flush()
 
+        # Lo que una fuente declara equivalente a este candidato (Milestone 38).
+        # Es la segunda vía de la ADR 0014 —identidad declarada— firmada por otro:
+        # Wikimedia dice que «Freidora de aire» es el artículo español de «Air
+        # fryer», y eso no lo deduce este código de que dos cadenas se parezcan.
+        for declared in candidate.get("declared_aliases") or []:
+            self._record_alias(
+                product,
+                alias=declared["name"],
+                identity_key=identity.key,
+                method=declared["method"],
+                correlation_id=correlation_id,
+            )
+
         if candidate["name"].strip() != product.name:
             # Llegó con otro nombre. Se anota con qué nombre llegó y por qué vía
             # se resolvió, porque una fusión sin motivo escrito es
             # indistinguible de un error.
-            self._db.add(
-                ProductIdentityAlias(
-                    product_id=product.id,
-                    alias=candidate["name"],
-                    identity_key=identity.key,
-                    method=identity.method,
-                    correlation_id=correlation_id,
-                )
+            self._record_alias(
+                product,
+                alias=candidate["name"],
+                identity_key=identity.key,
+                method=identity.method,
+                correlation_id=correlation_id,
             )
         return product, reused
+
+    def _record_alias(
+        self,
+        product: Product,
+        *,
+        alias: str,
+        identity_key: str,
+        method: str,
+        correlation_id: str,
+    ) -> None:
+        """Anota un nombre equivalente, una sola vez.
+
+        El mismo alias en tres ejecuciones es la misma respuesta a la misma
+        pregunta, y tres filas idénticas esconderían las que sí aportan algo."""
+        if alias.strip() == product.name:
+            return
+        already = (
+            self._db.query(ProductIdentityAlias)
+            .filter_by(product_id=product.id, alias=alias)
+            .first()
+        )
+        if already is not None:
+            return
+        self._db.add(
+            ProductIdentityAlias(
+                product_id=product.id,
+                alias=alias,
+                identity_key=identity_key,
+                method=method,
+                correlation_id=correlation_id,
+            )
+        )

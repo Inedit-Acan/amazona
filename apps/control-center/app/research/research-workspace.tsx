@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { ApiError, api, type Product, type ResearchCandidate, type ResearchComparison } from "@/lib/api";
 import { DEMO_FILTERS, DEMO_INTEREST_BY_SOURCE } from "@/lib/demo/research";
+import { scoredForLabel, wrongChannelNote } from "@/lib/channel-view";
 import {
   CATEGORY_LABEL,
   RADAR_KEYS,
@@ -187,6 +188,10 @@ function OpportunityCard({
 }) {
   const identityNote = alsoKnownAsNote(row.alsoKnownAs);
   const withheldNote = scoringWithheldNote(row.scoringWithheldFrom);
+  // Y por qué tampoco lo hay cuando lo medido es de otro canal (Milestone 38):
+  // se arregla consiguiendo una fuente del canal que falta, no leyendo un
+  // contrato, así que se dice aparte.
+  const channelNote = wrongChannelNote(row.scoringWrongChannel, row.scoredForChannel);
   return (
     <div
       className={cn(
@@ -207,6 +212,12 @@ function OpportunityCard({
           {/* Y por qué no hay score cuando el motivo es una licencia y no un
               dato que falte (Milestone 37). */}
           {withheldNote ? <p className="mt-0.5 text-xs text-amber-500/90">{withheldNote}</p> : null}
+          {channelNote ? <p className="mt-0.5 text-xs text-amber-500/90">{channelNote}</p> : null}
+          {/* Para qué canal vale este score. Un nulo se dice «agnóstico», no se
+              calla: callarlo lo dejaría leer como «vale para todos». */}
+          <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+            {scoredForLabel(row.scoredForChannel)}
+          </p>
         </div>
         <span className="rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary">
           #{rank}

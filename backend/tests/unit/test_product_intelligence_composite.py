@@ -42,7 +42,7 @@ class Fake(ProductSignalProvider):
     def supports(self) -> frozenset[SignalKind]:
         return frozenset(self._supports)
 
-    def discover(self, *, category, keywords, market, max_results):
+    def discover(self, *, category, keywords, market, max_results, channels=None):
         return list(self._candidates)
 
 

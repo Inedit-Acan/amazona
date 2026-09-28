@@ -187,6 +187,40 @@ _WIKIMEDIA = ProviderRights(
 )
 
 
+#: Wikimedia langlinks. **Misma casa y misma licencia de contenido** que las
+#: visitas: los proyectos de Wikimedia publican su texto bajo CC-BY-SA, verificado
+#: el 28-09-2026. Lo que se guarda de aquí no es ni siquiera contenido de un
+#: artículo: es la **equivalencia declarada** entre dos títulos.
+#:
+#: `AI_INGESTION` queda sin resolver por lo mismo que en las visitas: la licencia
+#: no lo aborda, y no decir nada no es autorizar.
+_WIKIMEDIA_LANGLINKS = ProviderRights(
+    provider="wikimedia-langlinks",
+    source="https://wikimedia.org/api/rest_v1/?spec y los términos de uso de Wikimedia",
+    verified_on=datetime.date(2026, 9, 28),
+    rights={
+        UsageRight.STORAGE: RightStatus.ALLOWED,
+        UsageRight.RETENTION: RightStatus.ALLOWED,
+        UsageRight.TRANSFORMATION: RightStatus.ALLOWED,
+        UsageRight.DERIVED_METRICS: RightStatus.ALLOWED,
+        # No produce señales, así que no puntúa nada: resuelve identidad. Se
+        # declara permitido para que no haya que razonarlo cada vez.
+        UsageRight.SCORING: RightStatus.ALLOWED,
+        UsageRight.AI_INGESTION: RightStatus.UNKNOWN,
+        UsageRight.REDISTRIBUTION: RightStatus.ALLOWED,
+        UsageRight.COMMERCIAL_USE: RightStatus.ALLOWED,
+    },
+    attribution=AttributionRequirement.REQUIRED,
+    notes={
+        UsageRight.STORAGE: (
+            "Lo que se persiste es un nombre y quién declaró la equivalencia, no el texto de "
+            "ningún artículo."
+        ),
+        UsageRight.AI_INGESTION: "Sin resolver, y por tanto denegado. Igual que en las visitas.",
+    },
+)
+
+
 #: eBay Browse. La licencia se leyó el 28-09-2026 y **dejó más preguntas que
 #: respuestas**, así que casi todo queda sin resolver — y por tanto denegado.
 #:
@@ -243,6 +277,16 @@ _EBAY_BROWSE = ProviderRights(
             "terceros a nadie fuera de la organización. Enseñarlo en el Control Center del "
             "propietario es uso interno, no redistribución."
         ),
+        UsageRight.COMMERCIAL_USE: (
+            "Relectura acotada del 28-09-2026, y apareció algo que no estaba en la licencia sino "
+            "en los requisitos de las Buy APIs: «Many of the Buy APIs are a (Limited Release). "
+            "The use of eBay's Buy APIs in production is intended for eBay partners only. You "
+            "must apply for production access through the eBay Partner Network. Acceptance of "
+            "applications is based on the proposed business model». El keyset gratuito sirve para "
+            "el sandbox; producción exige aprobación con revisión del modelo de negocio. Eso son "
+            "permisos especiales, así que este adaptador queda APARCADO como implementación de "
+            "referencia (Milestone 38)."
+        ),
     },
 )
 
@@ -253,6 +297,7 @@ _EBAY_BROWSE = ProviderRights(
 USAGE_RIGHTS: dict[str, ProviderRights] = {
     _FIXTURES.provider: _FIXTURES,
     _WIKIMEDIA.provider: _WIKIMEDIA,
+    _WIKIMEDIA_LANGLINKS.provider: _WIKIMEDIA_LANGLINKS,
     _EBAY_BROWSE.provider: _EBAY_BROWSE,
 }
 

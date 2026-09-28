@@ -29,12 +29,14 @@ import httpx
 from app.costs.service import ApiBudgetExceededError, CallMeter, UnmeteredCalls
 from app.integrations.ports import (
     CandidateSignals,
+    DeclaredAlias,
     Observation,
     ProductSignalProvider,
     Signal,
     SignalBasis,
     SignalKind,
 )
+from app.integrations.product_intelligence.langlinks import LanglinkResolver
 from app.integrations.product_intelligence.terms import terms_for
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,18 @@ PROJECT_FOR_MARKET: dict[str, str] = {
     "fr": "fr.wikipedia",
 }
 DEFAULT_PROJECT = "en.wikipedia"
+
+#: Qué código de idioma pedirle a los langlinks para cada proyecto (Milestone 38).
+#: Es la vuelta de `PROJECT_FOR_MARKET`, escrita aparte para no invertir un
+#: diccionario en tiempo de ejecución y para que un proyecto sin idioma declarado
+#: quede sin medir en vez de adivinarse.
+LANGUAGE_FOR_MARKET_PROJECT: dict[str, str] = {
+    "en.wikipedia": "en",
+    "es.wikipedia": "es",
+    "de.wikipedia": "de",
+    "fr.wikipedia": "fr",
+    "it.wikipedia": "it",
+}
 
 #: Visitas mensuales que se consideran el techo de la escala (valor 1,0). Es una
 #: constante de normalización declarada, no una medida: sube y baja el número
@@ -163,8 +177,12 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         today: datetime.date | None = None,
         meter: CallMeter | None = None,
+        langlinks: LanglinkResolver | None = None,
     ) -> None:
         self._client = client
+        #: Quién dice cómo se llama un artículo en otro idioma (Milestone 38). Sin
+        #: él, esta fuente solo sabe medir su proyecto por defecto.
+        self._langlinks = langlinks
         self._months = months
         self._max_requests = max_requests
         self._timeout = timeout
@@ -179,8 +197,22 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
         return frozenset({SignalKind.DEMAND, SignalKind.FUTURE_OUTLOOK})
 
     def discover(
-        self, *, category: str, keywords: list[str], market: str, max_results: int
+        self,
+        *,
+        category: str,
+        keywords: list[str],
+        market: str,
+        max_results: int,
+        channels: list[str] | None = None,
     ) -> list[CandidateSignals]:
+        """`channels` se ignora, y es correcto: lo que mide esta fuente **no
+        depende del canal** (Milestone 38).
+
+        Cuánta gente consulta qué es una freidora de aire es una propiedad del
+        interés por el producto, no del sitio donde se venda. Así que sus señales
+        salen sin canal —agnósticas, que no es lo mismo que «válidas para todos»—
+        y siguen significando **interés**: nunca intención de compra, nunca volumen
+        de búsqueda comercial, nunca demanda."""
         terms = terms_for(category, keywords, limit=min(max_results, self._max_requests))
         if not terms:
             # No hay nada que preguntar. No es lo mismo que no haber encontrado
@@ -195,18 +227,63 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
         client = self._client or httpx.Client(timeout=self._timeout, headers={"User-Agent": USER_AGENT})
         try:
             for term in terms:
-                series, url = self._series_for(client, project, term, start, end)
+                # Cómo se llama esto en el idioma del mercado, según Wikimedia
+                # (Milestone 38). El catálogo de términos está en inglés, y
+                # preguntarle a `es.wikipedia` por «Air fryer» devuelve 404 — medido
+                # en el Milestone 36. Si la fuente no declara equivalencia, no hay
+                # señal para ese término: no se traduce ni se aproxima.
+                title, alias = self._title_in_project(term, project)
+                if title is None:
+                    continue
+                series, url = self._series_for(client, project, title, start, end)
                 if series is None:
                     continue
-                signals = self._signals_for(term, series, market, url, observed_at)
+                signals = self._signals_for(title, series, market, url, observed_at)
                 if signals:
                     candidates.append(
-                        CandidateSignals(name=term, category=category, signals=signals, rationale=None)
+                        CandidateSignals(
+                            # El nombre del candidato es el **canónico**, no el
+                            # traducido: así el mismo producto medido en cuatro
+                            # mercados sigue siendo un producto (Milestone 36).
+                            name=term,
+                            category=category,
+                            signals=signals,
+                            rationale=None,
+                            declared_aliases=[alias] if alias is not None else [],
+                        )
                     )
         finally:
             if self._client is None:
                 client.close()
         return candidates
+
+    def _title_in_project(
+        self, term: str, project: str
+    ) -> tuple[str | None, DeclaredAlias | None]:
+        """El título que hay que pedirle a **ese** proyecto, y la equivalencia que
+        lo justifica.
+
+        En el proyecto por defecto el término vale tal cual y no hay nada que
+        declarar. En otro idioma hace falta que la fuente diga cómo se llama allí;
+        sin resolutor configurado, o sin equivalencia declarada, se devuelve `None`
+        y ese término se queda sin medir — que es mejor que medir el artículo
+        equivocado.
+        """
+        if project == DEFAULT_PROJECT:
+            return term, None
+        if self._langlinks is None:
+            logger.info("no langlink resolver configured; %r will not be asked in %s", term, project)
+            return None, None
+        language = LANGUAGE_FOR_MARKET_PROJECT.get(project)
+        if language is None:
+            return None, None
+        resolved = self._langlinks.title_in(
+            title=term, source_project=DEFAULT_PROJECT, language=language
+        )
+        if resolved is None:
+            return None, None
+        title, _reference = resolved
+        return title, DeclaredAlias(name=title, method=f"langlinks:{project}")
 
     # --- Una consulta ------------------------------------------------------
 

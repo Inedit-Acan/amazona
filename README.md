@@ -138,6 +138,8 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   cada licencia
   ([ADR 0015](docs/architecture/adr-0015-multiple-real-sources-cost-and-usage-rights.md))
   — ver abajo.
+- **Milestone 38:** dónde se mide una señal, y el mismo producto en varios idiomas
+  ([ADR 0016](docs/architecture/adr-0016-signal-channel.md)) — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -465,6 +467,44 @@ para ellas alimentar IA ajena o construir herramientas de precios sin consentimi
 escrito. No se ha podido determinar si Browse entra ahí, así que su fila está casi
 entera sin resolver y sus señales se leen sin guardarse ni puntuar
 ([ADR 0015](docs/architecture/adr-0015-multiple-real-sources-cost-and-usage-rights.md)).
+
+**Y desde el Milestone 38 está aparcado**, no solo bloqueado: los requisitos oficiales
+de las Buy APIs dicen que el uso en producción «is intended for eBay partners only» y
+exige aprobación del eBay Partner Network con revisión del modelo de negocio. eBay es
+un canal **complementario** de KOVA, así que su adaptador queda como implementación de
+referencia y la arquitectura no depende de él.
+
+### Dónde se mide una señal (Milestone 38)
+
+`market` dice en qué **geografía**; `channel` dice en qué **canal**. Sin lo segundo,
+«cuánta competencia hay» significaba cosas incompatibles: dentro de un marketplace es
+cuántos vendedores compiten, y para una web propia —el canal prioritario de KOVA— es
+dificultad orgánica y coste del clic.
+
+**Cuatro tipos cerrados y plataformas abiertas**: `own_web`, `marketplace`, `search`,
+`social` son conceptos; Amazon, eBay, Etsy, Mercado Libre o TikTok Shop son **valores**,
+y añadir uno es una línea de catálogo y **ninguna migración**. La clave se lee sola
+(`marketplace:amazon`) y el tipo lo da el catálogo, no un `split(':')`. Y **TikTok no
+es TikTok Shop**: uno descubre, el otro cobra.
+
+**Sin canal significa agnóstica, nunca «válida para todos».** Una señal ligada a canal
+—competencia, demanda de búsqueda, demanda de marketplace— sirve **solo** para su
+canal; sin canal declarado, solo para una decisión igualmente sin canal. Si valiera
+para todos, el relleno de un fixture decidiría sobre Amazon. El score dice para qué
+canal se calculó y, cuando no puede calcularse, si lo impidió una **licencia** o un
+**canal equivocado** — se arreglan de formas distintas.
+
+**El mismo producto en varios idiomas.** Los *langlinks* de Wikimedia declaran la
+equivalencia que el Milestone 36 dejó pendiente y midió como un 404: «Air fryer» es
+«Freidora de aire» en `es.wikipedia`, y el mercado español pasa de no medirse a
+**0,6805 de demanda**. El candidato conserva su nombre canónico —si no, medir cuatro
+mercados daría cuatro productos— y la equivalencia se guarda con su motivo. Sin
+equivalencia declarada, ese término **no se mide**: no se traduce ni se aproxima.
+
+`SEARCH_DEMAND` y `MARKETPLACE_DEMAND` se separan de `DEMAND` como pedía el plan §8, y
+**nadie las emite todavía**. Wikimedia sigue en `DEMAND` y sigue significando
+**interés**: nunca intención de compra, nunca volumen de búsqueda comercial, nunca
+demanda.
 
 ## Notas
 

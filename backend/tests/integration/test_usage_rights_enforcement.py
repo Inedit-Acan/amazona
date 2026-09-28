@@ -59,7 +59,7 @@ class TwoSignalProvider(ProductSignalProvider):
             basis=SignalBasis.MEASURED,
         )
 
-    def discover(self, *, category, keywords, market, max_results):
+    def discover(self, *, category, keywords, market, max_results, channels=None):
         return [
             CandidateSignals(
                 name="Air fryer",

@@ -204,7 +204,7 @@ def test_a_mixed_candidate_lowers_the_agents_confidence():
         def supports(self):
             return frozenset({SignalKind.DEMAND, SignalKind.COMPETITION})
 
-        def discover(self, *, category, keywords, market, max_results):
+        def discover(self, *, category, keywords, market, max_results, channels=None):
             return [
                 CandidateSignals(
                     name=f"candidate {index}",
@@ -234,7 +234,7 @@ def test_a_candidate_without_competition_cannot_be_scored():
         def supports(self):
             return frozenset({SignalKind.DEMAND})
 
-        def discover(self, *, category, keywords, market, max_results):
+        def discover(self, *, category, keywords, market, max_results, channels=None):
             return [
                 CandidateSignals(
                     name="measured thing",

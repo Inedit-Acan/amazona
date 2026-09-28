@@ -242,6 +242,7 @@ separados, colas) — no se usa activamente hoy.
 | [0013](adr-0013-signal-evidence-and-comparison.md) | La evidencia de cada señal se persiste en filas; comparar es contrastar qué sabe cada proveedor, no restar cifras que no hablan de lo mismo |
 | [0014](adr-0014-entity-resolution.md) | Dos nombres son el mismo producto por normalización determinista o por alias declarado, nunca por parecido; y cada fusión guarda su motivo |
 | [0015](adr-0015-multiple-real-sources-cost-and-usage-rights.md) | `real` con varias fuentes es un compuesto entre reales; medido ≠ estimado ≠ simulado; cada llamada externa se cuenta y lo que la licencia no autoriza no se usa |
+| [0016](adr-0016-signal-channel.md) | Una señal dice en qué canal se midió; sin canal es agnóstica y nunca «válida para todos»; la equivalencia entre idiomas la declara la fuente |
 
 ## 9. Índice de milestones
 
@@ -273,6 +274,7 @@ separados, colas) — no se usa activamente hoy.
 | [35](../milestones/milestone-35-demo.md) | La evidencia mensual detrás de cada señal y el informe de contraste contra el mock (§16.5) |
 | [36](../milestones/milestone-36-demo.md) | Cuándo dos nombres son el mismo producto: identidad determinista o declarada, y sin duplicar filas por ejecución (§16.6) |
 | [37](../milestones/milestone-37-demo.md) | Varias fuentes reales, el libro de coste del §25, y qué permite la licencia de cada proveedor (§16.7, §17) |
+| [38](../milestones/milestone-38-demo.md) | El canal en el contrato de señales y el mismo producto medido en varios idiomas (§16.8) |
 
 ## 10. Cómo verlo funcionar
 
@@ -779,6 +781,43 @@ puntuar. El razonamiento completo, en la
 Y `ProviderKind.SANDBOX`, que desde la ADR 0008 era una casilla del enum sin nada
 detrás, resuelve ahora a los mismos adaptadores contra su host de pruebas.
 
+### 16.8 Dónde se mide una señal (Milestone 38)
+
+`market` dice en qué **geografía**; `channel` dice en qué **canal**. Hasta el
+Milestone 38 solo existía la primera, y eso hacía que «cuánta competencia hay»
+significara cosas incompatibles sin que nada en el dato lo avisara: dentro de un
+marketplace es cuántos vendedores compiten; para una web propia es dificultad
+orgánica y coste del clic.
+
+**Cuatro tipos cerrados y plataformas abiertas.** `own_web`, `marketplace`, `search`
+y `social` son conceptos y no crecen con cada proveedor; Amazon, eBay, Etsy, Mercado
+Libre o TikTok Shop son **valores**, y añadir uno es una línea de catálogo y
+**ninguna migración**. La señal guarda una clave autodescriptiva
+(`marketplace:amazon`) y el **tipo lo da el catálogo**, no un `split(':')`. Una clave
+no declarada falla al construir la señal. Y TikTok no es TikTok Shop: uno descubre y
+el otro cobra.
+
+**Sin canal significa agnóstica, nunca «válida para todos».** Competencia y las dos
+demandas no significan nada sin decir dónde se midieron; el interés, la trayectoria,
+el riesgo y la escalabilidad son propiedades del producto. Así que una señal ligada a
+canal sirve **solo** para su canal, y sin canal declarado solo para una decisión
+igualmente sin canal — si valiera para todos, el relleno de un fixture decidiría sobre
+Amazon. El score dice para qué canal se calculó y, cuando no puede, si lo impidió una
+licencia o un canal equivocado.
+
+**El mismo producto en varios idiomas.** Los *langlinks* de Wikimedia declaran la
+equivalencia que el Milestone 36 había dejado pendiente: «Air fryer» es «Freidora de
+aire» en `es.wikipedia`, y el mercado español pasa de un 404 medido a **0,6805 de
+demanda**. El candidato conserva su nombre canónico —si no, medir cuatro mercados
+daría cuatro productos— y la equivalencia se guarda con su motivo
+(`langlinks:es.wikipedia`). Sin equivalencia declarada, ese término **no se mide**: no
+se traduce ni se aproxima.
+
+`SEARCH_DEMAND` y `MARKETPLACE_DEMAND` se separan de `DEMAND` como pedía el plan §8, y
+**nadie las emite todavía**: no hay fuente de volumen de búsqueda comercial. Wikimedia
+sigue en `DEMAND` y sigue significando **interés**. El razonamiento completo, en la
+[ADR 0016](adr-0016-signal-channel.md).
+
 ## 17. El coste de las llamadas externas (Milestone 37)
 
 El plan maestro §25 lo pide **antes** de introducir LLM o APIs comerciales, y la
@@ -828,3 +867,14 @@ opere sobre datos reales.
 | **Conversión del JSON histórico (`pipeline_runs.steps` → `pipeline_steps`) sobre datos reales.** Probada ida y vuelta sobre SQLite con ejecuciones completas y `PARTIAL`; nunca ejecutada sobre las filas que haya en Supabase. | Milestone 32 ([ADR 0010](adr-0010-async-resumable-pipeline.md) §2) | Aplicar la migración sobre una copia de la base real y comparar el `steps` reconstruido con el original antes de tocar producción |
 | **Concurrencia real de `SELECT … FOR UPDATE SKIP LOCKED`.** SQLite lo ignora sin error, así que el reclamo único está probado por construcción y por los tests, pero no contra PostgreSQL con varios workers a la vez. | Milestone 31 ([ADR 0009](adr-0009-async-job-runtime.md) §1) | Dos o más `python -m app.jobs.worker` contra la misma base PostgreSQL, comprobando que ningún trabajo se ejecuta dos veces |
 | **Login, refresco y cierre de sesión reales.** El flujo de sesión del Control Center está construido y probado con tokens fabricados; falta ejercerlo contra Supabase con credenciales de prueba. | Milestone 29.1 ([ADR 0007](adr-0007-production-security.md)) | Un usuario de prueba en Supabase: entrar, dejar caducar el token para ver el refresco del middleware, y salir |
+
+## 19. Deuda funcional registrada
+
+Lo del §18 es deuda de **verificación**: cosas ciertas que solo un entorno real
+confirma. Esto es otra cosa — deuda de **función**: cosas que el sistema todavía no
+sabe hacer y que alguna decisión ya necesita. Se registran aquí para que no vivan solo
+en el milestone donde se descubrieron.
+
+| Deuda | Por qué importa | Dónde debería ir |
+|---|---|---|
+| **Coste de adquisición (CAC) en Economics** | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |

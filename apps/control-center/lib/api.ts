@@ -226,6 +226,11 @@ export interface ProviderBinding {
 /** Observado, modelado o inventado (Milestone 37, ADR 0015). */
 export type SignalBasis = "measured" | "estimated" | "simulated";
 
+/** Los cuatro tipos estructurales de canal (Milestone 38, ADR 0016). Cerrados
+ * porque son conceptos; las plataformas concretas son valores dentro de
+ * `marketplace`, `search` y `social`. */
+export type ChannelKind = "own_web" | "marketplace" | "search" | "social";
+
 /** Lo consumido hoy con un proveedor externo, y contra qué se compara
  * (Milestone 37, plan maestro §25). */
 export interface ApiProviderUsage {
@@ -323,6 +328,13 @@ export interface ResearchCandidate {
      * ella (Milestone 37, ADR 0015). Un score ausente sin explicación es
      * indistinguible de una avería. */
     scoring_withheld_from?: string[];
+    /** Para qué canal se puntuó. `null` = agnóstico (Milestone 38, ADR 0016). */
+    channel?: string | null;
+    /** Canales cuya señal existe y no sirve para **este** canal. Se arregla
+     * consiguiendo una fuente del canal que falta, no leyendo un contrato. */
+    scoring_wrong_channel?: string[];
+    /** Nombres que una fuente declara equivalentes a este candidato. */
+    declared_aliases?: { name: string; method: string }[];
     /** De qué está hecho el score (Milestone 34): `real` si todo lo que cuenta
      * está medido, `estimated` si alguna pieza está modelada en vez de
      * observada, `simulated` si nada viene del mundo, `mixed` si se mezcla con
@@ -352,6 +364,12 @@ export interface ResearchSignal {
    * observó, `estimated` si lo modeló, `simulated` si es un fixture. Sustituye al
    * booleano `simulated`, que juntaba los dos primeros. */
   basis: SignalBasis;
+  /** Dónde se midió (Milestone 38). Una clave declarada: `own_web`,
+   * `marketplace:amazon`, `search:google`…
+   *
+   * **Nulo significa agnóstica del canal, no «válida para todos»**: el interés por
+   * un tipo de producto no depende de dónde se venda; la competencia sí. */
+  channel?: string | null;
   /** Las medidas que componen el valor. Vacío no es cero: es que esta señal no
    * viene de una serie. */
   observations?: { period: string; value: number }[];
@@ -395,6 +413,10 @@ export interface ComparisonProviderSummary {
    * lo que no es. */
   estimated_signals?: number;
   simulated_signals: number;
+  /** En qué canales midió algo (Milestone 38). Vacío = todo agnóstico del canal,
+   * lo cual es correcto para una medida de interés y sospechoso para una de
+   * competencia. */
+  channels?: string[];
 }
 
 export interface SupplierQuote {

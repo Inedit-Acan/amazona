@@ -417,3 +417,30 @@ test("signalsMode: un conjunto estimado no se presenta como real ni como simulac
   assert.equal(mode.status, "mixed");
   assert.match(mode.label, /Estimado/);
 });
+
+// --- Canal del score (Milestone 38) -----------------------------------------
+
+test("buildRows: para qué canal se puntuó llega a la fila", () => {
+  const [row] = buildRows(
+    [PRODUCT],
+    [candidateFor("p-1", { channel: "own_web", demand_signal: 0.7 })],
+  );
+
+  assert.equal(row.scoredForChannel, "own_web");
+});
+
+test("buildRows: sin canal la fila dice null, no una cadena vacía", () => {
+  const [row] = buildRows([PRODUCT], [candidateFor("p-1", { demand_signal: 0.7 })]);
+
+  assert.equal(row.scoredForChannel, null);
+  assert.deepEqual(row.scoringWrongChannel, []);
+});
+
+test("buildRows: lo medido en otro canal llega a la fila", () => {
+  const [row] = buildRows(
+    [PRODUCT],
+    [candidateFor("p-1", { scoring_wrong_channel: ["marketplace:ebay"], demand_signal: 0.7 })],
+  );
+
+  assert.deepEqual(row.scoringWrongChannel, ["marketplace:ebay"]);
+});

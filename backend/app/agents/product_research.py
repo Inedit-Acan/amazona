@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import cast
 
 from pydantic import BaseModel, Field
@@ -28,6 +29,11 @@ class ProductResearchInput(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     max_results: int = Field(default=5, ge=1, le=20)
     market: str = "us"
+    #: Para qué canal se investiga (Milestone 38, ADR 0016). `None` es una
+    #: investigación **agnóstica del canal**, que es el comportamiento de siempre:
+    #: solo entran en el score las señales que no dependen del canal y las que
+    #: tampoco declaran ninguno.
+    channel: str | None = None
 
 
 def may_score(signal: Signal) -> bool:
@@ -40,7 +46,27 @@ def may_score(signal: Signal) -> bool:
     return permits(signal.provider, UsageRight.SCORING)
 
 
-def provenance_of(candidate: CandidateSignals, kinds: tuple[SignalKind, ...]) -> str:
+def scoring_filter(candidate: CandidateSignals, channel: str | None) -> Callable[[Signal], bool]:
+    """Qué señales pueden puntuar: las que la licencia permite **y** las que
+    hablan del canal sobre el que se decide (Milestone 38, ADR 0016).
+
+    Son dos condiciones independientes y las dos son necesarias. Una competencia
+    medida en eBay con licencia impecable seguiría sin servir para decidir sobre
+    una web propia, porque mide otra cosa.
+    """
+
+    def usable(signal: Signal) -> bool:
+        return may_score(signal) and candidate.usable_for_channel(signal, channel)
+
+    return usable
+
+
+def provenance_of(
+    candidate: CandidateSignals,
+    kinds: tuple[SignalKind, ...],
+    *,
+    channel: str | None = None,
+) -> str:
     """De qué está hecho lo que se va a enseñar.
 
     `real` cuando todo lo que cuenta está **medido**, `estimated` cuando alguna
@@ -53,8 +79,9 @@ def provenance_of(candidate: CandidateSignals, kinds: tuple[SignalKind, ...]) ->
     honestas sí viene del mundo, y decir de él «mixto» lo confundiría con una
     mezcla de medición y fixture, que es otra cosa.
     """
+    usable = scoring_filter(candidate, channel)
     relevant = [
-        signal for kind in kinds if (signal := candidate.signal(kind, only=may_score)) is not None
+        signal for kind in kinds if (signal := candidate.signal(kind, only=usable)) is not None
     ]
     if not relevant:
         return "unknown"
@@ -95,6 +122,9 @@ class ProductResearchAgent(Agent):
             keywords=params.keywords,
             market=params.market,
             max_results=params.max_results,
+            # Para qué canal se investiga. Un adaptador que solo sabe de un canal
+            # calla cuando no se le pregunta por él (Milestone 38).
+            channels=[params.channel] if params.channel else None,
         )
 
         if not candidates:
@@ -152,10 +182,12 @@ class ProductResearchAgent(Agent):
         regulatory = candidate.signal(SignalKind.REGULATORY_RISK)
         scalability = candidate.signal(SignalKind.SCALABILITY)
 
-        # Lo que puntúa: solo lo que su licencia permite puntuar. Puede no ser la
-        # misma señal que se enseña, y puede no haber ninguna.
-        scoring_demand = candidate.signal(SignalKind.DEMAND, only=may_score)
-        scoring_competition = candidate.signal(SignalKind.COMPETITION, only=may_score)
+        # Lo que puntúa: solo lo que su licencia permite **y** lo que habla del
+        # canal sobre el que se decide. Puede no ser la misma señal que se enseña,
+        # y puede no haber ninguna (Milestone 37 y 38).
+        usable = scoring_filter(candidate, params.channel)
+        scoring_demand = candidate.signal(SignalKind.DEMAND, only=usable)
+        scoring_competition = candidate.signal(SignalKind.COMPETITION, only=usable)
 
         level = competition_level(competition.value) if competition is not None else None
         scoring_level = (
@@ -168,14 +200,26 @@ class ProductResearchAgent(Agent):
             # La fórmula de Fase 3, intacta (plan maestro §9).
             score = round(scoring_demand.value * _COMPETITION_FACTOR.get(scoring_level, 0.3), 4)
 
-        # Si había señal y la licencia la dejó fuera, se dice quién. Un score
-        # ausente sin explicación es indistinguible de una avería.
+        # Si había señal y algo la dejó fuera, se dice quién y por qué. Un score
+        # ausente sin explicación es indistinguible de una avería, y los dos
+        # motivos se arreglan de formas distintas: uno leyendo un contrato y el
+        # otro consiguiendo una fuente del canal que falta.
         withheld = sorted(
             {
                 signal.provider
                 for kind in _SCORING_SIGNALS
                 for signal in candidate.signals
                 if signal.kind is kind and not may_score(signal)
+            }
+        )
+        wrong_channel = sorted(
+            {
+                signal.channel or "sin canal"
+                for kind in _SCORING_SIGNALS
+                for signal in candidate.signals
+                if signal.kind is kind
+                and may_score(signal)
+                and not candidate.usable_for_channel(signal, params.channel)
             }
         )
 
@@ -190,8 +234,19 @@ class ProductResearchAgent(Agent):
             "regulatory_risk_signal": regulatory.value if regulatory else None,
             "scalability_signal": scalability.value if scalability else None,
             "niche_rationale": candidate.rationale,
+            #: Nombres que una fuente declara equivalentes a este candidato
+            #: (Milestone 38). Vacío es lo normal.
+            "declared_aliases": [
+                {"name": alias.name, "method": alias.method}
+                for alias in candidate.declared_aliases
+            ],
             #: De qué está hecho el score: real, estimado, mixto o simulado.
-            "provenance": provenance_of(candidate, _SCORING_SIGNALS),
+            "provenance": provenance_of(candidate, _SCORING_SIGNALS, channel=params.channel),
+            #: Para qué canal se puntuó. `None` = agnóstico (Milestone 38).
+            "channel": params.channel,
+            #: Canales cuya señal existe y no sirve para **este** canal. Vacío es
+            #: lo normal.
+            "scoring_wrong_channel": wrong_channel,
             #: Proveedores cuya señal existe pero cuya licencia no permite
             #: puntuar con ella (Milestone 37). Vacío es lo normal.
             "scoring_withheld_from": withheld,
@@ -214,6 +269,9 @@ class ProductResearchAgent(Agent):
                     #: al booleano `simulated`, que no distinguía las dos
                     #: primeras.
                     "basis": signal.basis.value,
+                    #: Dónde se midió (Milestone 38). `None` = agnóstica del
+                    #: canal, que no es «válida para todos».
+                    "channel": signal.channel,
                     # La evidencia mensual, cuando la fuente la da (M35).
                     "observations": [
                         {"period": observation.period, "value": observation.value}

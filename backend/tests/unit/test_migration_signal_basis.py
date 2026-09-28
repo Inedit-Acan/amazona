@@ -82,10 +82,15 @@ def test_upgrade_swaps_the_column(connection):
     assert "simulated" not in columns(connection)
 
 
-def test_the_migration_matches_the_model(connection):
+def test_the_migration_creates_the_columns_of_its_own_milestone(connection):
+    """Se escriben aquí en vez de leerse del modelo vivo porque el modelo ha
+    seguido cambiando: el Milestone 38 añadió `channel` en su propia migración.
+    Comparar una migración antigua contra el modelo de hoy solo funciona hasta que
+    alguien vuelve a tocar la tabla, y entonces falla por el motivo equivocado."""
     run(connection, "upgrade")
 
-    assert {c.name for c in ProductSignal.__table__.columns} == columns(connection)
+    live = {c.name for c in ProductSignal.__table__.columns}
+    assert columns(connection) == live - {"channel"}
 
 
 def test_nothing_loses_its_provenance_going_up(connection):

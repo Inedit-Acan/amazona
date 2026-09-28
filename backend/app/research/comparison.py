@@ -64,6 +64,10 @@ class ProviderSummary:
     measured_signals: int = 0
     estimated_signals: int = 0
     simulated_signals: int = 0
+    #: En qué canales midió algo (Milestone 38). Vacío significa que todo lo que
+    #: produjo es agnóstico del canal — lo cual es correcto para una medida de
+    #: interés y sería sospechoso para una de competencia.
+    channels: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -89,6 +93,7 @@ def summarise(provider: str, candidates: Sequence[CandidateSignals]) -> Provider
     coverage: dict[str, int] = {}
     confidences: list[float] = []
     by_basis: dict[SignalBasis, int] = {basis: 0 for basis in SignalBasis}
+    channels: set[str] = set()
     scorable = 0
 
     for candidate in candidates:
@@ -97,6 +102,8 @@ def summarise(provider: str, candidates: Sequence[CandidateSignals]) -> Provider
             kinds.add(signal.kind)
             confidences.append(signal.confidence)
             by_basis[signal.basis] += 1
+            if signal.channel is not None:
+                channels.add(signal.channel)
         for kind in kinds:
             coverage[kind.value] = coverage.get(kind.value, 0) + 1
         if all(candidate.signal(kind) is not None for kind in SCORING_SIGNALS):
@@ -111,6 +118,7 @@ def summarise(provider: str, candidates: Sequence[CandidateSignals]) -> Provider
         measured_signals=by_basis[SignalBasis.MEASURED],
         estimated_signals=by_basis[SignalBasis.ESTIMATED],
         simulated_signals=by_basis[SignalBasis.SIMULATED],
+        channels=sorted(channels),
     )
 
 

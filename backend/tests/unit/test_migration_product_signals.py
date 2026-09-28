@@ -98,7 +98,7 @@ def test_the_live_model_has_moved_on_from_this_migration(connection):
     una decisión escrita y no una sorpresa."""
     live = {column.name for column in ProductSignal.__table__.columns}
 
-    assert live - M34_COLUMNS == {"basis"}
+    assert live - M34_COLUMNS == {"basis", "channel"}
     assert M34_COLUMNS - live == {"simulated"}
 
 

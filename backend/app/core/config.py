@@ -53,6 +53,11 @@ class WikimediaSettings(BaseModel):
     months: int = 12
     max_requests: int = 8
     timeout_seconds: float = 6.0
+    #: Si se pregunta a Wikimedia cómo se llama cada artículo en el idioma del
+    #: mercado (Milestone 38). Con esto desactivado, un mercado que no sea el del
+    #: proyecto por defecto se queda sin señal en vez de medir el artículo
+    #: equivocado.
+    resolve_languages: bool = True
 
 
 class EbaySettings(BaseModel):

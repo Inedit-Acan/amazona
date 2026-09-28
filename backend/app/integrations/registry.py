@@ -31,6 +31,7 @@ from app.integrations.product_intelligence.ebay import (
     SANDBOX_HOST,
     EbayBrowseProvider,
 )
+from app.integrations.product_intelligence.langlinks import LanglinkResolver
 
 
 class ProviderNotAvailableError(RuntimeError):
@@ -71,6 +72,11 @@ def _wikimedia_provider(settings: Settings, meter: CallMeter) -> WikimediaPagevi
         max_requests=settings.wikimedia.max_requests,
         timeout=settings.wikimedia.timeout_seconds,
         meter=meter,
+        # Sin resolutor, esta fuente solo sabe medir su proyecto por defecto: un
+        # mercado en otro idioma se quedaría sin señal (Milestone 38).
+        langlinks=LanglinkResolver(timeout=settings.wikimedia.timeout_seconds, meter=meter)
+        if settings.wikimedia.resolve_languages
+        else None,
     )
 
 

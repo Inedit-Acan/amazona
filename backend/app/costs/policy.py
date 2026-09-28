@@ -91,6 +91,20 @@ _EBAY_BROWSE = CostPolicy(
     source="https://developer.ebay.com/support/api-call-limits — 5.000 llamadas/día",
 )
 
+#: Wikimedia langlinks: la API de acciones de cada proyecto. Sin clave y sin coste,
+#: con el mismo límite de cortesía que la REST. Cuenta aparte de las visitas porque
+#: es otra superficie: una cuota agotada en una no dice nada de la otra.
+_WIKIMEDIA_LANGLINKS = CostPolicy(
+    provider="wikimedia-langlinks",
+    pricing=Pricing.FREE,
+    unit="requests",
+    cost_per_unit=0.0,
+    currency="EUR",
+    quota_units_per_day=None,
+    max_units_per_run=8,
+    source="https://www.mediawiki.org/wiki/API:Langlinks — API de acciones, sin clave",
+)
+
 #: Los fixtures no salen a ninguna parte. Existe la política para que el contador
 #: no tenga que tratarlos como un caso especial.
 _FIXTURES = CostPolicy(
@@ -105,6 +119,7 @@ _FIXTURES = CostPolicy(
 
 POLICIES: dict[str, CostPolicy] = {
     _WIKIMEDIA.provider: _WIKIMEDIA,
+    _WIKIMEDIA_LANGLINKS.provider: _WIKIMEDIA_LANGLINKS,
     _EBAY_BROWSE.provider: _EBAY_BROWSE,
     _FIXTURES.provider: _FIXTURES,
 }

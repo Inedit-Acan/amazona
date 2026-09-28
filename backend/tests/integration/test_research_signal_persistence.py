@@ -44,7 +44,7 @@ class MeasuredDemandOnly(ProductSignalProvider):
     def supports(self) -> frozenset[SignalKind]:
         return frozenset({SignalKind.DEMAND})
 
-    def discover(self, *, category, keywords, market, max_results):
+    def discover(self, *, category, keywords, market, max_results, channels=None):
         return [
             CandidateSignals(
                 name="Air fryer",
@@ -173,7 +173,7 @@ def test_a_source_that_finds_nothing_persists_nothing_invented(db_session: Sessi
         def supports(self):
             return frozenset({SignalKind.DEMAND})
 
-        def discover(self, *, category, keywords, market, max_results):
+        def discover(self, *, category, keywords, market, max_results, channels=None):
             return []
 
     run(db_session, FindsNothing())
@@ -187,7 +187,7 @@ def test_the_filler_does_complete_a_product_it_does_know(db_session: Session):
     candidato queda marcado como mixto: medido a medias."""
 
     class MeasuredKnownProduct(MeasuredDemandOnly):
-        def discover(self, *, category, keywords, market, max_results):
+        def discover(self, *, category, keywords, market, max_results, channels=None):
             candidates = super().discover(
                 category=category, keywords=keywords, market=market, max_results=max_results
             )

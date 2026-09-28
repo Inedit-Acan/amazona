@@ -45,6 +45,13 @@ def test_each_candidate_has_the_expected_fields():
             # permite puntuar con ella. Un score ausente sin explicación es
             # indistinguible de una avería (ADR 0015).
             "scoring_withheld_from",
+            # Milestone 38: para qué canal se puntuó, y qué señales existían y no
+            # servían para él. Una competencia medida en un marketplace no dice
+            # nada sobre una web propia (ADR 0016).
+            "channel",
+            "scoring_wrong_channel",
+            # Milestone 38: nombres que una fuente declara equivalentes.
+            "declared_aliases",
             "market",
             "signals",
         }

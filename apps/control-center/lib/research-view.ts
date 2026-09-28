@@ -72,6 +72,11 @@ export interface ResearchRow {
   /** Proveedores cuya señal existe y cuya licencia no permite puntuar con ella
    * (Milestone 37). Vacío es lo normal. */
   scoringWithheldFrom: string[];
+  /** Para qué canal se puntuó. `null` = agnóstico (Milestone 38). */
+  scoredForChannel: string | null;
+  /** Canales cuya señal existe y no sirve para este canal. Se arregla
+   * consiguiendo una fuente del canal que falta, no leyendo un contrato. */
+  scoringWrongChannel: string[];
 }
 
 export type SignalProvenance = "real" | "estimated" | "mixed" | "simulated" | "demo";
@@ -183,6 +188,8 @@ export function buildRows(products: Product[], candidates: ResearchCandidate[]):
       isDemo: !candidate,
       alsoKnownAs: product.also_known_as ?? [],
       scoringWithheldFrom: d.scoring_withheld_from ?? [],
+      scoredForChannel: d.channel ?? null,
+      scoringWrongChannel: d.scoring_wrong_channel ?? [],
     };
   });
   return rows.sort((a, b) => b.score - a.score);

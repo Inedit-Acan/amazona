@@ -46,7 +46,13 @@ class CompositeProductSignalProvider(ProductSignalProvider):
         return frozenset(supported)
 
     def discover(
-        self, *, category: str, keywords: list[str], market: str, max_results: int
+        self,
+        *,
+        category: str,
+        keywords: list[str],
+        market: str,
+        max_results: int,
+        channels: list[str] | None = None,
     ) -> list[CandidateSignals]:
         merged: dict[str, CandidateSignals] = {}
         order: list[str] = []
@@ -54,7 +60,11 @@ class CompositeProductSignalProvider(ProductSignalProvider):
 
         for provider in self._providers:
             found = provider.discover(
-                category=category, keywords=keywords, market=market, max_results=max_results
+                category=category,
+                keywords=keywords,
+                market=market,
+                max_results=max_results,
+                channels=channels,
             )
             fills_only = first_real_ran and self._is_filler(found)
             for candidate in found:

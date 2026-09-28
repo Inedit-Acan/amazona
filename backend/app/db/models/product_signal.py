@@ -66,6 +66,13 @@ class ProductSignal(IdMixin, Base):
     #: vienen del mundo y no valen lo mismo, y presentar una estimación como una
     #: medición es la misma clase de mentira que presentar un fixture como dato.
     basis: Mapped[str] = mapped_column(String(16), default="measured", index=True)
+    #: Dónde se midió: una clave declarada en `channels.py` (Milestone 38,
+    #: ADR 0016). `own_web`, `marketplace:amazon`, `search:google`…
+    #:
+    #: **Nulo significa agnóstica del canal, no «válida para todos».** El interés
+    #: por un tipo de producto no depende de dónde se venda; la competencia sí, y
+    #: por eso una competencia sin canal solo sirve para una decisión sin canal.
+    channel: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     correlation_id: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

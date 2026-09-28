@@ -162,16 +162,90 @@ def test_it_only_claims_the_two_signals_it_can_measure():
     assert candidates[0].signal(SignalKind.COMPETITION) is None
 
 
-def test_the_market_picks_the_language_project():
+class FakeLanglinks:
+    """Un resolutor de mentira: declara las equivalencias que se le digan."""
+
+    def __init__(self, titles: dict[str, str] | None = None) -> None:
+        self._titles = titles or {}
+        self.asked: list[tuple[str, str]] = []
+
+    def title_in(self, *, title, source_project, language):
+        self.asked.append((title, language))
+        resolved = self._titles.get(f"{title}|{language}")
+        return (resolved, "https://es.wikipedia.org/w/api.php?…") if resolved else None
+
+
+def test_the_market_picks_the_language_project_and_asks_for_the_local_title():
+    """El catálogo de términos está en inglés, y preguntarle a `es.wikipedia` por
+    «Air fryer» devuelve 404 — medido en el Milestone 36. Con la equivalencia que
+    declara la fuente, se pregunta por el título que sí existe allí."""
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(str(request.url))
         return httpx.Response(200, json=series_body([100] * 12), request=request)
 
-    provider(handler).discover(category="home", keywords=["Air fryer"], market="mx", max_results=1)
+    langlinks = FakeLanglinks({"Air fryer|es": "Freidora de aire"})
+    provider(handler, langlinks=langlinks).discover(
+        category="home", keywords=["Air fryer"], market="mx", max_results=1
+    )
 
     assert "es.wikipedia" in seen[0]
+    assert "Freidora_de_aire" in seen[0]
+    assert langlinks.asked == [("Air fryer", "es")]
+
+
+def test_the_candidate_keeps_its_canonical_name_across_markets():
+    """Si el candidato se llamara «Freidora de aire», la identidad del Milestone 36
+    lo trataría como otro producto — y entonces medir cuatro mercados daría cuatro
+    productos en vez de uno."""
+    langlinks = FakeLanglinks({"Air fryer|es": "Freidora de aire"})
+    adapter = provider(always(200, series_body([100] * 12)), langlinks=langlinks)
+
+    [candidate] = adapter.discover(
+        category="home", keywords=["Air fryer"], market="es", max_results=1
+    )
+
+    assert candidate.name == "Air fryer"
+    assert candidate.signals[0].query == "Freidora de aire"
+    assert [alias.name for alias in candidate.declared_aliases] == ["Freidora de aire"]
+    assert candidate.declared_aliases[0].method == "langlinks:es.wikipedia"
+
+
+def test_without_a_declared_equivalence_the_term_is_not_measured_at_all():
+    """Mejor sin medir que midiendo el artículo equivocado. No se traduce, no se
+    transcribe y no se busca el más parecido."""
+    langlinks = FakeLanglinks()
+    adapter = provider(always(200, series_body([100] * 12)), langlinks=langlinks)
+
+    assert adapter.discover(category="home", keywords=["Air fryer"], market="es", max_results=1) == []
+
+
+def test_without_a_resolver_a_foreign_market_is_not_asked():
+    """Es el comportamiento anterior al Milestone 38, y producía 404: ahora se
+    calla en vez de preguntar mal."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, json=series_body([100] * 12), request=request)
+
+    provider(handler).discover(category="home", keywords=["Air fryer"], market="es", max_results=1)
+
+    assert seen == []
+
+
+def test_the_default_project_needs_no_equivalence():
+    """En inglés el término del catálogo vale tal cual, y no hay nada que declarar."""
+    langlinks = FakeLanglinks()
+    adapter = provider(always(200, series_body([100] * 12)), langlinks=langlinks)
+
+    [candidate] = adapter.discover(
+        category="home", keywords=["Air fryer"], market="us", max_results=1
+    )
+
+    assert candidate.declared_aliases == []
+    assert langlinks.asked == []
 
 
 def test_an_unknown_market_falls_back_to_english_instead_of_failing():
