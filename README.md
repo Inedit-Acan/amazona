@@ -391,6 +391,15 @@ Lo que **no** resuelve son las traducciones: medido, aliasar «Freidora de aire�
 necesita un nombre **por mercado** y no un nombre canónico único
 ([ADR 0014](docs/architecture/adr-0014-entity-resolution.md)).
 
+Y tres consecuencias que conviene saber: los **datos anteriores al milestone**
+conservan la clave que se deduce de su nombre —el relleno de la migración no aplica
+el catálogo de alias— así que un duplicado preexistente no se resuelve solo;
+`identity_key` es **nulable** (nula = «no resuelta») y **no única**, porque aquí
+también hay productos dados de alta a mano; y **dos ejecuciones sobre la misma
+categoría aterrizan en el mismo producto**, que acumula varios análisis y comparte
+`store_slug`, de modo que Tienda y Marketing lo ven distinto a antes. El detalle, en
+[milestone-36-demo.md](docs/milestones/milestone-36-demo.md).
+
 ## Notas
 
 - Amazon SP-API: prohibido usar sus datos para entrenar modelos.

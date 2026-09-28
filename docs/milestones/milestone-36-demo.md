@@ -139,6 +139,69 @@ primer punto.
 El mecanismo honesto está identificado y es gratuito: los *langlinks* de Wikimedia
 dan la equivalencia entre idiomas **desde una fuente**. Queda para otro milestone.
 
+## Límites que hay que tener presentes
+
+Cuatro cosas que este milestone **no** resuelve y que conviene no descubrir por
+sorpresa. Las cuatro tienen su test o su comprobación, y ninguna es un descuido.
+
+### 1. Los alias no cruzan idiomas
+
+«Air fryer» y «Airfryer» son un producto; «Freidora de aire» **sigue siendo otro
+candidato**. El motivo está medido arriba: aliasar al inglés cambiaría 12.099
+visitas reales de `es.wikipedia` por un 404. Hace falta un nombre **por mercado**,
+no un nombre canónico único, y rellenar títulos de artículo a ojo sería inventar.
+Lo cerrarían los *langlinks* de Wikimedia, que dan la equivalencia desde una
+fuente.
+
+### 2. Los datos anteriores al milestone conservan su clave, y su duplicado
+
+La migración rellena `identity_key` con **solo la normalización**, sin el catálogo
+de alias. La copia de `fold()` va congelada dentro de la migración —tiene que
+poder ejecutarse dentro de tres años— y congelar además una lista que cambia daría
+la ilusión de estar al día.
+
+Consecuencia concreta: una fila anterior al milestone llamada `airfryer` recibe la
+clave `airfryer`, no `air fryer`, y la primera investigación que mida `Air fryer`
+creará su propia fila. **Ese duplicado preexistente no se resuelve solo.** Hay un
+test que lo fija como comportamiento esperado en vez de dejarlo a la sorpresa, y
+otro que avisa el día que la copia congelada y la de la aplicación divergan.
+
+Quien quiera limpiarlos tendrá que hacerlo a mano o con un milestone que lo haga
+explícito; no se hace en silencio al pasar.
+
+### 3. `identity_key` es nulable y **no** es única
+
+Nulable porque las filas anteriores al milestone que nadie ha vuelto a investigar
+existen y su clave se rellenó a partir del nombre; `/api/products` la publica como
+`null` cuando falta, y eso significa «no resuelta», no «sin identidad».
+
+No única a propósito: en `products` también viven productos dados de alta a mano, y
+una restricción única impediría crear dos cosas que la normalización colapse.
+**Decidir que dos nombres son el mismo producto es del catálogo de alias, no de un
+índice de la base de datos.** El índice que sí existe es de búsqueda
+(`identity_key` + `category`). Hay un test que fija que dos filas pueden compartir
+clave.
+
+### 4. Las ejecuciones convergen, y eso se ve en otras pantallas
+
+Dos investigaciones —o dos ejecuciones del pipeline— sobre la misma categoría
+**aterrizan en el mismo producto**. Es lo correcto: es el mismo producto. Lo que
+cambia respecto a antes:
+
+- Un producto acumula **varios** `ProductAnalysis`. Se comprobó antes de tocar nada
+  que todos los lectores ya tomaban el último (`order_by(created_at.desc()).first()`)
+  o filtraban por `correlation_id`.
+- Dos ejecuciones del pipeline comparten `store_slug`, porque el slug sigue al
+  producto — que es lo que `generate_store_slug` promete desde siempre. Lo que no
+  puede colisionar es el slug de dos productos distintos con el mismo nombre, y eso
+  sigue cubierto en `tests/unit/test_ecommerce_content.py`.
+- Sus tiendas, listados y campañas se acumulan sobre esa fila, así que **Tienda y
+  Marketing lo ven distinto a antes** del milestone.
+
+Y el mismo término bajo **dos categorías** sigue siendo dos productos: la categoría
+viene de la petición y no de la fuente, y unirlas reescribiría la primera en
+silencio.
+
 ## Probarlo
 
 ```bash

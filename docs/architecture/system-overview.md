@@ -650,7 +650,7 @@ Cuatro límites conocidos, escritos para que no se descubran por sorpresa:
 | **Wikimedia es un proxy de interés** | mide consultas a una enciclopedia; **no** demanda de compra, ventas ni intención de gasto | contrastarlo (M35) y, cuando haya decisión de gasto, una fuente comercial |
 | **No hay segunda fuente real** | competencia y demanda comercial siguen sin medirse; un candidato real se queda sin score | un adaptador real de marketplace o de búsqueda comercial |
 | **No hay descubrimiento real** | los candidatos salen de un catálogo escrito a mano: solo se mide lo que alguien ya pensó | marketplaces, minería de reseñas, señales sociales, distribución de precios |
-| **No hay resolución de entidades** | dos señales se juntan si el nombre coincide; «Air fryer», «Airfryer» y «Freidora de aire» son hoy tres candidatos | identificar la misma entidad entre proveedores **antes** de añadir la segunda fuente real, o componer se convierte en duplicar |
+| **La resolución de entidades no cruza idiomas** | resuelta la parte ortográfica y la declarada en el Milestone 36 (§16.6): «Air fryer» y «Airfryer» son uno. «Freidora de aire» **sigue siendo otro candidato**, porque unirlos exige un nombre por mercado y no un nombre canónico único | un nombre por mercado en el catálogo, o los *langlinks* de Wikimedia, que dan la equivalencia entre idiomas desde una fuente |
 
 Ninguno se tapa con datos inventados: una señal que falta se queda ausente, y el
 `opportunity_score` no se toca fuera del milestone que le corresponda (§9).
@@ -722,6 +722,25 @@ Lo que **no** resuelve: las traducciones. Medido, aliasar «Freidora de aire» a
 «Air fryer» cambiaría 12.099 visitas reales de `es.wikipedia` por un 404, porque
 resolver idiomas necesita un nombre **por mercado**. El razonamiento está en la
 [ADR 0014](adr-0014-entity-resolution.md).
+
+Tres consecuencias más que conviene tener presentes, con su detalle en el
+[Milestone 36](../milestones/milestone-36-demo.md):
+
+- **Los datos anteriores al milestone conservan su clave.** El relleno de la
+  migración aplica solo la normalización, no el catálogo de alias —congelar una
+  lista que cambia daría la ilusión de estar al día—, así que una fila antigua
+  llamada `airfryer` mantiene su propia clave y su duplicado preexistente **no se
+  resuelve solo**.
+- **`identity_key` es nulable y no es única.** Nula significa «no resuelta», no
+  «sin identidad». Y no es única porque en `products` también hay productos dados de
+  alta a mano: decidir que dos nombres son el mismo producto es del catálogo de
+  alias, no de un índice.
+- **Las ejecuciones convergen.** Dos investigaciones —o dos ejecuciones del
+  pipeline— sobre la misma categoría aterrizan en el mismo producto: acumula varios
+  análisis, comparte `store_slug` (el slug sigue al producto, como
+  `generate_store_slug` promete desde siempre) y sus tiendas, listados y campañas se
+  acumulan sobre esa fila. El mismo término bajo dos categorías sigue siendo dos
+  productos, porque la categoría viene de la petición y no de la fuente.
 
 ## 17. Pendientes de integración
 
