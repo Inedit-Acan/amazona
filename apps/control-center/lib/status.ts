@@ -13,7 +13,10 @@ export interface HealthSignal {
   apiReachable: boolean;
   /** Tiempo de la petición de salud desde el servidor del frontend (una sola medida). */
   latencyMs: number | null;
-  health: Pick<DetailedHealth, "database" | "supabase_configured">;
+  /** `providers` entra desde el Milestone 37: con más de una fuente real por
+   * dominio, «real» a secas ya no dice quién responde, y la pantalla tiene que
+   * poder nombrarlas en orden. */
+  health: Pick<DetailedHealth, "database" | "supabase_configured" | "providers">;
 }
 
 /** Señal real de los agentes, sacada del log de ejecuciones (`AgentExecutionLog`). */

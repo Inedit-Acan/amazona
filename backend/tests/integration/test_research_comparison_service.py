@@ -19,7 +19,7 @@ from app.db.models.audit import AuditLog
 from app.db.models.product_signal import ProductSignal
 from app.db.models.product_signal_observation import ProductSignalObservation
 from app.db.models.research_comparison import ResearchComparison
-from app.integrations.ports import CandidateSignals, Observation, ProductSignalProvider, Signal, SignalKind
+from app.integrations.ports import CandidateSignals, Observation, ProductSignalProvider, Signal, SignalBasis, SignalKind
 from app.integrations.product_intelligence.mock import MockProductSignalProvider
 from app.research.comparison_service import ComparisonNotAllowedError, ResearchComparisonService
 from app.research.service import ResearchService
@@ -63,7 +63,7 @@ class MeasuredWithEvidence(ProductSignalProvider):
                         observed_at=datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC),
                         method="monthly pageviews… PROXY FOR INTEREST — not purchase demand",
                         raw_reference="https://wikimedia.org/…/Air_fryer/monthly/…",
-                        simulated=False,
+                        basis=SignalBasis.MEASURED,
                         observations=[
                             Observation(period="2026-06", value=41000.0),
                             Observation(period="2026-07", value=38000.0),

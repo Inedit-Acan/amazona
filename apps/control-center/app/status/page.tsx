@@ -1,5 +1,14 @@
 import { api } from "@/lib/api-server";
-import { ApiError, type Agent, type AgentExecution, type DetailedHealth, type Incident, type Job, type PipelineRun } from "@/lib/api";
+import {
+  ApiError,
+  type Agent,
+  type AgentExecution,
+  type ApiProviderUsage,
+  type DetailedHealth,
+  type Incident,
+  type Job,
+  type PipelineRun,
+} from "@/lib/api";
 import type { HealthSignal } from "@/lib/status";
 import { StatusWorkspace } from "./status-workspace";
 
@@ -24,7 +33,7 @@ async function fetchHealth(): Promise<HealthSignal & { migration: string | null 
 }
 
 export default async function StatusPage() {
-  const [health, executions, incidents, agents, jobs, pipelineRuns] = await Promise.all([
+  const [health, executions, incidents, agents, jobs, pipelineRuns, apiUsage] = await Promise.all([
     fetchHealth(),
     // null = la petición falló: no es lo mismo que «cero» y no se muestra como tal
     api.listAgentExecutions().catch((): AgentExecution[] | null => null),
@@ -32,6 +41,9 @@ export default async function StatusPage() {
     api.listAgents().catch((): Agent[] => []),
     api.listJobs().catch((): Job[] | null => null),
     api.listPipelineRuns().catch((): PipelineRun[] | null => null),
+    // null = la petición falló. Un gasto inventado es peor que un gasto
+    // desconocido, así que la tarjeta lo dirá en vez de enseñar ceros.
+    api.listApiUsage().catch((): ApiProviderUsage[] | null => null),
   ]);
   const { migration, ...signal } = health;
 
@@ -48,6 +60,7 @@ export default async function StatusPage() {
       incidents={incidents}
       jobs={jobs}
       pipelineRuns={pipelineRuns}
+      apiUsage={apiUsage}
       now={now}
     />
   );

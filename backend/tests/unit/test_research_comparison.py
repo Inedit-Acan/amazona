@@ -8,22 +8,41 @@ lo que mide cuando no hay nada en común, y lo que mide cuando sí lo hay.
 
 import datetime
 
-from app.integrations.ports import CandidateSignals, Signal, SignalKind
+from app.integrations.ports import CandidateSignals, Signal, SignalBasis, SignalKind
 from app.research.comparison import compare, normalise, summarise
 
+#: Confianza por defecto según la base. Un fixture no llega alto porque no mide
+#: nada: es el mismo 0,3 que emite el mock de verdad (Milestone 37).
+_DEFAULT_CONFIDENCE = {
+    SignalBasis.MEASURED: 0.5,
+    SignalBasis.ESTIMATED: 0.5,
+    SignalBasis.SIMULATED: 0.3,
+}
 
-def signal(kind: SignalKind, value: float, *, simulated: bool, confidence: float = 0.5) -> Signal:
+#: Qué proveedor se atribuye a cada base. Los dos están registrados en la matriz
+#: de derechos con permiso para puntuar, para que estas pruebas midan lo que
+#: dicen medir y no los derechos de uso (ADR 0015).
+_PROVIDER_FOR = {
+    SignalBasis.MEASURED: "wikimedia-pageviews",
+    SignalBasis.ESTIMATED: "wikimedia-pageviews",
+    SignalBasis.SIMULATED: "fixtures",
+}
+
+
+def signal(
+    kind: SignalKind, value: float, *, basis: SignalBasis, confidence: float | None = None
+) -> Signal:
     return Signal(
         kind=kind,
         value=value,
-        confidence=confidence,
-        provider="fixtures" if simulated else "wikimedia-pageviews",
+        confidence=_DEFAULT_CONFIDENCE[basis] if confidence is None else confidence,
+        provider=_PROVIDER_FOR[basis],
         source="somewhere",
         query="term",
         market="us",
         observed_at=datetime.datetime.now(datetime.UTC),
         method="…",
-        simulated=simulated,
+        basis=basis,
     )
 
 
@@ -32,11 +51,11 @@ def mock_candidate(name: str) -> CandidateSignals:
         name=name,
         category="home",
         signals=[
-            signal(SignalKind.DEMAND, 0.7, simulated=True, confidence=0.3),
-            signal(SignalKind.COMPETITION, 0.2, simulated=True, confidence=0.3),
-            signal(SignalKind.FUTURE_OUTLOOK, 0.6, simulated=True, confidence=0.3),
-            signal(SignalKind.REGULATORY_RISK, 0.2, simulated=True, confidence=0.3),
-            signal(SignalKind.SCALABILITY, 0.8, simulated=True, confidence=0.3),
+            signal(SignalKind.DEMAND, 0.7, basis=SignalBasis.SIMULATED, confidence=0.3),
+            signal(SignalKind.COMPETITION, 0.2, basis=SignalBasis.SIMULATED, confidence=0.3),
+            signal(SignalKind.FUTURE_OUTLOOK, 0.6, basis=SignalBasis.SIMULATED, confidence=0.3),
+            signal(SignalKind.REGULATORY_RISK, 0.2, basis=SignalBasis.SIMULATED, confidence=0.3),
+            signal(SignalKind.SCALABILITY, 0.8, basis=SignalBasis.SIMULATED, confidence=0.3),
         ],
     )
 
@@ -46,8 +65,8 @@ def real_candidate(name: str, demand: float = 0.6) -> CandidateSignals:
         name=name,
         category="home",
         signals=[
-            signal(SignalKind.DEMAND, demand, simulated=False, confidence=0.65),
-            signal(SignalKind.FUTURE_OUTLOOK, 0.55, simulated=False, confidence=0.65),
+            signal(SignalKind.DEMAND, demand, basis=SignalBasis.MEASURED, confidence=0.65),
+            signal(SignalKind.FUTURE_OUTLOOK, 0.55, basis=SignalBasis.MEASURED, confidence=0.65),
         ],
     )
 

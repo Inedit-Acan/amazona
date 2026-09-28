@@ -12,17 +12,24 @@ Two jobs:
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 from app.ai.mock_ad_performance_directory import MockAdPerformanceDirectory
 from app.ai.mock_marketplace_directory import MockMarketplaceDirectory
 from app.ai.mock_regulatory_directory import MockRegulatoryDirectory
 from app.ai.mock_supplier_directory import MockSupplierDirectory
 from app.core.config import Settings, get_settings
-from app.integrations.ports import IntegrationDomain, ProviderKind
+from app.costs.service import CallMeter, UnmeteredCalls
+from app.integrations.ports import IntegrationDomain, ProductSignalProvider, ProviderKind
 from app.integrations.product_intelligence import (
     CompositeProductSignalProvider,
     MockProductSignalProvider,
     WikimediaPageviewsProvider,
+)
+from app.integrations.product_intelligence.ebay import (
+    PRODUCTION_HOST,
+    SANDBOX_HOST,
+    EbayBrowseProvider,
 )
 
 
@@ -39,6 +46,10 @@ class ProviderBinding:
     domain: IntegrationDomain
     kind: ProviderKind
     name: str
+    #: Las fuentes reales configuradas, en orden, cuando el dominio usa más de
+    #: una (Milestone 37). Vacío cuando no aplica: con una sola fuente el `name`
+    #: ya lo dice todo, y una lista de un elemento no añade nada.
+    sources: tuple[str, ...] = ()
 
     @property
     def is_simulated(self) -> bool:
@@ -54,18 +65,82 @@ class ProviderBinding:
 #: Every implementation the system knows about, per domain and kind. Real and
 #: sandbox adapters are added here as they are built (Milestone 34 onwards); an
 #: absent one is an error, never a silent downgrade to MOCK.
-def _wikimedia_provider(settings: Settings) -> WikimediaPageviewsProvider:
+def _wikimedia_provider(settings: Settings, meter: CallMeter) -> WikimediaPageviewsProvider:
     return WikimediaPageviewsProvider(
-        months=settings.wikimedia_months,
-        max_requests=settings.wikimedia_max_requests,
-        timeout=settings.wikimedia_timeout_seconds,
+        months=settings.wikimedia.months,
+        max_requests=settings.wikimedia.max_requests,
+        timeout=settings.wikimedia.timeout_seconds,
+        meter=meter,
     )
 
 
-def _composite_product_intelligence(settings: Settings) -> CompositeProductSignalProvider:
+def _ebay_provider(settings: Settings, meter: CallMeter) -> EbayBrowseProvider:
+    return EbayBrowseProvider(
+        client_id=settings.ebay.client_id,
+        client_secret=settings.ebay.client_secret,
+        host=PRODUCTION_HOST if settings.ebay.use_production else SANDBOX_HOST,
+        max_requests=settings.ebay.max_requests,
+        timeout=settings.ebay.timeout_seconds,
+        meter=meter,
+    )
+
+
+#: Los adaptadores reales de Product Intelligence, por su nombre estable — el
+#: mismo que cada señal persiste en `provider` (Milestone 37, ADR 0015).
+#:
+#: Que esto sea un diccionario y no una cadena de `if` es lo que hace reversible
+#: la elección de proveedor: añadir uno es añadir una entrada, y quitarlo es
+#: quitarla. Nada más arriba sabe cuántos hay ni cómo se llaman.
+REAL_PRODUCT_INTELLIGENCE_SOURCES: dict[str, Callable[[Settings, CallMeter], object]] = {
+    WikimediaPageviewsProvider.name: _wikimedia_provider,
+    EbayBrowseProvider.name: _ebay_provider,
+}
+
+
+class UnknownRealSourceError(RuntimeError):
+    """Se ha configurado una fuente real que no existe. Se avisa al arrancar, no
+    en la primera investigación: el mismo criterio que `ProviderNotAvailableError`
+    (ADR 0008 §3)."""
+
+
+def _real_sources(settings: Settings, meter: CallMeter) -> list[ProductSignalProvider]:
+    """Las fuentes reales configuradas, en el orden configurado."""
+    built: list[ProductSignalProvider] = []
+    for name in settings.product_intelligence_real_sources:
+        builder = REAL_PRODUCT_INTELLIGENCE_SOURCES.get(name)
+        if builder is None:
+            available = ", ".join(sorted(REAL_PRODUCT_INTELLIGENCE_SOURCES))
+            raise UnknownRealSourceError(
+                f"no real product intelligence adapter called {name!r}; available: {available}"
+            )
+        built.append(cast(ProductSignalProvider, builder(settings, meter)))
+    if not built:
+        raise UnknownRealSourceError(
+            "product_intelligence_real_sources is empty: a real provider with no sources "
+            "would answer nothing and look like a measurement of nothing"
+        )
+    return built
+
+
+def _real_product_intelligence(settings: Settings, meter: CallMeter) -> ProductSignalProvider:
+    """Lo que significa `real` cuando hay más de una fuente real (ADR 0015 §1).
+
+    Una sola fuente se usa directamente. Varias se componen **entre reales**: la
+    primera que da una señal manda y las siguientes rellenan lo que falte, igual
+    que en `composite` — pero aquí no hay fixtures de por medio, así que el
+    resultado **no es simulado** y sirve donde los datos simulados están
+    prohibidos (ADR 0008 §4).
+    """
+    sources = _real_sources(settings, meter)
+    if len(sources) == 1:
+        return sources[0]
+    return CompositeProductSignalProvider(sources)
+
+
+def _composite_product_intelligence(settings: Settings, meter: CallMeter) -> ProductSignalProvider:
     """Lo real primero, el relleno después (ADR 0008 y ADR 0012)."""
     return CompositeProductSignalProvider(
-        [_wikimedia_provider(settings), MockProductSignalProvider()]
+        [*_real_sources(settings, meter), MockProductSignalProvider()]
     )
 
 
@@ -73,8 +148,11 @@ def _composite_product_intelligence(settings: Settings) -> CompositeProductSigna
 #: de `IMPLEMENTATIONS` —que sigue siendo quien dice si un proveedor existe y
 #: cómo se llama— para que el nombre que aparece en el panel siga siendo el de
 #: la clase y no el de una función de fábrica.
-BUILDERS: dict[tuple[IntegrationDomain, ProviderKind], Callable[[Settings], object]] = {
-    (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.REAL): _wikimedia_provider,
+BUILDERS: dict[
+    tuple[IntegrationDomain, ProviderKind], Callable[[Settings, CallMeter], object]
+] = {
+    (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.REAL): _real_product_intelligence,
+    (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.SANDBOX): _real_product_intelligence,
     (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.COMPOSITE): _composite_product_intelligence,
 }
 
@@ -86,6 +164,9 @@ IMPLEMENTATIONS: dict[IntegrationDomain, dict[ProviderKind, Callable[..., object
     IntegrationDomain.PRODUCT_INTELLIGENCE: {
         ProviderKind.MOCK: MockProductSignalProvider,
         ProviderKind.REAL: WikimediaPageviewsProvider,
+        # El entorno de pruebas de eBay es lo que da contenido a `SANDBOX`, que
+        # desde la ADR 0008 era una casilla del enum sin nada detrás.
+        ProviderKind.SANDBOX: EbayBrowseProvider,
         ProviderKind.COMPOSITE: CompositeProductSignalProvider,
     },
     IntegrationDomain.SUPPLIERS: {ProviderKind.MOCK: MockSupplierDirectory},
@@ -112,12 +193,35 @@ class ProviderRegistry:
             raise ProviderNotAvailableError(
                 f"no {kind} provider exists for {domain}; available: {available or 'none'}"
             )
-        return ProviderBinding(domain=domain, kind=kind, name=factory.__name__)
+        return ProviderBinding(
+            domain=domain, kind=kind, name=factory.__name__, sources=self._sources_for(domain, kind)
+        )
+
+    def _sources_for(self, domain: IntegrationDomain, kind: ProviderKind) -> tuple[str, ...]:
+        """Qué fuentes reales hay detrás, cuando hay más de una.
+
+        Se publica para que el panel Estado pueda decir **quién** responde en vez
+        de suponerlo: con dos fuentes reales, «real» a secas ya no informa."""
+        if domain is not IntegrationDomain.PRODUCT_INTELLIGENCE:
+            return ()
+        if kind is ProviderKind.MOCK:
+            return ()
+        configured = tuple(self._settings.product_intelligence_real_sources)
+        return configured if len(configured) > 1 else ()
 
     def bindings(self) -> list[ProviderBinding]:
         return [self.binding_for(domain) for domain in IntegrationDomain]
 
-    def resolve(self, domain: IntegrationDomain) -> object:
+    def resolve(self, domain: IntegrationDomain, *, meter: CallMeter | None = None) -> object:
+        """El proveedor activo de un dominio.
+
+        `meter` es el contador de llamadas externas (Milestone 37, plan §25). Lo
+        inyecta quien tenga sesión de base de datos y `correlation_id` —el
+        servicio, no el agente—, porque un gasto sin ejecución a la que atribuirlo
+        no se puede auditar. Sin contador se usa `UnmeteredCalls`, que es lo
+        correcto en una prueba de unidad y lo que un montaje real no debe hacer:
+        hay un test que comprueba que el camino de producción sí lo inyecta.
+        """
         kind = self.kind_for(domain)
         factory = IMPLEMENTATIONS[domain].get(kind)
         if factory is None:
@@ -130,7 +234,7 @@ class ProviderRegistry:
         # devolvería un proveedor que no la respeta (Milestone 34).
         builder = BUILDERS.get((domain, kind))
         if builder is not None:
-            return builder(self._settings)
+            return builder(self._settings, meter or UnmeteredCalls())
         return factory()
 
     def simulated_domains(self) -> list[IntegrationDomain]:

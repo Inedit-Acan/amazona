@@ -20,7 +20,7 @@ devolvieron dos proveedores, sale el informe. Nada de base de datos.
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 
-from app.integrations.ports import CandidateSignals, SignalKind
+from app.integrations.ports import CandidateSignals, SignalBasis, SignalKind
 from app.integrations.product_intelligence.identity import resolve
 
 #: Las señales que el `opportunity_score` necesita. Se miran aparte porque su
@@ -58,8 +58,11 @@ class ProviderSummary:
     #: sustituye por cero: un proveedor sin señales no es un proveedor con
     #: confianza cero.
     mean_confidence: float | None = None
-    #: Cuántas de sus señales son medidas y cuántas relleno.
+    #: Cuántas de sus señales se observaron, cuántas se modelaron y cuántas se
+    #: inventaron (Milestone 37). Antes eran dos cifras y una estimación caía del
+    #: lado de «medida», que es justo lo que no es.
     measured_signals: int = 0
+    estimated_signals: int = 0
     simulated_signals: int = 0
 
 
@@ -85,8 +88,7 @@ class ComparisonReport:
 def summarise(provider: str, candidates: Sequence[CandidateSignals]) -> ProviderSummary:
     coverage: dict[str, int] = {}
     confidences: list[float] = []
-    measured = 0
-    simulated = 0
+    by_basis: dict[SignalBasis, int] = {basis: 0 for basis in SignalBasis}
     scorable = 0
 
     for candidate in candidates:
@@ -94,10 +96,7 @@ def summarise(provider: str, candidates: Sequence[CandidateSignals]) -> Provider
         for signal in candidate.signals:
             kinds.add(signal.kind)
             confidences.append(signal.confidence)
-            if signal.simulated:
-                simulated += 1
-            else:
-                measured += 1
+            by_basis[signal.basis] += 1
         for kind in kinds:
             coverage[kind.value] = coverage.get(kind.value, 0) + 1
         if all(candidate.signal(kind) is not None for kind in SCORING_SIGNALS):
@@ -109,8 +108,9 @@ def summarise(provider: str, candidates: Sequence[CandidateSignals]) -> Provider
         coverage=coverage,
         scorable=scorable,
         mean_confidence=round(sum(confidences) / len(confidences), 4) if confidences else None,
-        measured_signals=measured,
-        simulated_signals=simulated,
+        measured_signals=by_basis[SignalBasis.MEASURED],
+        estimated_signals=by_basis[SignalBasis.ESTIMATED],
+        simulated_signals=by_basis[SignalBasis.SIMULATED],
     )
 
 

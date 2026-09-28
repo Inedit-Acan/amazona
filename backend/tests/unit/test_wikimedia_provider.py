@@ -17,6 +17,7 @@ import json
 import httpx
 import pytest
 
+from app.costs.service import ApiBudgetExceededError
 from app.integrations.ports import SignalKind
 from app.integrations.product_intelligence.wikimedia import (
     PROVIDER_NAME,
@@ -394,3 +395,59 @@ def test_the_recorded_body_shape_is_the_real_one():
     # Trece visitas en un mes: medido, real y con poca confianza. Las tres cosas
     # a la vez, que es justo lo que el campo existe para poder decir.
     assert candidates[0].signal(SignalKind.DEMAND).confidence < 0.4
+
+
+# --- El contador de llamadas externas (Milestone 37, plan maestro §25) -------
+
+
+class CountingMeter:
+    """Un contador que apunta y, si se le dice, corta."""
+
+    def __init__(self, allowed: int = 99) -> None:
+        self.allowed = allowed
+        self.calls: list[tuple[str, str, int]] = []
+
+    def authorise(self, *, provider: str, operation: str, units: int = 1) -> None:
+        self.calls.append((provider, operation, units))
+        if len(self.calls) > self.allowed:
+            raise ApiBudgetExceededError("sin cuota")
+
+
+def test_every_request_passes_through_the_meter():
+    """Esta fuente no cuesta dinero y **sí** consume cuota: su especificación pide
+    no pasar de 200 peticiones por segundo. Contar lo gratuito también es el
+    trabajo del libro de costes."""
+    meter = CountingMeter()
+    provider = WikimediaPageviewsProvider(
+        client_returning(always(200, series_body([100] * 12))), today=TODAY, meter=meter
+    )
+
+    provider.discover(category="home", keywords=[], market="us", max_results=3)
+
+    assert [operation for _provider, operation, _units in meter.calls] == [
+        "pageviews/per-article"
+    ] * 3
+    assert all(name == PROVIDER_NAME for name, _operation, _units in meter.calls)
+
+
+def test_an_exhausted_quota_produces_absence_not_a_zero():
+    """Lo mismo que un 404 o un timeout: sin dato. Un cero se leería como «no hay
+    interés» cuando lo cierto es «no lo sabemos»."""
+    meter = CountingMeter(allowed=1)
+    provider = WikimediaPageviewsProvider(
+        client_returning(always(200, series_body([100] * 12))), today=TODAY, meter=meter
+    )
+
+    candidates = provider.discover(category="home", keywords=[], market="us", max_results=3)
+
+    assert len(candidates) == 1
+
+
+def test_without_a_meter_it_still_works_for_a_unit_test():
+    """`UnmeteredCalls` es el valor por defecto documentado: en un montaje real lo
+    inyecta el registro, y hay un test aparte que lo comprueba."""
+    provider = WikimediaPageviewsProvider(
+        client_returning(always(200, series_body([100] * 12))), today=TODAY
+    )
+
+    assert provider.discover(category="home", keywords=[], market="us", max_results=1)

@@ -241,6 +241,7 @@ separados, colas) — no se usa activamente hoy.
 | [0012](adr-0012-product-intelligence-adapters.md) | El contrato son señales con procedencia; primer adaptador real (proxy declarado), y ante un fallo ausencia en vez de cero |
 | [0013](adr-0013-signal-evidence-and-comparison.md) | La evidencia de cada señal se persiste en filas; comparar es contrastar qué sabe cada proveedor, no restar cifras que no hablan de lo mismo |
 | [0014](adr-0014-entity-resolution.md) | Dos nombres son el mismo producto por normalización determinista o por alias declarado, nunca por parecido; y cada fusión guarda su motivo |
+| [0015](adr-0015-multiple-real-sources-cost-and-usage-rights.md) | `real` con varias fuentes es un compuesto entre reales; medido ≠ estimado ≠ simulado; cada llamada externa se cuenta y lo que la licencia no autoriza no se usa |
 
 ## 9. Índice de milestones
 
@@ -271,6 +272,7 @@ separados, colas) — no se usa activamente hoy.
 | [34](../milestones/milestone-34-demo.md) | Señales con procedencia y el primer adaptador real de Product Intelligence (§16) |
 | [35](../milestones/milestone-35-demo.md) | La evidencia mensual detrás de cada señal y el informe de contraste contra el mock (§16.5) |
 | [36](../milestones/milestone-36-demo.md) | Cuándo dos nombres son el mismo producto: identidad determinista o declarada, y sin duplicar filas por ejecución (§16.6) |
+| [37](../milestones/milestone-37-demo.md) | Varias fuentes reales, el libro de coste del §25, y qué permite la licencia de cada proveedor (§16.7, §17) |
 
 ## 10. Cómo verlo funcionar
 
@@ -742,7 +744,76 @@ Tres consecuencias más que conviene tener presentes, con su detalle en el
   acumulan sobre esa fila. El mismo término bajo dos categorías sigue siendo dos
   productos, porque la categoría viene de la petición y no de la fuente.
 
-## 17. Pendientes de integración
+### 16.7 Varias fuentes reales, y qué permite cada licencia (Milestone 37)
+
+**Medido, estimado y simulado son tres cosas.** Hasta aquí una señal era «simulada o
+no», y eso juntaba un número que una fuente **observó** con uno que una fuente
+**modeló**. Los dos vienen del mundo y no valen lo mismo. `SignalBasis` los separa,
+con techo de confianza por base —1,0 medido, 0,6 estimado, 0,4 fixture— que **falla
+al construir la señal** si se excede en vez de recortarse en silencio, y con orden de
+preferencia: lo medido gana a lo estimado, y lo estimado a lo inventado.
+
+**`real` con varias fuentes es un compuesto entre reales.** Una lista ordenada de
+nombres de adaptador: el primero que da una señal manda, los siguientes rellenan lo
+que falte, y como no hay fixtures de por medio el resultado **no es simulado** y
+sirve donde los datos simulados están prohibidos. `composite` sigue significando lo
+que significaba. Una fuente configurada que no existe, o una lista vacía, abortan el
+arranque.
+
+**Tener el dato no es tener permiso.** Una matriz por proveedor declara ocho usos
+—almacenamiento, retención, transformación, métricas derivadas, scoring, IA/LLM,
+redistribución, uso comercial— más la atribución, con su fuente y su fecha. **Lo que
+no se sabe no se permite**: `UNKNOWN` pesa igual que `DENIED` para actuar, y se
+distingue solo para saber qué queda por leer. Se aplica donde importa: una señal cuya
+licencia no permite puntuar **no entra en el score** y se dice quién la retuvo; una
+cuya licencia no permite almacenar **no se persiste** y la auditoría lo cuenta.
+
+**eBay Browse entra como adaptador de referencia y sus datos no se usan.** Es la
+primera señal de competencia **medida** del sistema —el hueco que impedía puntuar—,
+es gratis, tiene sandbox y cubre varios mercados. Pero su contrato define «Restricted
+APIs» por lo que la API aporta, y no se ha podido determinar si Browse entra ahí, así
+que casi toda su fila está sin resolver y sus señales se leen sin guardarse ni
+puntuar. El razonamiento completo, en la
+[ADR 0015](adr-0015-multiple-real-sources-cost-and-usage-rights.md).
+
+Y `ProviderKind.SANDBOX`, que desde la ADR 0008 era una casilla del enum sin nada
+detrás, resuelve ahora a los mismos adaptadores contra su host de pruebas.
+
+## 17. El coste de las llamadas externas (Milestone 37)
+
+El plan maestro §25 lo pide **antes** de introducir LLM o APIs comerciales, y la
+secuencia del §32 no lo programó en ningún milestone: `provider, operation, units,
+estimated_cost, actual_cost, currency, correlation_id` con límites por proveedor,
+ejecución y día.
+
+`external_api_costs` guarda esos siete campos más `unit` —qué se cuenta: «8 unidades»
+sin decir de qué no es un dato—, `outcome` y `denied_reason`. **Una denegación deja
+fila igual que un permiso**: es lo que explica por qué una investigación volvió sin
+señales, y sin ella el sistema parecería averiado en vez de prudente. `actual_cost` es
+nulable y **nulo no es cero**: es que el proveedor todavía no ha dicho lo que cobró.
+
+Tres reglas gobiernan si una llamada se hace:
+
+- **Un proveedor de pago sin límite de gasto autorizado no se llama.** El presupuesto
+  no se hereda de ninguna parte, y un proveedor sin política de coste escrita se trata
+  como de pago.
+- **Gratis no es lo mismo que sin límite.** eBay publica 5.000 llamadas al día,
+  Wikimedia pide no pasar de 200 por segundo, y esas cuotas se respetan aunque el
+  precio sea cero.
+- **Cuando no cabe, no hay señal.** Nunca un cero (ADR 0012 §4).
+
+La decisión es una función pura, al estilo de `evaluate_action`; el contador que la
+consulta y apunta el resultado **se inyecta** desde quien tiene sesión y
+`correlation_id`, porque un gasto sin ejecución a la que atribuirlo no se puede
+auditar. `GET /api/costs/api-usage` lo publica —consumido, cuota, estimado, cobrado,
+autorizado y denegaciones— y el panel Estado lo enseña sin rellenar con demostración
+cuando la petición falla.
+
+Está **separado del ActionGate** a propósito: aquél gobierna publicar, anunciar y
+gastar dinero del negocio; esto es infraestructura con sus propias ventanas. Los dos
+los leerá el CFO más adelante.
+
+## 18. Pendientes de integración
 
 Cuatro comprobaciones que **no se pueden cerrar en esta máquina** y que no
 pertenecen a ningún milestone concreto: son deuda de verificación, no de código.

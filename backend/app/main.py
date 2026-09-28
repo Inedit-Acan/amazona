@@ -9,6 +9,7 @@ from app.api import (
     approvals,
     audit,
     cfo,
+    costs,
     decisions,
     ecommerce,
     economics,
@@ -198,6 +199,10 @@ app.include_router(approvals.router, dependencies=BUSINESS)
 # the one router with a narrower rule.
 app.include_router(audit.router, dependencies=[Depends(authorize(ApiAction.AUDIT_READ))])
 app.include_router(monitoring.router, dependencies=BUSINESS)
+# El gasto en APIs externas es diagnóstico del despliegue —cuánta cuota
+# consume— y no dato de negocio: la misma categoría que /health/detailed, que
+# ya publica qué proveedor responde en cada dominio (Milestone 37).
+app.include_router(costs.router)
 app.include_router(research.router, dependencies=BUSINESS)
 app.include_router(products.router, dependencies=BUSINESS)
 app.include_router(sourcing.router, dependencies=BUSINESS)

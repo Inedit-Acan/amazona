@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -54,10 +54,18 @@ class ProductSignal(IdMixin, Base):
     #: es donde se dice que unas visitas a una enciclopedia son un proxy de
     #: interés y no demanda de compra.
     method: Mapped[str] = mapped_column(Text)
-    #: Cómo volver al dato crudo: una URL, una clave de fixture.
+    #: Cómo volver al dato crudo: una URL, una clave de fixture. **Una
+    #: referencia, no el cuerpo de la respuesta**: guardar el payload entero
+    #: metería identidades de vendedores —datos personales, con deberes de
+    #: borrado— en una tabla de métricas (Milestone 37, ADR 0015).
     raw_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    #: Si es relleno. Nunca se deduce del nombre del proveedor.
-    simulated: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    #: `measured`, `estimated` o `simulated` (Milestone 37, ADR 0015).
+    #:
+    #: Sustituye al booleano `simulated`, que juntaba dos cosas distintas: un
+    #: número que una fuente **observó** y uno que una fuente **modeló**. Las dos
+    #: vienen del mundo y no valen lo mismo, y presentar una estimación como una
+    #: medición es la misma clase de mentira que presentar un fixture como dato.
+    basis: Mapped[str] = mapped_column(String(16), default="measured", index=True)
 
     correlation_id: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

@@ -2,8 +2,10 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.costs.policy import SpendLimit
 from app.integrations.ports import IntegrationDomain, ProviderKind
 
 # Anchored to backend/.env regardless of the process's current working
@@ -40,8 +42,51 @@ class Environment(StrEnum):
 _ENFORCING = frozenset({Environment.STAGING, Environment.PRODUCTION})
 
 
+class WikimediaSettings(BaseModel):
+    """Ajustes del adaptador de Wikimedia Pageviews (Milestone 34).
+
+    El tope de peticiones existe por el arriendo de 60 s del runtime (ADR 0009):
+    la investigación corre dentro de un trabajo, y una categoría con muchos
+    términos no puede acercarse a ese límite.
+    """
+
+    months: int = 12
+    max_requests: int = 8
+    timeout_seconds: float = 6.0
+
+
+class EbaySettings(BaseModel):
+    """Ajustes del adaptador de eBay Browse (Milestone 37).
+
+    Las claves son de un **keyset de desarrollador gratuito**: no hay nada que
+    pagar y no hace falta cuenta de vendedor. Vacías por defecto, y configurar
+    eBay como fuente real sin ellas falla al arrancar en vez de fallar a mitad de
+    una investigación (ADR 0008 §4).
+    """
+
+    client_id: str = ""
+    client_secret: str = ""
+    #: `false` apunta al entorno de pruebas de eBay. Es lo que da contenido real a
+    #: `ProviderKind.SANDBOX`, que hasta el Milestone 37 era una casilla vacía.
+    use_production: bool = True
+    max_requests: int = 8
+    timeout_seconds: float = 6.0
+
+
+class SpendLimitSettings(BaseModel):
+    """Lo autorizado para un proveedor. Cualquier campo a `None` es «sin techo
+    por esa vía», no «cero»."""
+
+    currency: str = "EUR"
+    max_cost_per_run: float | None = None
+    max_cost_per_day: float | None = None
+    max_units_per_day: int | None = None
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE, extra="ignore", env_nested_delimiter="__"
+    )
 
     environment: Environment = Environment.DEVELOPMENT
     log_level: str = "INFO"
@@ -63,13 +108,25 @@ class Settings(BaseSettings):
     # decisión operativa, así que staging y production se niegan a arrancar con
     # ellas (ADR 0008).
     product_intelligence_provider: ProviderKind = ProviderKind.MOCK
-    #: Ajustes del adaptador real de Product Intelligence (Milestone 34). El
-    #: tope de peticiones existe por el arriendo de 60 s del runtime (ADR 0009):
-    #: la investigación corre dentro de un trabajo, y una categoría con muchos
-    #: términos no puede acercarse a ese límite.
-    wikimedia_months: int = 12
-    wikimedia_max_requests: int = 8
-    wikimedia_timeout_seconds: float = 6.0
+    #: Qué fuentes reales se usan y **en qué orden** cuando el dominio está en
+    #: `real` o `composite` (Milestone 37, ADR 0015). Son nombres de adaptador, no
+    #: clases: quitar un proveedor es quitarlo de esta lista, que es lo que hace
+    #: reversible la elección.
+    #:
+    #: El orden es el de preferencia: el primero que dé una señal de un tipo
+    #: manda, y los siguientes solo rellenan lo que falte (ADR 0012 §6).
+    product_intelligence_real_sources: list[str] = ["wikimedia-pageviews"]
+    #: Ajustes por proveedor, cada uno en su espacio de nombres
+    #: (`WIKIMEDIA__MONTHS`, `EBAY__CLIENT_ID`). Antes vivían sueltos en este
+    #: objeto —`wikimedia_months`—, y con dos proveedores eso se convierte en un
+    #: cajón desastre donde no se sabe qué ajuste es de quién.
+    wikimedia: WikimediaSettings = WikimediaSettings()
+    ebay: EbaySettings = EbaySettings()
+    #: Lo que el propietario **ha autorizado** gastar, por proveedor. Vacío
+    #: significa que no hay autorización, y sin autorización un proveedor de pago
+    #: no se llama (plan maestro §25). No se escribe aquí ningún techo futuro:
+    #: esto se rellena por configuración el día que haya una decisión de gasto.
+    api_spend_limits: dict[str, SpendLimitSettings] = {}
     suppliers_provider: ProviderKind = ProviderKind.MOCK
     regulatory_provider: ProviderKind = ProviderKind.MOCK
     ads_provider: ProviderKind = ProviderKind.MOCK
@@ -116,6 +173,20 @@ class Settings(BaseSettings):
             IntegrationDomain.REGULATORY: self.regulatory_provider,
             IntegrationDomain.ADS: self.ads_provider,
             IntegrationDomain.MARKETPLACES: self.marketplaces_provider,
+        }
+
+    @property
+    def spend_limits(self) -> dict[str, SpendLimit]:
+        """Los límites autorizados, en la forma que entiende la función pura."""
+        return {
+            provider: SpendLimit(
+                provider=provider,
+                currency=limit.currency,
+                max_cost_per_run=limit.max_cost_per_run,
+                max_cost_per_day=limit.max_cost_per_day,
+                max_units_per_day=limit.max_units_per_day,
+            )
+            for provider, limit in self.api_spend_limits.items()
         }
 
     @property

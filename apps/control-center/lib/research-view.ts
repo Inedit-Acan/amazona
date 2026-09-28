@@ -69,9 +69,12 @@ export interface ResearchRow {
   /** Otros nombres que se resolvieron a este producto (Milestone 36). Vacío
    * cuando siempre llegó igual: no hubo nada que resolver. */
   alsoKnownAs: ProductAlias[];
+  /** Proveedores cuya señal existe y cuya licencia no permite puntuar con ella
+   * (Milestone 37). Vacío es lo normal. */
+  scoringWithheldFrom: string[];
 }
 
-export type SignalProvenance = "real" | "mixed" | "simulated" | "demo";
+export type SignalProvenance = "real" | "estimated" | "mixed" | "simulated" | "demo";
 
 /** Por qué dos nombres son el mismo producto, en palabras (Milestone 36).
  *
@@ -86,6 +89,20 @@ export function identityMethodLabel(method: string): string {
     return "misma escritura";
   }
   return method;
+}
+
+/** Por qué esta fila no tiene score, cuando el motivo es una licencia
+ * (Milestone 37, ADR 0015).
+ *
+ * Se dice porque un score ausente sin explicación es indistinguible de una
+ * avería: quien mira tiene que poder saber que el número existe y que lo que
+ * falta es el permiso para usarlo. */
+export function scoringWithheldNote(providers: string[]): string | null {
+  if (providers.length === 0) {
+    return null;
+  }
+  const list = providers.join(", ");
+  return `Sin score: la licencia de ${list} no permite puntuar con sus señales`;
 }
 
 /** La nota de identidad de una fila, o null si no hay nada que contar. */
@@ -165,6 +182,7 @@ export function buildRows(products: Product[], candidates: ResearchCandidate[]):
       },
       isDemo: !candidate,
       alsoKnownAs: product.also_known_as ?? [],
+      scoringWithheldFrom: d.scoring_withheld_from ?? [],
     };
   });
   return rows.sort((a, b) => b.score - a.score);
@@ -214,6 +232,12 @@ export function signalsMode(rows: ResearchRow[]): { label: string; status: "veri
   if (kinds.has("simulated") || kinds.has("mixed")) {
     return { label: "Mixto (parte medido, parte relleno)", status: "mixed" };
   }
+  // Milestone 37: una estimación viene del mundo, así que no es «simulación», y
+  // tampoco es una medición. Decir «real» de un conjunto estimado le daría el
+  // crédito de algo observado.
+  if (kinds.has("estimated")) {
+    return { label: "Estimado (modelado por el proveedor, no observado)", status: "mixed" };
+  }
   return { label: "Real (señales medidas)", status: "verified" };
 }
 
@@ -244,7 +268,12 @@ export function realInterestSeries(candidates: ResearchCandidate[], months: numb
   const byProvider = new Map<string, Map<string, number>>();
   for (const candidate of candidates) {
     for (const signal of candidate.data.signals ?? []) {
-      if (signal.simulated || !signal.observations?.length || signal.kind !== "demand") continue;
+      // Solo lo **medido** entra en este gráfico. Una estimación viene del mundo
+      // y no es una observación, así que mezclarla con las que sí lo son daría
+      // una serie que no se puede leer (Milestone 37, y el mismo criterio que la
+      // ADR 0013 §6 aplicó a lo medido frente a lo inventado).
+      if (signal.basis !== "measured" || !signal.observations?.length || signal.kind !== "demand")
+        continue;
       const periods = byProvider.get(signal.provider) ?? new Map<string, number>();
       for (const observation of signal.observations) {
         periods.set(observation.period, (periods.get(observation.period) ?? 0) + observation.value);

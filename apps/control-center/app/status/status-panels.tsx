@@ -21,7 +21,8 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import type { Job, JobStatus, PipelineRun } from "@/lib/api";
+import type { ApiProviderUsage, Job, JobStatus, PipelineRun, ProviderBinding } from "@/lib/api";
+import { apiUsageSummary, buildApiUsageRows } from "@/lib/api-usage-view";
 import { jobCounts, jobRows, queueVerdict, workerSeen } from "@/lib/jobs-view";
 import {
   RUN_STATUS_LABEL,
@@ -979,6 +980,100 @@ export function JobRuntimeCard({
                     </span>
                   ) : null}
                 </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Proveedores externos: quién responde y cuánta cuota consume (Milestone 37,
+ * plan maestro §25).
+ *
+ * Esta tarjeta es de datos **reales** en las dos mitades: la lista de proveedores
+ * activos viene de `/health/detailed` y el consumo de `/api/costs/api-usage`. Si
+ * la petición falla no se rellena con demostración — un gasto inventado es peor
+ * que un gasto desconocido. */
+export function ExternalApiUsageCard({
+  bindings,
+  usage,
+}: {
+  /** `null` = la petición de salud falló. */
+  bindings: ProviderBinding[] | null;
+  /** `null` = la petición de consumo falló. No es lo mismo que «cero llamadas». */
+  usage: ApiProviderUsage[] | null;
+}) {
+  const rows = usage === null ? null : buildApiUsageRows(usage);
+  const summary = usage === null ? null : apiUsageSummary(usage);
+  const productIntelligence = bindings?.find((binding) => binding.domain === "product_intelligence");
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader>
+        <CardTitle>Proveedores externos y consumo</CardTitle>
+        <CardAction>
+          {summary ? (
+            <span className="text-xs text-muted-foreground tabular-nums">{summary}</span>
+          ) : (
+            <DataProvenanceBadge status="pending" compact tooltip="El backend no ha respondido al consumo de APIs." />
+          )}
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Quién responde en Product Intelligence. Con dos fuentes reales, «real»
+            a secas ya no informa (Milestone 37). */}
+        {productIntelligence ? (
+          <p className="text-xs text-muted-foreground">
+            Product Intelligence:{" "}
+            <span className="text-foreground">
+              {productIntelligence.sources?.length
+                ? productIntelligence.sources.join(" → ")
+                : productIntelligence.name}
+            </span>
+            {productIntelligence.simulated ? " (puede servir datos simulados)" : null}
+          </p>
+        ) : null}
+
+        {rows === null ? (
+          <p className="text-xs text-muted-foreground">
+            No se ha podido leer el consumo. No se enseña un cero: sería inventado.
+          </p>
+        ) : (
+          <ul className="space-y-2.5">
+            {rows.map((row) => (
+              <li key={row.provider} className="space-y-1">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="min-w-0 truncate">
+                    {row.provider} <span className="text-muted-foreground">· {row.pricingLabel}</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{row.consumption}</span>
+                </div>
+                {row.quotaPercent === null ? null : (
+                  <div className="h-1 rounded-full bg-muted">
+                    <div
+                      className={cn(
+                        "h-full rounded-full",
+                        row.quotaStatus === "agotado"
+                          ? "bg-destructive"
+                          : row.quotaStatus === "ajustado"
+                            ? "bg-warning"
+                            : "bg-primary",
+                      )}
+                      style={{ width: `${Math.max(row.quotaPercent, 1)}%` }}
+                    />
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  {row.estimatedCost} estimados
+                  {row.actualCost ? ` · ${row.actualCost} cobrados` : " · sin coste comunicado por el proveedor"}
+                  {" · "}
+                  {row.authorisation}
+                </p>
+                {row.deniedLabel ? (
+                  <p className="text-[11px] text-warning">{row.deniedLabel}</p>
+                ) : null}
               </li>
             ))}
           </ul>

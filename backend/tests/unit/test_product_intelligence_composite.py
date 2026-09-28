@@ -10,23 +10,26 @@ import datetime
 
 import pytest
 
-from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalKind
+from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalBasis, SignalKind
 from app.integrations.product_intelligence.composite import CompositeProductSignalProvider
 from app.integrations.product_intelligence.mock import MockProductSignalProvider
 
 
-def signal(kind: SignalKind, *, simulated: bool, value: float = 0.5) -> Signal:
+def signal(kind: SignalKind, *, basis: SignalBasis, value: float = 0.5) -> Signal:
+    fixture = basis is SignalBasis.SIMULATED
     return Signal(
         kind=kind,
         value=value,
-        confidence=0.7 if not simulated else 0.3,
-        provider="fixtures" if simulated else "wikimedia-pageviews",
-        source="fixtures" if simulated else "wikimedia.org",
+        # Un fixture no puede declarar la confianza de una medición: lo impide el
+        # techo por base (Milestone 37).
+        confidence=0.3 if fixture else 0.7 if basis is SignalBasis.MEASURED else 0.6,
+        provider="fixtures" if fixture else "wikimedia-pageviews",
+        source="fixtures" if fixture else "wikimedia.org",
         query="term",
         market="us",
         observed_at=datetime.datetime.now(datetime.UTC),
         method="…",
-        simulated=simulated,
+        basis=basis,
     )
 
 
@@ -47,7 +50,7 @@ def real_candidate(name: str = "Air fryer") -> CandidateSignals:
     return CandidateSignals(
         name=name,
         category="home",
-        signals=[signal(SignalKind.DEMAND, simulated=False, value=0.8)],
+        signals=[signal(SignalKind.DEMAND, basis=SignalBasis.MEASURED, value=0.8)],
     )
 
 
@@ -56,8 +59,8 @@ def filler_candidate(name: str = "Air fryer") -> CandidateSignals:
         name=name,
         category="home",
         signals=[
-            signal(SignalKind.DEMAND, simulated=True, value=0.2),
-            signal(SignalKind.COMPETITION, simulated=True, value=0.5),
+            signal(SignalKind.DEMAND, basis=SignalBasis.SIMULATED, value=0.2),
+            signal(SignalKind.COMPETITION, basis=SignalBasis.SIMULATED, value=0.5),
         ],
     )
 

@@ -7,7 +7,7 @@ from app.agents.marketing_campaign import MarketingCampaignAgent
 from app.agents.marketplace_listing import MarketplaceListingAgent
 from app.agents.product_research import ProductResearchAgent
 from app.agents.supplier_sourcing import SupplierSourcingAgent
-from app.core.config import Environment, Settings
+from app.core.config import Environment, Settings, WikimediaSettings
 from app.integrations.ports import PORT_FOR_DOMAIN, IntegrationDomain, ProviderKind
 from app.integrations.registry import (
     IMPLEMENTATIONS,
@@ -190,8 +190,9 @@ def test_the_real_adapter_takes_its_limits_from_configuration():
     settings = settings_for(
         Environment.DEVELOPMENT,
         product_intelligence_provider=ProviderKind.REAL,
-        wikimedia_max_requests=3,
-        wikimedia_months=6,
+        # Milestone 37: los ajustes de cada adaptador viven en su propio espacio
+        # de nombres, no sueltos en el objeto de configuración.
+        wikimedia=WikimediaSettings(max_requests=3, months=6),
     )
 
     provider = ProviderRegistry(settings).resolve(IntegrationDomain.PRODUCT_INTELLIGENCE)

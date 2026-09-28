@@ -26,11 +26,13 @@ from urllib.parse import quote
 
 import httpx
 
+from app.costs.service import ApiBudgetExceededError, CallMeter, UnmeteredCalls
 from app.integrations.ports import (
     CandidateSignals,
     Observation,
     ProductSignalProvider,
     Signal,
+    SignalBasis,
     SignalKind,
 )
 from app.integrations.product_intelligence.terms import terms_for
@@ -39,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 PROVIDER_NAME = "wikimedia-pageviews"
 SOURCE = "wikimedia.org/api/rest_v1/metrics/pageviews"
+#: Qué operación se anota en el libro de costes (Milestone 37).
+OPERATION = "pageviews/per-article"
 BASE_URL = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article"
 
 #: Wikimedia pide identificarse. Una petición anónima es la que acaba bloqueada,
@@ -158,12 +162,18 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
         max_requests: int = DEFAULT_MAX_REQUESTS,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         today: datetime.date | None = None,
+        meter: CallMeter | None = None,
     ) -> None:
         self._client = client
         self._months = months
         self._max_requests = max_requests
         self._timeout = timeout
         self._today = today
+        #: El contador de llamadas externas (Milestone 37, plan §25). Esta fuente
+        #: no cuesta dinero y **sí consume cuota**: su propia especificación pide
+        #: no pasar de 200 peticiones por segundo. Contar lo gratuito también es
+        #: el trabajo del libro de costes.
+        self._meter = meter or UnmeteredCalls()
 
     def supports(self) -> frozenset[SignalKind]:
         return frozenset({SignalKind.DEMAND, SignalKind.FUTURE_OUTLOOK})
@@ -212,6 +222,12 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
         """
         article = quote(term.replace(" ", "_"), safe="")
         url = f"{BASE_URL}/{project}/all-access/user/{article}/monthly/{start}/{end}"
+        try:
+            self._meter.authorise(provider=PROVIDER_NAME, operation=OPERATION, units=1)
+        except ApiBudgetExceededError as exc:
+            logger.warning("wikimedia request not authorised for %r: %s", term, exc)
+            return None, url
+
         try:
             response = client.get(url, headers={"User-Agent": USER_AGENT})
         except httpx.HTTPError as exc:
@@ -269,7 +285,7 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
                 observed_at=observed_at,
                 method=_DEMAND_METHOD.format(months=self._months),
                 raw_reference=url,
-                simulated=False,
+                basis=SignalBasis.MEASURED,
                 observations=observations,
             )
         ]
@@ -288,7 +304,7 @@ class WikimediaPageviewsProvider(ProductSignalProvider):
                     observed_at=observed_at,
                     method=_OUTLOOK_METHOD,
                     raw_reference=url,
-                    simulated=False,
+                    basis=SignalBasis.MEASURED,
                     observations=observations,
                 )
             )

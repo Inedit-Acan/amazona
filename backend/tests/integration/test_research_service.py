@@ -10,7 +10,7 @@ from app.db.models.audit import AuditLog
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.product_identity_alias import ProductIdentityAlias
-from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalKind
+from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalBasis, SignalKind
 from app.integrations.product_intelligence.identity import ALIAS, NORMALISED, resolve
 from app.research.service import ResearchService
 
@@ -56,7 +56,7 @@ class _OneNamed(ProductSignalProvider):
                         market=market,
                         observed_at=datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC),
                         method="monthly pageviews… PROXY FOR INTEREST — not purchase demand",
-                        simulated=False,
+                        basis=SignalBasis.MEASURED,
                     )
                 ],
             )

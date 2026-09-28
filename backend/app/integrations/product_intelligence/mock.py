@@ -9,7 +9,13 @@ indistinguibles en la base de datos; ese era el problema que este milestone paga
 import datetime
 
 from app.ai.mock_trends_provider import MockTrendsProvider
-from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalKind
+from app.integrations.ports import (
+    CandidateSignals,
+    ProductSignalProvider,
+    Signal,
+    SignalBasis,
+    SignalKind,
+)
 
 PROVIDER_NAME = "fixtures"
 SOURCE = "app/ai/mock_trends_provider.py"
@@ -111,5 +117,5 @@ class MockProductSignalProvider(ProductSignalProvider):
             observed_at=observed_at,
             method=_METHOD,
             raw_reference=f"{SOURCE}#{query}",
-            simulated=True,
+            basis=SignalBasis.SIMULATED,
         )

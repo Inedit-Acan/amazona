@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { ArrowRight, Bell, Boxes, CircleAlert, Code2, Gauge, ListChecks, ShieldCheck } from "lucide-react";
-import type { Agent, AgentExecution, Incident, Job, PipelineRun } from "@/lib/api";
+import type { Agent, AgentExecution, ApiProviderUsage, Incident, Job, PipelineRun } from "@/lib/api";
 import { teamOf } from "@/lib/agents";
 import { demoExecutions } from "@/lib/demo/agents";
 import { relativeTime } from "@/lib/dates";
@@ -35,6 +35,7 @@ import {
   CronCard,
   DatabaseCard,
   DeploymentsCard,
+  ExternalApiUsageCard,
   IncidentsCard,
   IntegrationsCard,
   JobRuntimeCard,
@@ -57,6 +58,7 @@ export function StatusWorkspace({
   incidents,
   jobs,
   pipelineRuns,
+  apiUsage,
   now,
 }: {
   signal: HealthSignal;
@@ -68,6 +70,9 @@ export function StatusWorkspace({
   jobs: Job[] | null;
   /** null = la petición falló. Igual que la cola, no se rellena con demo. */
   pipelineRuns: PipelineRun[] | null;
+  /** null = la petición falló. No es lo mismo que «cero llamadas hoy», y la
+   * tarjeta lo dice en vez de enseñar ceros (Milestone 37). */
+  apiUsage: ApiProviderUsage[] | null;
   now: number;
 }) {
   // Mismo criterio que la pantalla de Agentes: si el log está vacío se usan las
@@ -222,6 +227,13 @@ export function StatusWorkspace({
           now={now}
         />
         <CostCard lines={costs} />
+      </section>
+
+      {/* Proveedores externos y consumo real de cuota (Milestone 37, plan §25).
+          Las dos mitades son datos reales: quién responde sale de
+          /health/detailed y el consumo de /api/costs/api-usage. */}
+      <section className="grid gap-3" aria-label="Proveedores externos y consumo de APIs">
+        <ExternalApiUsageCard bindings={signal.health.providers ?? null} usage={apiUsage} />
       </section>
 
       <p className="text-[11px] text-muted-foreground">

@@ -4,6 +4,7 @@ import type { Product, ResearchCandidate } from "./api.ts";
 import {
   alsoKnownAsNote,
   buildRows,
+  scoringWithheldNote,
   comparisonView,
   demandLevel,
   identityMethodLabel,
@@ -192,7 +193,7 @@ function measuredCandidate(
           observed_at: "2026-09-01T00:00:00Z",
           method: "PROXY FOR INTEREST",
           raw_reference: "https://wikimedia.org/…",
-          simulated: false,
+          basis: "measured",
           observations,
         },
       ],
@@ -238,10 +239,17 @@ test("las observaciones de varios candidatos se suman por periodo", () => {
 
 test("una señal simulada nunca entra en la serie real", () => {
   const candidate = measuredCandidate("p-1", [{ period: "2026-08", value: 100 }]);
-  (candidate.data.signals as { simulated: boolean }[])[0].simulated = true;
+  candidate.data.signals![0].basis = "simulated";
 
   assert.equal(realInterestSeries([candidate], 12), null);
   assert.equal(interestChart([candidate], DEMO_SOURCES, 12).provenance, "demo");
+});
+
+test("una estimación tampoco entra: viene del mundo y no es una observación", () => {
+  const candidate = measuredCandidate("p-1", [{ period: "2026-08", value: 100 }]);
+  candidate.data.signals![0].basis = "estimated";
+
+  assert.equal(realInterestSeries([candidate], 12), null);
 });
 
 test("la serie respeta el periodo elegido", () => {
@@ -372,4 +380,40 @@ test("buildRows: un producto sin identidad resuelta no inventa nombres", () => {
   const [row] = buildRows([product("p-plain")], []);
 
   assert.deepEqual(row.alsoKnownAs, []);
+});
+
+// --- Licencias que impiden puntuar (Milestone 37) ---------------------------
+
+test("scoringWithheldNote: sin nada retenido no hay nota", () => {
+  assert.equal(scoringWithheldNote([]), null);
+});
+
+test("scoringWithheldNote: dice quién impide puntuar, no que falte el dato", () => {
+  assert.equal(
+    scoringWithheldNote(["ebay-browse"]),
+    "Sin score: la licencia de ebay-browse no permite puntuar con sus señales",
+  );
+});
+
+test("buildRows: lo retenido por licencia llega a la fila", () => {
+  const [row] = buildRows(
+    [PRODUCT],
+    [candidateFor("p-1", { scoring_withheld_from: ["ebay-browse"], demand_signal: 0.7 })],
+  );
+
+  assert.deepEqual(row.scoringWithheldFrom, ["ebay-browse"]);
+});
+
+test("buildRows: lo normal es que no haya nada retenido", () => {
+  const [row] = buildRows([PRODUCT], [candidateFor("p-1", { demand_signal: 0.7 })]);
+
+  assert.deepEqual(row.scoringWithheldFrom, []);
+});
+
+test("signalsMode: un conjunto estimado no se presenta como real ni como simulación", () => {
+  const rows = buildRows([PRODUCT], [candidateFor("p-1", { provenance: "estimated", demand_signal: 0.7 })]);
+
+  const mode = signalsMode(rows);
+  assert.equal(mode.status, "mixed");
+  assert.match(mode.label, /Estimado/);
 });

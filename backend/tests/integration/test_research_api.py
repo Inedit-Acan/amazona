@@ -77,7 +77,7 @@ def fake_real_provider():
     internet desde un test."""
     import datetime
 
-    from app.integrations.ports import CandidateSignals, Signal, SignalKind
+    from app.integrations.ports import CandidateSignals, Signal, SignalBasis, SignalKind
 
     class Measured:
         name = "wikimedia-pageviews"
@@ -102,7 +102,7 @@ def fake_real_provider():
                             observed_at=datetime.datetime.now(datetime.UTC),
                             method="PROXY FOR INTEREST — not purchase demand",
                             raw_reference="https://wikimedia.org/…",
-                            simulated=False,
+                            basis=SignalBasis.MEASURED,
                         )
                     ],
                 )
@@ -120,7 +120,9 @@ def offline_real_source(monkeypatch):
     monkeypatch.setattr(
         comparison_service.ResearchComparisonService,
         "_configured_candidate",
-        lambda self: fake_real_provider(),
+        # Desde el Milestone 37 recibe el `correlation_id` de la ejecución,
+        # porque su proveedor va con contador de gasto.
+        lambda self, correlation_id: fake_real_provider(),
     )
 
 

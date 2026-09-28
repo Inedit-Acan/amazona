@@ -3,9 +3,17 @@ from typing import cast
 from pydantic import BaseModel, Field
 
 from app.agents.base import Agent, AgentResult, AgentResultStatus
-from app.integrations.ports import CandidateSignals, IntegrationDomain, ProductSignalProvider, SignalKind
+from app.integrations.ports import (
+    CandidateSignals,
+    IntegrationDomain,
+    ProductSignalProvider,
+    Signal,
+    SignalBasis,
+    SignalKind,
+)
 from app.integrations.product_intelligence.mock import competition_level
 from app.integrations.registry import ProviderRegistry
+from app.integrations.usage_rights import UsageRight, permits
 
 _COMPETITION_FACTOR = {"low": 1.0, "medium": 0.6, "high": 0.3}
 
@@ -22,21 +30,41 @@ class ProductResearchInput(BaseModel):
     market: str = "us"
 
 
+def may_score(signal: Signal) -> bool:
+    """Si la licencia del proveedor permite meter este número en un score
+    (Milestone 37, ADR 0015).
+
+    Tener el dato no es tener permiso para puntuar con él. Un `UNKNOWN` cuenta
+    como «no»: el silencio de un contrato no autoriza nada.
+    """
+    return permits(signal.provider, UsageRight.SCORING)
+
+
 def provenance_of(candidate: CandidateSignals, kinds: tuple[SignalKind, ...]) -> str:
     """De qué está hecho lo que se va a enseñar.
 
-    `real` cuando todo lo que cuenta está medido, `simulated` cuando nada lo
-    está, y `mixed` cuando es media cosa — que es el caso peligroso, el que sin
-    esta etiqueta se leería como real (ADR 0008, ADR 0012).
+    `real` cuando todo lo que cuenta está **medido**, `estimated` cuando alguna
+    pieza está modelada en vez de observada, `simulated` cuando nada viene del
+    mundo, y `mixed` cuando se juntan datos del mundo con fixtures — que es el
+    caso peligroso, el que sin esta etiqueta se leería como real (ADR 0008,
+    ADR 0012, ADR 0015).
+
+    `estimated` se separa de `mixed` a propósito: un conjunto de estimaciones
+    honestas sí viene del mundo, y decir de él «mixto» lo confundiría con una
+    mezcla de medición y fixture, que es otra cosa.
     """
-    relevant = [signal for kind in kinds if (signal := candidate.signal(kind)) is not None]
+    relevant = [
+        signal for kind in kinds if (signal := candidate.signal(kind, only=may_score)) is not None
+    ]
     if not relevant:
         return "unknown"
-    simulated = [signal.simulated for signal in relevant]
-    if all(simulated):
+    bases = {signal.basis for signal in relevant}
+    if bases == {SignalBasis.SIMULATED}:
         return "simulated"
-    if any(simulated):
+    if SignalBasis.SIMULATED in bases:
         return "mixed"
+    if SignalBasis.ESTIMATED in bases:
+        return "estimated"
     return "real"
 
 
@@ -116,17 +144,40 @@ class ProductResearchAgent(Agent):
     # --- Un candidato ------------------------------------------------------
 
     def _describe(self, candidate: CandidateSignals, params: ProductResearchInput) -> dict:
+        # Lo que se enseña: la mejor señal de cada tipo, sin más filtro. Verla en
+        # el panel del propietario es uso interno, no redistribución (ADR 0015).
         demand = candidate.signal(SignalKind.DEMAND)
         competition = candidate.signal(SignalKind.COMPETITION)
         outlook = candidate.signal(SignalKind.FUTURE_OUTLOOK)
         regulatory = candidate.signal(SignalKind.REGULATORY_RISK)
         scalability = candidate.signal(SignalKind.SCALABILITY)
 
+        # Lo que puntúa: solo lo que su licencia permite puntuar. Puede no ser la
+        # misma señal que se enseña, y puede no haber ninguna.
+        scoring_demand = candidate.signal(SignalKind.DEMAND, only=may_score)
+        scoring_competition = candidate.signal(SignalKind.COMPETITION, only=may_score)
+
         level = competition_level(competition.value) if competition is not None else None
+        scoring_level = (
+            competition_level(scoring_competition.value)
+            if scoring_competition is not None
+            else None
+        )
         score = None
-        if demand is not None and level is not None:
+        if scoring_demand is not None and scoring_level is not None:
             # La fórmula de Fase 3, intacta (plan maestro §9).
-            score = round(demand.value * _COMPETITION_FACTOR.get(level, 0.3), 4)
+            score = round(scoring_demand.value * _COMPETITION_FACTOR.get(scoring_level, 0.3), 4)
+
+        # Si había señal y la licencia la dejó fuera, se dice quién. Un score
+        # ausente sin explicación es indistinguible de una avería.
+        withheld = sorted(
+            {
+                signal.provider
+                for kind in _SCORING_SIGNALS
+                for signal in candidate.signals
+                if signal.kind is kind and not may_score(signal)
+            }
+        )
 
         return {
             "name": candidate.name,
@@ -139,8 +190,11 @@ class ProductResearchAgent(Agent):
             "regulatory_risk_signal": regulatory.value if regulatory else None,
             "scalability_signal": scalability.value if scalability else None,
             "niche_rationale": candidate.rationale,
-            #: De qué está hecho el score: real, mixto o simulado.
+            #: De qué está hecho el score: real, estimado, mixto o simulado.
             "provenance": provenance_of(candidate, _SCORING_SIGNALS),
+            #: Proveedores cuya señal existe pero cuya licencia no permite
+            #: puntuar con ella (Milestone 37). Vacío es lo normal.
+            "scoring_withheld_from": withheld,
             "market": params.market,
             #: La procedencia completa, señal a señal. Es lo que persiste el
             #: servicio en `product_signals` (plan maestro §8).
@@ -156,7 +210,10 @@ class ProductResearchAgent(Agent):
                     "observed_at": signal.observed_at.isoformat(),
                     "method": signal.method,
                     "raw_reference": signal.raw_reference,
-                    "simulated": signal.simulated,
+                    #: Observado, modelado o inventado (Milestone 37). Sustituye
+                    #: al booleano `simulated`, que no distinguía las dos
+                    #: primeras.
+                    "basis": signal.basis.value,
                     # La evidencia mensual, cuando la fuente la da (M35).
                     "observations": [
                         {"period": observation.period, "value": observation.value}

@@ -17,7 +17,7 @@ from app.db.base import Base
 from app.db.models.audit import AuditLog
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.product_signal import ProductSignal
-from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalKind
+from app.integrations.ports import CandidateSignals, ProductSignalProvider, Signal, SignalBasis, SignalKind
 from app.integrations.product_intelligence.composite import CompositeProductSignalProvider
 from app.integrations.product_intelligence.mock import MockProductSignalProvider
 from app.research.service import ResearchService
@@ -61,7 +61,7 @@ class MeasuredDemandOnly(ProductSignalProvider):
                         observed_at=datetime.datetime(2026, 9, 1, tzinfo=datetime.UTC),
                         method="monthly pageviews… PROXY FOR INTEREST — not purchase demand",
                         raw_reference="https://wikimedia.org/api/rest_v1/…/Air_fryer/monthly/…",
-                        simulated=False,
+                        basis=SignalBasis.MEASURED,
                     )
                 ],
             )
@@ -88,7 +88,7 @@ def test_every_signal_is_persisted_with_its_nine_fields(db_session: Session):
     assert signal.observed_at is not None
     assert "PROXY FOR INTEREST" in signal.method
     assert signal.raw_reference.startswith("https://")
-    assert signal.simulated is False
+    assert signal.basis == "measured"
     assert signal.correlation_id == "cid-1"
 
 
@@ -97,8 +97,8 @@ def test_the_database_can_answer_what_is_real_and_what_is_invented(db_session: S
     run(db_session, MeasuredDemandOnly(), correlation_id="cid-real")
     run(db_session, MockProductSignalProvider(), correlation_id="cid-mock")
 
-    real = db_session.query(ProductSignal).filter_by(simulated=False).all()
-    invented = db_session.query(ProductSignal).filter_by(simulated=True).all()
+    real = db_session.query(ProductSignal).filter_by(basis=SignalBasis.MEASURED).all()
+    invented = db_session.query(ProductSignal).filter_by(basis=SignalBasis.SIMULATED).all()
 
     assert {s.provider for s in real} == {"wikimedia-pageviews"}
     assert {s.provider for s in invented} == {"fixtures"}
@@ -139,7 +139,7 @@ def test_the_filler_cannot_complete_a_product_it_knows_nothing_about(db_session:
     assert analysis.data["provenance"] == "real"
     assert analysis.opportunity_score is None
     signals = {s.kind: s for s in db_session.query(ProductSignal).all()}
-    assert signals["demand"].simulated is False
+    assert signals["demand"].basis == "measured"
     assert "competition" not in signals
 
 
@@ -208,5 +208,5 @@ def test_the_filler_does_complete_a_product_it_does_know(db_session: Session):
     assert analysis.data["provenance"] == "mixed"
     assert analysis.opportunity_score is not None
     signals = {s.kind: s for s in db_session.query(ProductSignal).all()}
-    assert signals["demand"].simulated is False
-    assert signals["competition"].simulated is True
+    assert signals["demand"].basis == "measured"
+    assert signals["competition"].basis == "simulated"

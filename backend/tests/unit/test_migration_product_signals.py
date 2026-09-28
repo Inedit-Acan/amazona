@@ -63,11 +63,43 @@ def test_upgrade_creates_the_table(connection):
     assert "product_signals" in tables(connection)
 
 
-def test_the_migration_matches_the_model(connection):
+#: Las columnas que **esta** migración crea. Se escriben aquí en vez de leerse
+#: del modelo vivo porque el modelo ha seguido cambiando: el Milestone 37
+#: sustituyó `simulated` por `basis` en su propia migración. Comparar una
+#: migración antigua contra el modelo de hoy solo funciona hasta que alguien toca
+#: la tabla, y entonces falla por el motivo equivocado.
+M34_COLUMNS = {
+    "id",
+    "product_id",
+    "kind",
+    "value",
+    "confidence",
+    "provider",
+    "source",
+    "query",
+    "market",
+    "observed_at",
+    "method",
+    "raw_reference",
+    "simulated",
+    "correlation_id",
+    "created_at",
+}
+
+
+def test_the_migration_creates_the_columns_of_its_own_milestone(connection):
     run(connection, "upgrade")
 
-    expected = {column.name for column in ProductSignal.__table__.columns}
-    assert expected == columns(connection, "product_signals")
+    assert M34_COLUMNS == columns(connection, "product_signals")
+
+
+def test_the_live_model_has_moved_on_from_this_migration(connection):
+    """Deja constancia de en qué se diferencia hoy, para que la diferencia sea
+    una decisión escrita y no una sorpresa."""
+    live = {column.name for column in ProductSignal.__table__.columns}
+
+    assert live - M34_COLUMNS == {"basis"}
+    assert M34_COLUMNS - live == {"simulated"}
 
 
 def test_the_indexes_the_questions_need_exist(connection):

@@ -41,11 +41,15 @@ def test_each_candidate_has_the_expected_fields():
             # Milestone 34: de qué está hecho lo que se enseña, y la procedencia
             # completa señal a señal (plan maestro §8).
             "provenance",
+            # Milestone 37: proveedores cuya señal existe y cuya licencia no
+            # permite puntuar con ella. Un score ausente sin explicación es
+            # indistinguible de una avería (ADR 0015).
+            "scoring_withheld_from",
             "market",
             "signals",
         }
         assert candidate["provenance"] == "simulated"
-        assert all(signal["simulated"] for signal in candidate["signals"])
+        assert all(signal["basis"] == "simulated" for signal in candidate["signals"])
         assert candidate["category"] == "home"
         assert 0.0 <= candidate["future_outlook_signal"] <= 1.0
         assert 0.0 <= candidate["regulatory_risk_signal"] <= 1.0

@@ -34,7 +34,11 @@ PUBLIC_ROUTES = ["/health", "/health/ready"]
 #: Diagnóstico del despliegue. Autenticado: junto con la versión del esquema y
 #: el entorno, la lista de dominios simulados describe dónde el sistema
 #: funciona con datos inventados.
-DIAGNOSTIC_ROUTES = ["/health/detailed"]
+#:
+#: El gasto en APIs externas entra aquí y no en negocio (Milestone 37): dice
+#: cuánta cuota consume este despliegue, que es de la misma familia que «qué
+#: proveedor responde en cada dominio».
+DIAGNOSTIC_ROUTES = ["/health/detailed", "/api/costs/api-usage"]
 
 #: La auditoría: identidad de quién hizo qué. Categoría propia.
 AUDIT_ROUTES = ["/api/audit"]
@@ -204,6 +208,7 @@ def test_the_inventory_covers_every_read_route():
         "/health",
         "/health/ready",
         "/health/detailed",
+        "/api/costs/api-usage",
         "/api/audit",
         "/api/agents",
         "/api/agent-executions",

@@ -218,6 +218,37 @@ export interface ProviderBinding {
   kind: ProviderKind;
   name: string;
   simulated: boolean;
+  /** Las fuentes reales activas, en orden, cuando hay más de una (Milestone 37).
+   * Vacío o ausente cuando el nombre ya lo dice todo. */
+  sources?: string[];
+}
+
+/** Observado, modelado o inventado (Milestone 37, ADR 0015). */
+export type SignalBasis = "measured" | "estimated" | "simulated";
+
+/** Lo consumido hoy con un proveedor externo, y contra qué se compara
+ * (Milestone 37, plan maestro §25). */
+export interface ApiProviderUsage {
+  provider: string;
+  /** `free` o `paid`. No es lo mismo «no cuesta» que «no tiene límite». */
+  pricing: "free" | "paid";
+  /** Qué se cuenta: peticiones, tokens, créditos. */
+  unit: string;
+  units_today: number;
+  denied_today: number;
+  last_denied_reason: string | null;
+  estimated_cost_today: number;
+  /** Lo que el proveedor ha cobrado de verdad. **Nulo no es cero**: es que
+   * todavía no lo ha dicho. */
+  actual_cost_today: number | null;
+  currency: string;
+  quota_units_per_day: number | null;
+  max_units_per_run: number | null;
+  /** Nulo = sin autorización. Y sin autorización un proveedor de pago no se
+   * llama. */
+  authorised_cost_per_day: number | null;
+  authorised_cost_per_run: number | null;
+  source: string;
 }
 
 export interface DetailedHealth {
@@ -288,10 +319,16 @@ export interface ResearchCandidate {
     regulatory_risk_signal?: number;
     scalability_signal?: number;
     niche_rationale?: string;
+    /** Proveedores cuya señal existe y cuya licencia no permite puntuar con
+     * ella (Milestone 37, ADR 0015). Un score ausente sin explicación es
+     * indistinguible de una avería. */
+    scoring_withheld_from?: string[];
     /** De qué está hecho el score (Milestone 34): `real` si todo lo que cuenta
-     * está medido, `simulated` si nada lo está, `mixed` si es media cosa.
+     * está medido, `estimated` si alguna pieza está modelada en vez de
+     * observada, `simulated` si nada viene del mundo, `mixed` si se mezcla con
+     * fixtures.
      * Ausente en análisis guardados antes del Milestone 34, que eran fixtures. */
-    provenance?: "real" | "mixed" | "simulated" | "unknown";
+    provenance?: "real" | "estimated" | "mixed" | "simulated" | "unknown";
     market?: string;
     /** Las señales con su procedencia, y la evidencia mensual de cada una
      * cuando la fuente la da (Milestone 35). */
@@ -311,7 +348,10 @@ export interface ResearchSignal {
   observed_at: string;
   method: string;
   raw_reference: string | null;
-  simulated: boolean;
+  /** De qué está hecho el número (Milestone 37): `measured` si la fuente lo
+   * observó, `estimated` si lo modeló, `simulated` si es un fixture. Sustituye al
+   * booleano `simulated`, que juntaba los dos primeros. */
+  basis: SignalBasis;
   /** Las medidas que componen el valor. Vacío no es cero: es que esta señal no
    * viene de una serie. */
   observations?: { period: string; value: number }[];
@@ -351,6 +391,9 @@ export interface ComparisonProviderSummary {
   scorable: number;
   mean_confidence: number | null;
   measured_signals: number;
+  /** Milestone 37: antes una estimación caía del lado de «medida», que es justo
+   * lo que no es. */
+  estimated_signals?: number;
   simulated_signals: number;
 }
 
@@ -820,6 +863,7 @@ export const api = {
     max_results?: number;
   }) => request<PipelineRun>("/api/pipeline/runs", { method: "POST", body: JSON.stringify(payload) }),
   listResearchComparisons: () => request<ResearchComparison[]>("/api/research/comparisons"),
+  listApiUsage: () => request<ApiProviderUsage[]>("/api/costs/api-usage"),
   listPipelineRuns: () => request<PipelineRun[]>("/api/pipeline/runs"),
   listPipelineReviews: () => request<PipelineReview[]>("/api/pipeline/reviews"),
   approvePipelineReview: (reviewId: string, actor: string) =>

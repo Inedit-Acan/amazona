@@ -7,11 +7,14 @@ clase de excepción que vacía una regla, así que aquí no se hace: en `staging
 `production` la comparación se rechaza diciendo por qué.
 """
 
+from typing import cast
+
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AmazonaError
 from app.core.ids import new_correlation_id
+from app.costs.service import CostMeter
 from app.db.models.audit import AuditLog
 from app.db.models.research_comparison import ResearchComparison
 from app.integrations.ports import IntegrationDomain, ProductSignalProvider, ProviderKind
@@ -56,8 +59,12 @@ class ResearchComparisonService:
                 f"{self._settings.environment}, which ADR 0008 does not allow"
             )
 
+        # El identificador se genera aquí y no al persistir, porque el contador
+        # de llamadas externas necesita saber a qué ejecución atribuir el gasto
+        # (Milestone 37, plan §25).
+        correlation_id = new_correlation_id()
         baseline = self._baseline or MockProductSignalProvider()
-        candidate = self._candidate or self._configured_candidate()
+        candidate = self._candidate or self._configured_candidate(correlation_id)
 
         report = compare(
             category=category,
@@ -71,25 +78,35 @@ class ResearchComparisonService:
                 category=category, keywords=keywords or [], market=market, max_results=max_results
             ),
         )
-        return self._persist(report, actor=actor)
+        return self._persist(report, actor=actor, correlation_id=correlation_id)
 
     # --- Interno -----------------------------------------------------------
 
-    def _configured_candidate(self) -> ProductSignalProvider:
+    def _configured_candidate(self, correlation_id: str) -> ProductSignalProvider:
         """Contra qué se compara el mock: el proveedor configurado, y si el
         configurado **es** el mock, la fuente real directamente — comparar algo
-        consigo mismo no informa de nada."""
+        consigo mismo no informa de nada.
+
+        Las llamadas van con contador, como cualquier llamada externa: un informe
+        de comparación gasta cuota igual que una investigación (Milestone 37)."""
+        meter = CostMeter(
+            self._db, correlation_id=correlation_id, limits=self._settings.spend_limits
+        )
         registry = ProviderRegistry(self._settings)
         kind = registry.kind_for(IntegrationDomain.PRODUCT_INTELLIGENCE)
         if kind is ProviderKind.MOCK:
             from app.integrations.registry import BUILDERS
 
             builder = BUILDERS[(IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.REAL)]
-            return builder(self._settings)  # type: ignore[return-value]
-        return registry.resolve(IntegrationDomain.PRODUCT_INTELLIGENCE)  # type: ignore[return-value]
+            return cast(ProductSignalProvider, builder(self._settings, meter))
+        return cast(
+            ProductSignalProvider,
+            registry.resolve(IntegrationDomain.PRODUCT_INTELLIGENCE, meter=meter),
+        )
 
-    def _persist(self, report: ComparisonReport, *, actor: str | None) -> ResearchComparison:
-        correlation_id = new_correlation_id()
+    def _persist(
+        self, report: ComparisonReport, *, actor: str | None, correlation_id: str
+    ) -> ResearchComparison:
         row = ResearchComparison(
             category=report.category,
             market=report.market,

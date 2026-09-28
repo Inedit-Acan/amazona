@@ -134,6 +134,10 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   ver abajo.
 - **Milestone 36:** cuándo dos nombres son el mismo producto
   ([ADR 0014](docs/architecture/adr-0014-entity-resolution.md)) — ver abajo.
+- **Milestone 37:** varias fuentes reales, el coste de llamarlas y qué permite
+  cada licencia
+  ([ADR 0015](docs/architecture/adr-0015-multiple-real-sources-cost-and-usage-rights.md))
+  — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -400,6 +404,68 @@ categoría aterrizan en el mismo producto**, que acumula varios análisis y comp
 `store_slug`, de modo que Tienda y Marketing lo ven distinto a antes. El detalle, en
 [milestone-36-demo.md](docs/milestones/milestone-36-demo.md).
 
+### Medido, estimado y simulado (Milestone 37)
+
+Una señal ya no es «simulada o no». Son **tres** cosas, porque un número que una
+fuente **observó** y uno que una fuente **modeló** vienen los dos del mundo y no
+valen lo mismo:
+
+- `measured` — la fuente lo observó y lo reporta.
+- `estimated` — la fuente lo derivó, quizá sin decir cómo. **No es una observación.**
+- `simulated` — un fixture. No viene del mundo.
+
+Cada base tiene un **techo de confianza** —1,0 / 0,6 / 0,4— y exceder el techo
+**falla al construir la señal** en vez de recortarse en silencio. Y a la hora de
+elegir entre señales del mismo tipo, lo medido gana a lo estimado y lo estimado a lo
+inventado. Una estimación propietaria se puede usar; lo que no se puede es
+presentarla como un hecho medido.
+
+### Cada llamada externa se cuenta, y de pago sin autorización no se llama
+
+El plan maestro §25 lo pedía **antes** de introducir LLM o APIs comerciales, y no
+existía. Ahora `external_api_costs` guarda por llamada el proveedor, la operación,
+las unidades y de qué, el coste estimado, el real —**nulo cuando el proveedor
+todavía no lo ha dicho, que no es cero**—, la moneda y el `correlation_id`. **Una
+denegación también deja fila**: es lo que explica por qué una investigación volvió
+sin señales.
+
+Tres reglas: un proveedor de pago **sin límite de gasto autorizado no se llama**;
+**gratis no es sin límite** (eBay publica 5.000 llamadas/día, Wikimedia pide ≤200/s);
+y cuando no cabe, **no hay señal** — nunca un cero.
+
+```bash
+curl -s localhost:8000/api/costs/api-usage | python -m json.tool
+```
+
+Los límites viven en configuración (`API_SPEND_LIMITS`) porque son dinero del
+propietario, no una preferencia de la aplicación. Hoy están vacíos: **el presupuesto
+es 0 €**.
+
+### Tener el dato no es tener permiso
+
+Una matriz por proveedor declara ocho usos —almacenamiento, retención,
+transformación, métricas derivadas, scoring, IA/LLM, redistribución, uso comercial—
+más la atribución, cada uno con su fuente y su fecha de lectura. **Lo que no se sabe
+no se permite**: un `UNKNOWN` pesa igual que un «no», porque que una licencia no
+prohíba algo expresamente no es lo mismo que autorizarlo.
+
+Y se aplica, no solo se documenta: una señal cuya licencia no permite puntuar **no
+entra en el score** —y la pantalla dice quién la retuvo—, y una cuya licencia no
+permite almacenar **no se persiste**, con la auditoría contándolo.
+
+### eBay Browse: implementado, medido y sin usar
+
+Es la primera señal de **competencia medida** del sistema, que era el único hueco que
+impedía puntuar un candidato real. Gratis con un keyset de desarrollador —sin cuenta
+de vendedor—, con sandbox propio y varios mercados.
+
+**Sus datos no se usan.** Su contrato define «Restricted APIs» por lo que la API
+aporta —tendencias de mercado, estrategias de precio, volúmenes de venta— y prohíbe
+para ellas alimentar IA ajena o construir herramientas de precios sin consentimiento
+escrito. No se ha podido determinar si Browse entra ahí, así que su fila está casi
+entera sin resolver y sus señales se leen sin guardarse ni puntuar
+([ADR 0015](docs/architecture/adr-0015-multiple-real-sources-cost-and-usage-rights.md)).
+
 ## Notas
 
 - Amazon SP-API: prohibido usar sus datos para entrenar modelos.
@@ -411,5 +477,5 @@ categoría aterrizan en el mismo producto**, que acumula varios análisis y comp
   (migraciones sobre PostgreSQL real, la conversión del `steps` histórico,
   la concurrencia de `SKIP LOCKED` y el login/refresco/cierre de sesión real).
   Están registradas en
-  [system-overview §17](docs/architecture/system-overview.md#17-pendientes-de-integración):
+  [system-overview §18](docs/architecture/system-overview.md#18-pendientes-de-integración):
   no bloquean el desarrollo, sí bloquean producción.

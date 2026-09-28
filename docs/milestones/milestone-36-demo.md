@@ -262,7 +262,7 @@ curl -s localhost:8000/api/products | python -m json.tool
   la alimentan están cubiertos por tests de `lib` y del endpoint, pero el render con
   un `also_known_as` no vacío no se ha mirado a ojo.
 - **Los cinco pendientes de integración** siguen igual
-  ([system-overview §17](../architecture/system-overview.md#17-pendientes-de-integración)).
+  ([system-overview §18](../architecture/system-overview.md#18-pendientes-de-integración)).
 - **La incidencia del test intermitente del Milestone 35 no ha vuelto a aparecer**
   en las pasadas completas de este milestone. Sigue sin explicación y sigue anotada.
 

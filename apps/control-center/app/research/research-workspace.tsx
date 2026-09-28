@@ -38,6 +38,7 @@ import {
   RADAR_KEYS,
   alsoKnownAsNote,
   buildRows,
+  scoringWithheldNote,
   comparisonView,
   interestChart,
   radarAverage,
@@ -185,6 +186,7 @@ function OpportunityCard({
   onFollow: () => void;
 }) {
   const identityNote = alsoKnownAsNote(row.alsoKnownAs);
+  const withheldNote = scoringWithheldNote(row.scoringWithheldFrom);
   return (
     <div
       className={cn(
@@ -202,6 +204,9 @@ function OpportunityCard({
           {/* Qué nombres se unieron en este producto, y por qué vía (Milestone
               36): una fusión que no se ve es indistinguible de un error. */}
           {identityNote ? <p className="mt-0.5 text-xs text-muted-foreground/80">{identityNote}</p> : null}
+          {/* Y por qué no hay score cuando el motivo es una licencia y no un
+              dato que falte (Milestone 37). */}
+          {withheldNote ? <p className="mt-0.5 text-xs text-amber-500/90">{withheldNote}</p> : null}
         </div>
         <span className="rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary">
           #{rank}

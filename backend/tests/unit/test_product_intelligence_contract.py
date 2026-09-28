@@ -11,7 +11,7 @@ import datetime
 import pytest
 
 from app.agents.product_research import ProductResearchAgent, provenance_of
-from app.integrations.ports import CandidateSignals, Signal, SignalKind
+from app.integrations.ports import CandidateSignals, Signal, SignalBasis, SignalKind
 from app.integrations.product_intelligence.mock import (
     COMPETITION_VALUE,
     MockProductSignalProvider,
@@ -101,18 +101,35 @@ def test_the_score_formula_did_not_change():
 # --- Procedencia -----------------------------------------------------------
 
 
-def signal(kind: SignalKind, *, simulated: bool) -> Signal:
+#: Un fixture no declara la misma confianza que una medición: el techo por base
+#: lo impide, y este 0,3 es el que emite el mock de verdad (Milestone 37).
+_DEFAULT_CONFIDENCE = {
+    SignalBasis.MEASURED: 0.5,
+    SignalBasis.ESTIMATED: 0.5,
+    SignalBasis.SIMULATED: 0.3,
+}
+
+#: Proveedores con permiso de puntuar en la matriz de derechos, para que estas
+#: pruebas midan la procedencia y no los derechos de uso (ADR 0015).
+_PROVIDER_FOR = {
+    SignalBasis.MEASURED: "wikimedia-pageviews",
+    SignalBasis.ESTIMATED: "wikimedia-pageviews",
+    SignalBasis.SIMULATED: "fixtures",
+}
+
+
+def signal(kind: SignalKind, *, basis: SignalBasis, confidence: float | None = None) -> Signal:
     return Signal(
         kind=kind,
         value=0.5,
-        confidence=0.5,
-        provider="fixtures" if simulated else "wikimedia-pageviews",
+        confidence=_DEFAULT_CONFIDENCE[basis] if confidence is None else confidence,
+        provider=_PROVIDER_FOR[basis],
         source="somewhere",
         query="term",
         market="us",
         observed_at=datetime.datetime.now(datetime.UTC),
         method="…",
-        simulated=simulated,
+        basis=basis,
     )
 
 
@@ -123,7 +140,10 @@ def test_all_measured_is_real():
     candidate = CandidateSignals(
         name="x",
         category="home",
-        signals=[signal(SignalKind.DEMAND, simulated=False), signal(SignalKind.COMPETITION, simulated=False)],
+        signals=[
+            signal(SignalKind.DEMAND, basis=SignalBasis.MEASURED),
+            signal(SignalKind.COMPETITION, basis=SignalBasis.MEASURED),
+        ],
     )
 
     assert provenance_of(candidate, SCORING) == "real"
@@ -135,7 +155,10 @@ def test_half_measured_is_mixed_and_says_so():
     candidate = CandidateSignals(
         name="x",
         category="home",
-        signals=[signal(SignalKind.DEMAND, simulated=False), signal(SignalKind.COMPETITION, simulated=True)],
+        signals=[
+            signal(SignalKind.DEMAND, basis=SignalBasis.MEASURED),
+            signal(SignalKind.COMPETITION, basis=SignalBasis.SIMULATED),
+        ],
     )
 
     assert provenance_of(candidate, SCORING) == "mixed"
@@ -145,7 +168,10 @@ def test_nothing_measured_is_simulated():
     candidate = CandidateSignals(
         name="x",
         category="home",
-        signals=[signal(SignalKind.DEMAND, simulated=True), signal(SignalKind.COMPETITION, simulated=True)],
+        signals=[
+            signal(SignalKind.DEMAND, basis=SignalBasis.SIMULATED),
+            signal(SignalKind.COMPETITION, basis=SignalBasis.SIMULATED),
+        ],
     )
 
     assert provenance_of(candidate, SCORING) == "simulated"
@@ -159,7 +185,10 @@ def test_a_real_signal_wins_over_a_filler_of_the_same_kind():
     candidate = CandidateSignals(
         name="x",
         category="home",
-        signals=[signal(SignalKind.DEMAND, simulated=True), signal(SignalKind.DEMAND, simulated=False)],
+        signals=[
+            signal(SignalKind.DEMAND, basis=SignalBasis.SIMULATED),
+            signal(SignalKind.DEMAND, basis=SignalBasis.MEASURED),
+        ],
     )
 
     chosen = candidate.signal(SignalKind.DEMAND)
@@ -181,8 +210,8 @@ def test_a_mixed_candidate_lowers_the_agents_confidence():
                     name=f"candidate {index}",
                     category=category,
                     signals=[
-                        signal(SignalKind.DEMAND, simulated=False),
-                        signal(SignalKind.COMPETITION, simulated=True),
+                        signal(SignalKind.DEMAND, basis=SignalBasis.MEASURED),
+                        signal(SignalKind.COMPETITION, basis=SignalBasis.SIMULATED),
                     ],
                 )
                 for index in range(2)
@@ -210,7 +239,9 @@ def test_a_candidate_without_competition_cannot_be_scored():
                 CandidateSignals(
                     name="measured thing",
                     category=category,
-                    signals=[signal(SignalKind.DEMAND, simulated=False)],
+                    signals=[
+            signal(SignalKind.DEMAND, basis=SignalBasis.MEASURED),
+        ],
                 )
             ]
 

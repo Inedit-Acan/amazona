@@ -1,15 +1,21 @@
 import datetime
+from typing import cast
 
 from sqlalchemy.orm import Session
 
 from app.agents.product_research import ProductResearchAgent
+from app.core.config import get_settings
+from app.costs.service import CostMeter
 from app.db.models.audit import AuditLog
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.product_identity_alias import ProductIdentityAlias
 from app.db.models.product_signal import ProductSignal
 from app.db.models.product_signal_observation import ProductSignalObservation
+from app.integrations.ports import IntegrationDomain, ProductSignalProvider
 from app.integrations.product_intelligence.identity import resolve
+from app.integrations.registry import ProviderRegistry
+from app.integrations.usage_rights import UsageRight, permits
 
 RESEARCH_AGENT_ACTOR = "agent-product-research-1"
 
@@ -39,7 +45,29 @@ class ResearchService:
 
     def __init__(self, db: Session, agent: ProductResearchAgent | None = None) -> None:
         self._db = db
-        self._agent = agent or ProductResearchAgent()
+        #: Se guarda tal cual, **sin construir uno por defecto**: el agente de
+        #: verdad se monta por ejecución, porque su proveedor necesita un contador
+        #: de gasto atado a un `correlation_id` y eso no existe todavía aquí
+        #: (Milestone 37, plan §25).
+        self._agent = agent
+
+    def _agent_for(self, correlation_id: str) -> ProductResearchAgent:
+        """El agente de esta ejecución, con su contador de llamadas externas.
+
+        Un agente inyectado manda: es lo que permite a un test poner una fuente
+        de mentira. Cuando no hay, se monta el configurado y se le pasa el
+        contador, de modo que **en el camino real ninguna llamada externa ocurre
+        sin quedar anotada**.
+        """
+        if self._agent is not None:
+            return self._agent
+        meter = CostMeter(
+            self._db, correlation_id=correlation_id, limits=get_settings().spend_limits
+        )
+        provider = ProviderRegistry().resolve(
+            IntegrationDomain.PRODUCT_INTELLIGENCE, meter=meter
+        )
+        return ProductResearchAgent(trends_provider=cast(ProductSignalProvider, provider))
 
     def run_research(
         self,
@@ -50,7 +78,7 @@ class ResearchService:
         correlation_id: str,
         market: str = "us",
     ) -> list[Product]:
-        result = self._agent.run(
+        result = self._agent_for(correlation_id).run(
             {
                 "category": category,
                 "keywords": keywords or [],
@@ -61,6 +89,7 @@ class ResearchService:
 
         products: list[Product] = []
         reused = 0
+        withheld: list[str] = []
         for candidate in result.data["candidates"]:
             product, was_reused = self._product_for(candidate, correlation_id)
             reused += int(was_reused)
@@ -78,6 +107,14 @@ class ResearchService:
             # Cada número, con de dónde salió (Milestone 34, plan maestro §8).
             # Sin esto, un valor medido y uno inventado son la misma fila.
             for signal in candidate.get("signals", []):
+                # Guardar es un uso, y un uso necesita permiso (Milestone 37,
+                # ADR 0015). Si la licencia del proveedor no lo autoriza —o nadie
+                # la ha leído—, la señal no se persiste y se cuenta cuántas se
+                # quedaron fuera: un dato que desaparece sin dejar rastro es peor
+                # que un dato que falta.
+                if not permits(signal["provider"], UsageRight.STORAGE):
+                    withheld.append(signal["provider"])
+                    continue
                 row = ProductSignal(
                     product_id=product.id,
                     kind=signal["kind"],
@@ -90,7 +127,7 @@ class ResearchService:
                     observed_at=_parse_observed_at(signal.get("observed_at")),
                     method=signal["method"],
                     raw_reference=signal.get("raw_reference"),
-                    simulated=bool(signal["simulated"]),
+                    basis=signal["basis"],
                     correlation_id=correlation_id,
                 )
                 self._db.add(row)
@@ -124,6 +161,12 @@ class ResearchService:
                     # (Milestone 36): sin esto, una ejecución que no descubrió
                     # nada nuevo se leería igual que una que descubrió cuatro.
                     "reused_products": reused,
+                    # Señales que llegaron y no se guardaron porque su licencia
+                    # no lo autoriza, por proveedor (Milestone 37). Vacío es lo
+                    # normal; si no lo está, hay una licencia por resolver.
+                    "signals_withheld_by_provider": {
+                        provider: withheld.count(provider) for provider in sorted(set(withheld))
+                    },
                     # Qué parte de lo que se acaba de guardar es real.
                     "provenance": sorted(
                         {c.get("provenance", "unknown") for c in result.data["candidates"]}
