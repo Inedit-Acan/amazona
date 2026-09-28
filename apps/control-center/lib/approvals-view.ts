@@ -1,4 +1,4 @@
-import type { Agent, Approval, EconomicAnalysis, LegalAnalysis, MarketingCampaign, PipelineReview, Product, Storefront, SupplierQuote } from "./api.ts";
+import type { Agent, Approval, EconomicAnalysis, LegalAnalysis, MarketingCampaign, PipelineReview, Product, Storefront,  SupplierQuoteDetail } from "./api.ts";
 import { actionLabel, isExpired } from "./approvals.ts";
 import {
   CAMPAIGN_DETAIL,
@@ -83,7 +83,7 @@ export interface ApprovalRequest {
 
 export interface ProductContext {
   product: Product;
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
   economics: EconomicAnalysis[];
   legal: LegalAnalysis[];
   storefronts: Storefront[];
@@ -177,7 +177,7 @@ export function demoRequests(context: ProductContext | undefined, agents: Agent[
 
   const amounts: Record<string, number | null> = {
     campaign: campaignBudget,
-    supplier: supplier ? round2(supplier.quote.total_landed_cost_per_unit * DEMO_UNITS.supplierFirstOrder) : null,
+    supplier: supplier ? round2((supplier.quote.total_landed_cost_per_unit ?? 0) * DEMO_UNITS.supplierFirstOrder) : null,
     stock: round2(result.unitCost * DEMO_UNITS.anticipatedStock),
     amazon: 0,
     agent: DEMO_AGENT_DEPLOY_COST,

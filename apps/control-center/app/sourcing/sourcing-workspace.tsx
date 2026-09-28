@@ -14,6 +14,7 @@ import {
   CircleDollarSign,
   Clock,
   GitCompareArrows,
+  HelpCircle,
   Loader2,
   PackageCheck,
   PackageSearch,
@@ -26,7 +27,14 @@ import {
   Truck,
   UserCheck,
 } from "lucide-react";
-import { ApiError, api, type Product, type SupplierQuote } from "@/lib/api";
+import {
+  ApiError,
+  api,
+  type Product,
+  type RiskLevel,
+  type SupplierQuoteDetail,
+  type SupplyCapability,
+} from "@/lib/api";
 import { DEMO_PRODUCT_META } from "@/lib/demo/economics";
 import { DEMO_SEARCH_OPTIONS, demoQuotes } from "@/lib/demo/sourcing";
 import { dedupeQuotesBySupplier } from "@/lib/economics";
@@ -34,13 +42,17 @@ import { formatEuro, formatInteger } from "@/lib/format";
 import { REGION_ANCHORS, REGION_LABELS, regionLabel } from "@/lib/regions";
 import { buildRows, categoryLabel } from "@/lib/research-view";
 import {
+  PROVENANCE_LABEL,
+  RISK_DIMENSION_LABEL,
   SUPPLIER_AXES,
   averageAxes,
   compatibility,
   filterSuppliers,
   landedBreakdown,
   rankSuppliers,
+  region,
   topBadges,
+  unassessedRisk,
   type RankedSupplier,
   type SearchParams,
   type SupplierRisk,
@@ -56,6 +68,7 @@ import { NextStepBar } from "@/components/next-step-bar";
 import { PageHeader } from "@/components/page-header";
 import { RadarChart } from "@/components/radar-chart";
 import { RouteMap, type MapPoint, type MapRoute } from "@/components/route-map";
+import { SupplierEntryForm } from "@/components/supplier-entry-form";
 import { ScoreGauge } from "@/components/score-gauge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -67,13 +80,46 @@ import { SOURCING_DESCRIPTION, SOURCING_TITLE } from "./copy";
 const DESTINATIONS = ["eu", "mexico", "china", "vietnam"] as const;
 const DESTINATION_SHORT: Record<string, string> = { eu: "UE", mexico: "México", china: "China", vietnam: "Vietnam" };
 const DESTINATION_FLAG: Record<string, "eu" | "mx" | "cn" | "vn"> = { eu: "eu", mexico: "mx", china: "cn", vietnam: "vn" };
-const RISK_TONE: Record<SupplierRisk, LevelTone> = { Bajo: "ok", Medio: "warn", Alto: "bad" };
+const RISK_TONE: Record<SupplierRisk, LevelTone> = { Bajo: "ok", Medio: "warn", Alto: "bad", "Sin evaluar": "neutral" };
+const RISK_LEVEL_TONE: Record<RiskLevel, LevelTone> = { low: "ok", medium: "warn", high: "bad", unknown: "neutral" };
+const RISK_LEVEL_LABEL: Record<RiskLevel, string> = {
+  low: "Bajo",
+  medium: "Medio",
+  high: "Alto",
+  // «Sin evaluar» y no «Bajo»: un riesgo que nadie ha mirado no es un riesgo bajo.
+  unknown: "Sin evaluar",
+};
 const SELECT_CLASS =
   "w-full min-w-0 rounded-md border bg-background/60 px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring";
 const PRODUCT_STATUS_LABEL: Record<string, string> = { CANDIDATE: "Candidato" };
 
-function quoteName(quote: SupplierQuote): string {
-  return quote.data?.name ?? quote.supplier_id;
+function quoteName(quote: SupplierQuoteDetail): string {
+  return quote.supplier?.name ?? quote.data?.name ?? quote.supplier_id;
+}
+
+/** Un importe que puede no existir. «—» y no «0,00 €»: un coste desconocido
+ * no es un coste de cero (Milestone 39). */
+function euroOrDash(value: number | null, currency?: string | null): string {
+  if (value === null) return "—";
+  const amount = formatEuro(value);
+  // La moneda se dice cuando no es la de la casa: un precio en dólares
+  // presentado con el símbolo del euro es peor que no presentarlo.
+  return currency && currency !== "EUR" ? `${value.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}` : amount;
+}
+
+/** Qué se sabe de una capacidad del §16: sí, no, o que nadie lo ha dicho.
+ * «No declarado» y «No» se enseñan distinto a propósito: confundirlos es el
+ * error que el Milestone 39 quita del backend, y sería una lástima volver a
+ * cometerlo en la pantalla. */
+function capabilityText(quote: SupplierQuoteDetail, capability: SupplyCapability): string {
+  const answer = (quote.capabilities ?? []).find((c) => c.capability === capability);
+  if (!answer || answer.supported === null) return "No declarado";
+  return answer.supported ? "Sí" : "No";
+}
+
+/** Un entero que puede no existir. */
+function integerOrDash(value: number | null): string {
+  return value === null ? "—" : formatInteger(value);
 }
 
 function days([min, max]: [number, number]): string {
@@ -137,19 +183,26 @@ function SupplierCard({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[11px] text-muted-foreground">Score proveedor</p>
-          <ScoreGauge value={supplier.score} className="w-24" />
+          {supplier.score === null ? (
+            <p className="text-sm font-medium text-muted-foreground">
+              Sin nota · {supplier.knownAxes}/7 ejes
+            </p>
+          ) : (
+            <ScoreGauge value={supplier.score} className="w-24" />
+          )}
         </div>
       </div>
       <div>
         <p className="text-[11px] text-muted-foreground">Precio por unidad</p>
-        <p className="text-lg font-semibold text-primary">{formatEuro(quote.unit_price)}</p>
+        <p className="text-lg font-semibold text-primary">{euroOrDash(quote.unit_price, quote.currency)}</p>
       </div>
 
       <dl className="space-y-1.5 text-xs">
         {[
-          ["MOQ", `${formatInteger(quote.moq)} ${quote.moq === 1 ? "unidad" : "unidades"}`],
+          ["MOQ", quote.moq === null ? "No declarado" : `${formatInteger(quote.moq)} ${quote.moq === 1 ? "unidad" : "unidades"}`],
           [`Entrega a ${DESTINATION_SHORT[destination] ?? destination}`, days(profile.delivery)],
-          ["Envío directo", profile.directShipping ? "Sí" : "No"],
+          ["Incoterm", quote.incoterm ?? "No declarado"],
+          ["Envío directo", capabilityText(quote, "direct_shipping")],
           ["Certificaciones", profile.certificationPending ? `${certs} (pendiente)` : certs],
         ].map(([label, value]) => (
           <div key={label} className="flex justify-between gap-2">
@@ -191,7 +244,7 @@ export function SourcingWorkspace({
 }: {
   products: Product[];
   productId?: string;
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
   initialSearch: SearchParams;
 }) {
   const router = useRouter();
@@ -280,33 +333,34 @@ export function SourcingWorkspace({
     }
   }
 
-  function analyzeEconomics(quote: SupplierQuote) {
+  function analyzeEconomics(quote: SupplierQuoteDetail) {
     const params = new URLSearchParams({ product_id: product!.id });
     if (!isDemo) params.set("supplier_quote_id", quote.id);
     router.push(`/economics?${params.toString()}`);
   }
 
-  function validateWithCeo(quote: SupplierQuote) {
+  function validateWithCeo(quote: SupplierQuoteDetail) {
     const params = new URLSearchParams({
       title: `Validar abastecimiento con ${quoteName(quote)} para ${product!.name}`,
-      unit_cost: String(quote.unit_price),
-      lead_time_days: String(quote.lead_time_days),
-      supplier_verified: String(quote.verified),
+      unit_cost: String(quote.unit_price ?? ""),
+      lead_time_days: String(quote.lead_time_days ?? ""),
+      // Milestone 39: verificado significa verificado por un tercero.
+      supplier_verified: String(quote.supplier?.verification === "third_party_verified"),
     });
     router.push(`/ceo?${params.toString()}`);
   }
 
-  function toggleCompare(quote: SupplierQuote) {
+  function toggleCompare(quote: SupplierQuoteDetail) {
     setCompareId((current) => (current === quote.id ? null : quote.id));
   }
 
-  function showProfile(quote: SupplierQuote) {
+  function showProfile(quote: SupplierQuoteDetail) {
     setSelectedId(quote.id);
     document.getElementById("score-proveedor")?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   // Mapa: una región de origen por proveedor visible + el destino.
-  const origins = [...new Set(shown.map((s) => s.quote.data?.region).filter((r): r is string => Boolean(r && REGION_ANCHORS[r])))];
+  const origins = [...new Set(shown.map((s) => region(s.quote)).filter((r): r is string => Boolean(r && REGION_ANCHORS[r])))];
   const mapPoints: MapPoint[] = [...new Set([...origins, search.destination])]
     .filter((region) => REGION_ANCHORS[region])
     .map((region) => ({
@@ -340,13 +394,20 @@ export function SourcingWorkspace({
     },
     {
       key: "price",
-      header: "Precio (€)",
+      header: "Precio",
       align: "right",
-      cell: (s) => formatEuro(s.quote.unit_price),
-      sortValue: (s) => s.quote.unit_price,
-      exportValue: (s) => s.quote.unit_price,
+      cell: (s) => euroOrDash(s.quote.unit_price, s.quote.currency),
+      sortValue: (s) => s.quote.unit_price ?? Number.POSITIVE_INFINITY,
+      exportValue: (s) => s.quote.unit_price ?? "",
     },
-    { key: "moq", header: "MOQ", align: "right", cell: (s) => formatInteger(s.quote.moq), sortValue: (s) => s.quote.moq, exportValue: (s) => s.quote.moq },
+    {
+      key: "moq",
+      header: "MOQ",
+      align: "right",
+      cell: (s) => integerOrDash(s.quote.moq),
+      sortValue: (s) => s.quote.moq ?? Number.POSITIVE_INFINITY,
+      exportValue: (s) => s.quote.moq ?? "",
+    },
     {
       key: "delivery",
       header: "Entrega",
@@ -357,8 +418,8 @@ export function SourcingWorkspace({
     {
       key: "direct",
       header: "Envío directo",
-      cell: (s) => (s.profile.directShipping ? "Sí" : "No"),
-      exportValue: (s) => (s.profile.directShipping ? "Sí" : "No"),
+      cell: (s) => capabilityText(s.quote, "direct_shipping"),
+      exportValue: (s) => capabilityText(s.quote, "direct_shipping"),
     },
     {
       key: "certs",
@@ -380,9 +441,14 @@ export function SourcingWorkspace({
       key: "score",
       header: "Score",
       align: "right",
-      cell: (s) => <span className="font-semibold text-primary">{s.score}</span>,
-      sortValue: (s) => s.score,
-      exportValue: (s) => s.score,
+      cell: (s) =>
+        s.score === null ? (
+          <span className="text-xs text-muted-foreground">Sin nota ({s.knownAxes}/7)</span>
+        ) : (
+          <span className="font-semibold text-primary">{s.score}</span>
+        ),
+      sortValue: (s) => s.score ?? -1,
+      exportValue: (s) => s.score ?? "",
     },
     {
       key: "actions",
@@ -553,10 +619,20 @@ export function SourcingWorkspace({
               >
                 <ShieldCheck /> Certificaciones
               </Button>
-              <Button size="xs" variant="outline" disabled title="Pendiente: el backend no guarda Incoterms">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled
+                title="Desde el Milestone 39 el Incoterm se guarda; falta construir el filtro"
+              >
                 <Truck /> Incoterms
               </Button>
-              <Button size="xs" variant="outline" disabled title="Pendiente: el backend no guarda métodos de pago">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled
+                title="Desde el Milestone 39 las condiciones de pago se guardan; falta construir el filtro"
+              >
                 <CircleDollarSign /> Métodos de pago
               </Button>
               <Button size="xs" variant={showMore ? "secondary" : "outline"} aria-expanded={showMore} onClick={() => setShowMore((v) => !v)}>
@@ -613,6 +689,14 @@ export function SourcingWorkspace({
               {searching ? <Loader2 className="animate-spin" /> : <Search />}
               {searching ? "Buscando…" : "Buscar proveedores"}
             </Button>
+            {product ? (
+              <>
+                <p className="text-[11px] text-muted-foreground">
+                  Un precio negociado no lo publica ninguna API: se introduce a mano.
+                </p>
+                <SupplierEntryForm productId={product.id} />
+              </>
+            ) : null}
           </CardContent>
         </Card>
       </section>
@@ -701,7 +785,7 @@ export function SourcingWorkspace({
                   </div>
                   <div>
                     <dt className="text-xs text-muted-foreground">Coste estimado</dt>
-                    <dd className="font-medium">{formatEuro(selected.quote.logistics_cost_per_unit)} / unidad</dd>
+                    <dd className="font-medium">{euroOrDash(selected.quote.logistics_cost_per_unit, selected.quote.currency)} / unidad</dd>
                   </div>
                   <Button
                     size="sm"
@@ -747,7 +831,7 @@ export function SourcingWorkspace({
               </CardHeader>
               <CardContent className="space-y-1.5 text-[13px]">
                 <p className="truncate text-xs text-muted-foreground">{quoteName(selected.quote)}</p>
-                {landedBreakdown(selected.quote).map((line) =>
+                {(landedBreakdown(selected.quote) ?? []).map((line) =>
                   line.total ? (
                     <div key={line.key} className="mt-2 flex justify-between gap-2 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-2 font-semibold text-primary">
                       <span>{line.label}</span>
@@ -760,6 +844,13 @@ export function SourcingWorkspace({
                     </div>
                   ),
                 )}
+                {landedBreakdown(selected.quote) === null && (
+                  <p className="text-xs text-warning">
+                    {selected.quote.unit_price === null || selected.quote.logistics_cost_per_unit === null
+                      ? "Sin coste total: esta cotización no declara precio o coste logístico. No se completa con ceros."
+                      : `Sin coste total: el precio está en ${selected.quote.currency ?? "una moneda sin declarar"} y el resto del desglose en euros. No hay fuente de tipos de cambio y no se inventa ninguno.`}
+                  </p>
+                )}
                 <p className="pt-1 text-[10px] text-muted-foreground">
                   Estimación basada en datos promedio. Puede variar según proveedor y condiciones.
                 </p>
@@ -768,18 +859,80 @@ export function SourcingWorkspace({
 
             <Card>
               <CardHeader>
+                <CardTitle className="text-sm">Riesgo por dimensiones</CardTitle>
+                <CardAction>
+                  <LevelChip tone={RISK_TONE[selected.risk]}>{selected.risk}</LevelChip>
+                </CardAction>
+              </CardHeader>
+              <CardContent className="space-y-2 text-[13px]">
+                {selected.quote.risk.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Sin evaluar: esta cotización no trae evaluación de riesgo.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {selected.quote.risk.map((assessment) => (
+                      <li key={assessment.dimension} className="flex items-start justify-between gap-2">
+                        <span className="min-w-0 flex-1">
+                          <span
+                            className={cn(assessment.level === "unknown" && "text-muted-foreground")}
+                          >
+                            {RISK_DIMENSION_LABEL[assessment.dimension]}
+                          </span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {assessment.rationale}
+                          </span>
+                        </span>
+                        <LevelChip tone={RISK_LEVEL_TONE[assessment.level]}>
+                          {RISK_LEVEL_LABEL[assessment.level]}
+                        </LevelChip>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {unassessedRisk(selected.quote).length > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Sin rojos no significa sin riesgo mientras queden dimensiones sin evaluar:{" "}
+                    {unassessedRisk(selected.quote)
+                      .map((d) => RISK_DIMENSION_LABEL[d])
+                      .join(", ")}
+                    .
+                  </p>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  No hay puntuación total y no es un olvido: el plan §11 pide dimensiones
+                  explicables, no un número opaco.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle className="text-sm">Compatibilidad con Amazona</CardTitle>
+                <CardAction>
+                  <span className="text-[11px] text-muted-foreground">
+                    {PROVENANCE_LABEL[selected.quote.supplier?.verification ?? "unknown"]}
+                  </span>
+                </CardAction>
               </CardHeader>
               <CardContent>
                 <ul className="space-y-2 text-[13px]">
-                  {compatibility(selected.quote, selected.profile).map((item) => (
-                    <li key={item.label} className="flex items-center gap-2">
-                      {item.ok ? (
-                        <CheckCircle2 className="size-4 shrink-0 text-primary" />
+                  {compatibility(selected.quote).map((item) => (
+                    <li key={item.label} className="flex items-start gap-2">
+                      {item.ok === true ? (
+                        <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
+                      ) : item.ok === false ? (
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
                       ) : (
-                        <AlertTriangle className="size-4 shrink-0 text-warning" />
+                        <HelpCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                       )}
-                      <span className={cn("min-w-0", !item.ok && "text-muted-foreground")}>{item.label}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className={cn(item.ok === null && "text-muted-foreground")}>{item.label}</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          {item.ok === null ? "Nadie lo ha declarado" : PROVENANCE_LABEL[item.provenance]}
+                          {item.note ? ` · ${item.note}` : ""}
+                        </span>
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -793,7 +946,7 @@ export function SourcingWorkspace({
               <CardContent>
                 <RadarChart
                   axes={[...SUPPLIER_AXES]}
-                  centerLabel={`${selected.score}/100`}
+                  centerLabel={selected.score === null ? `${selected.knownAxes}/7 ejes` : `${selected.score}/100`}
                   series={[
                     { label: quoteName(selected.quote), color: "var(--emerald-bright)", values: selected.axes },
                     compared

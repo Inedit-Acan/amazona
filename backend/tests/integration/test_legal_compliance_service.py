@@ -34,18 +34,27 @@ def _make_product(db_session: Session, category: str = "accessories") -> Product
 
 
 def _make_supplier_quote(db_session: Session, product: Product, verified: bool = False) -> SupplierQuote:
-    supplier = Supplier(name="Yiwu Accessory Hub", verified=verified, region="china", reliability_score=0.7)
+    supplier = Supplier(
+        name="Yiwu Accessory Hub",
+        # Milestone 39: verificado significa verificado por alguien. Lo que antes
+        # era `False` ahora es «lo dice el propio proveedor», que es lo que era.
+        verification="third_party_verified" if verified else "supplier_claim",
+        verified_by="Bureau of Test" if verified else None,
+        region="china",
+        reliability_score=0.7,
+        reliability_provenance="supplier_claim",
+    )
     db_session.add(supplier)
     db_session.commit()
 
     quote = SupplierQuote(
         product_id=product.id,
         supplier_id=supplier.id,
+        currency="EUR",
+        provenance="supplier_claim",
         unit_price=1.3,
         moq=1500,
         lead_time_days=28,
-        verified=verified,
-        reliability_score=0.7,
         logistics_cost_per_unit=0.4,
         total_landed_cost_per_unit=1.7,
         correlation_id="corr-sourcing-1",

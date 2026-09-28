@@ -37,6 +37,7 @@ from app.core.errors import (
     PipelineDisabledError,
     PipelineReviewNotPendingError,
     PipelineRunStateError,
+    ValidationError,
 )
 from app.core.ids import new_correlation_id
 from app.core.logging import configure_logging, set_correlation_id
@@ -69,6 +70,14 @@ CORRELATION_ID_HEADER = "X-Correlation-ID"
 @app.exception_handler(NotFoundError)
 async def not_found_handler(request: Request, exc: NotFoundError) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request: Request, exc: ValidationError) -> JSONResponse:
+    # 422 y no 400: el cuerpo llegó bien formado y lo que falla es una regla del
+    # dominio —una moneda que no está en el catálogo, un «verificado» sin quien
+    # verifique—, que es la misma familia que un fallo de esquema de FastAPI.
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
 @app.exception_handler(ApprovalNotPendingError)

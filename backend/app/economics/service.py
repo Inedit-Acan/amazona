@@ -1,12 +1,14 @@
 from sqlalchemy.orm import Session
 
 from app.agents.economic_analysis import EconomicAnalysisAgent
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, ValidationError
 from app.db.models.audit import AuditLog
 from app.db.models.economic_analysis import EconomicAnalysis
 from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.supplier_quote import SupplierQuote
+from app.sourcing.service import supplier_identity_verified
+from app.sourcing.trade_terms import ACCOUNTING_CURRENCY, comparable
 
 ECONOMICS_AGENT_ACTOR = "agent-economic-analysis-1"
 
@@ -41,6 +43,17 @@ class EconomicAnalysisService:
         if quote is None or quote.product_id != product_id:
             raise NotFoundError(f"supplier quote {supplier_quote_id} not found for product {product_id}")
 
+        # Desde el Milestone 39 un coste de aterrizaje puede faltar: el proveedor
+        # no publicó precio, o nadie ha estimado el transporte. Calcular un
+        # margen sobre eso exigiría tratar «no se sabe» como cero, que es
+        # exactamente lo que la ADR 0017 quita de en medio — y el margen es la
+        # cifra sobre la que después se calcula el techo de CAC.
+        if quote.total_landed_cost_per_unit is None:
+            raise ValidationError(
+                f"supplier quote {supplier_quote_id} has no landed cost: "
+                "a margin cannot be computed on an unknown cost"
+            )
+
         research = (
             self._db.query(ProductAnalysis)
             .filter_by(product_id=product_id, analysis_type="research")
@@ -57,11 +70,24 @@ class EconomicAnalysisService:
                 "demand_signal": demand_signal,
                 "monthly_unit_sales_base": monthly_unit_sales_base,
                 "monthly_fixed_costs": monthly_fixed_costs,
-                "supplier_verified": quote.verified,
+                "supplier_verified": supplier_identity_verified(self._db, quote),
                 "lead_time_days": quote.lead_time_days,
                 "competition_level": competition_level,
             }
         )
+
+        # El precio de venta se razona en la moneda contable; el coste viene en
+        # la del proveedor. **No se convierte**: no hay fuente de tipos de
+        # cambio y usar uno inventado metería un error del 5 % en el margen sin
+        # que nadie lo viera. Se dice, que es lo único honesto que se puede
+        # hacer hoy (ADR 0017).
+        risks = list(result.risks)
+        if not comparable(quote.currency, ACCOUNTING_CURRENCY):
+            risks.append(
+                f"landed cost is in {quote.currency or 'an undeclared currency'} and the "
+                f"sale price in {ACCOUNTING_CURRENCY}: the margin mixes currencies and no "
+                "exchange rate has been applied"
+            )
 
         base_scenario = result.data["scenarios"].get("base", {})
         analysis = EconomicAnalysis(
@@ -72,7 +98,7 @@ class EconomicAnalysisService:
             margin_percent=base_scenario.get("margin_percent", 0.0),
             recommendation=result.recommendation,
             confidence=result.confidence,
-            data={**result.data, "risks": result.risks, "evidence": result.evidence},
+            data={**result.data, "risks": risks, "evidence": result.evidence},
             correlation_id=correlation_id,
         )
         self._db.add(analysis)

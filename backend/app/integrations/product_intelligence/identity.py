@@ -27,10 +27,9 @@ Y cada resolución dice **cómo** se resolvió (`normalised` o `alias:v1`), porq
 meses después.
 """
 
-import re
-import unicodedata
 from dataclasses import dataclass
 
+from app.core.text import fold
 from app.integrations.product_intelligence.aliases import ALIASES, CATALOGUE_VERSION
 
 #: Resuelto por la transformación determinista: los dos nombres se escribían
@@ -41,37 +40,10 @@ NORMALISED = "normalised"
 #: identidad resuelta hoy se puede atribuir a la lista que había hoy.
 ALIAS = f"alias:{CATALOGUE_VERSION}"
 
-#: Los paréntesis de Wikipedia desambiguan, no nombran: `Belt (clothing)` es
-#: «Belt» para cualquiera que no esté leyendo una enciclopedia.
-_PARENTHETICAL = re.compile(r"\([^)]*\)")
-
-
-def fold(name: str) -> str:
-    """La clave de identidad de un nombre. Determinista y sin ninguna opinión.
-
-    Quita los paréntesis de desambiguación, descompone en NFKD y tira las marcas
-    diacríticas (`Café` y `Cafe` son el mismo café), pasa a minúsculas, convierte
-    en espacio todo lo que no sea letra o dígito —guiones, comas, comillas— y
-    colapsa los espacios.
-
-    Lo que **no** hace: juntar palabras compuestas. `airfryer` no se convierte en
-    `air fryer`, porque partir palabras necesita un léxico y un léxico es una
-    opinión. Para eso está el catálogo de alias, donde la opinión se firma.
-
-    Se conservan letras de cualquier alfabeto, no solo el latino: filtrar por
-    `a-z` convertiría dos nombres en cirílico o en japonés en la misma clave
-    vacía, y dos productos distintos pasarían a ser uno.
-    """
-    without_notes = _PARENTHETICAL.sub(" ", name)
-    decomposed = unicodedata.normalize("NFKD", without_notes)
-    unaccented = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    lowered = unaccented.casefold()
-    words = "".join(ch if ch.isalnum() else " " for ch in lowered).split()
-    if not words:
-        # Un nombre sin una sola letra ni dígito. Devolver la clave vacía haría
-        # que dos nombres distintos la compartieran, así que se conserva tal cual.
-        return " ".join(name.split())
-    return " ".join(words)
+#: `fold` vive en `app.core.text` desde el Milestone 39, porque la identidad de
+#: proveedores necesita la misma transformación y dos copias divergen. Se
+#: reexporta aquí para que quien la importaba siga encontrándola donde estaba.
+__all__ = ["ALIAS", "NORMALISED", "Identity", "fold", "resolve", "same_entity"]
 
 
 @dataclass(frozen=True)

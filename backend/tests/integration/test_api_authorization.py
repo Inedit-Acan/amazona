@@ -59,6 +59,17 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     ("POST", "/api/pipeline/kill-switch", {"enabled": True, "actor": "x"}, ApiAction.KILL_SWITCH_WRITE),
     ("POST", "/api/incidents", {"title": "T", "severity": "LOW", "actor": "x"}, ApiAction.INCIDENT_WRITE),
     ("POST", "/api/incidents/inc-1/resolve", {"actor": "x"}, ApiAction.INCIDENT_WRITE),
+    # Milestone 39: dar de alta proveedores, cotizaciones y capacidades a mano.
+    # No es `AGENT_RUN`: correr el agente es pedirle datos a un directorio, y
+    # esto es afirmar un hecho sobre una empresa real.
+    ("POST", "/api/suppliers", {"name": "N"}, ApiAction.SUPPLIER_WRITE),
+    ("POST", "/api/suppliers/sup-1/quotes", {"product_id": "p-1"}, ApiAction.SUPPLIER_WRITE),
+    (
+        "POST",
+        "/api/suppliers/sup-1/capabilities",
+        {"capability": "dropshipping", "supported": True},
+        ApiAction.SUPPLIER_WRITE,
+    ),
     ("POST", "/api/jobs", {"type": "diagnostic.echo"}, ApiAction.JOB_WRITE),
     ("POST", "/api/jobs/job-1/cancel", {}, ApiAction.JOB_WRITE),
     ("POST", "/api/jobs/job-1/requeue", {}, ApiAction.JOB_WRITE),
@@ -209,6 +220,9 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/pipeline/kill-switch"),
         ("POST", "/api/incidents"),
         ("POST", "/api/incidents/{incident_id}/resolve"),
+        ("POST", "/api/suppliers"),
+        ("POST", "/api/suppliers/{supplier_id}/quotes"),
+        ("POST", "/api/suppliers/{supplier_id}/capabilities"),
         ("POST", "/api/jobs"),
         ("POST", "/api/jobs/{job_id}/cancel"),
         ("POST", "/api/jobs/{job_id}/requeue"),

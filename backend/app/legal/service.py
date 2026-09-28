@@ -7,6 +7,7 @@ from app.db.models.legal_analysis import LegalAnalysis
 from app.db.models.product import Product
 from app.db.models.supplier import Supplier
 from app.db.models.supplier_quote import SupplierQuote
+from app.sourcing.service import supplier_identity_verified
 
 LEGAL_AGENT_ACTOR = "agent-legal-compliance-1"
 
@@ -50,7 +51,9 @@ class LegalComplianceService:
                 "market": market,
                 "product_name": product.name,
                 "certification_available": certification_available,
-                "supplier_verified": quote.verified if quote else None,
+                "supplier_verified": (
+                    supplier_identity_verified(self._db, quote) if quote else None
+                ),
                 "origin_region": supplier.region if supplier else None,
             }
         )

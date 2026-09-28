@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Agent, Approval, EconomicAnalysis, LegalAnalysis, PipelineReview, Product, Storefront, SupplierQuote } from "./api.ts";
+import type { Agent, Approval, EconomicAnalysis, LegalAnalysis, PipelineReview, Product, Storefront } from "./api.ts";
 import { REQUEST_TEMPLATES, RESOLVED_STATS, SLA_HOURS } from "./demo/approvals.ts";
 import {
   countFor,
@@ -15,25 +15,14 @@ import {
   statusShares,
   type ProductContext,
 } from "./approvals-view.ts";
+import { quoteFixture } from "./quote-fixture.ts";
 
 const NOW = Date.parse("2026-09-22T12:00:00Z");
 const HOUR = 3_600_000;
 
 const PRODUCT: Product = { id: "p-917", name: "Silicone kitchen organizer", category: "home", status: "CANDIDATE", created_by: "agent", source: "research" };
 
-const QUOTE: SupplierQuote = {
-  id: "q1",
-  product_id: PRODUCT.id,
-  supplier_id: "sup-eu",
-  unit_price: 3.4,
-  moq: 10,
-  lead_time_days: 10,
-  verified: true,
-  reliability_score: 0.9,
-  logistics_cost_per_unit: 1.2,
-  total_landed_cost_per_unit: 4.6,
-  data: { name: "Bratislava Homeware Supply", region: "eu" },
-};
+const QUOTE = quoteFixture({ product_id: PRODUCT.id });
 
 const ANALYSIS: EconomicAnalysis = {
   correlation_id: "c-eco",

@@ -14,8 +14,11 @@ export interface RadarSeries {
   label: string;
   /** CSS color value. */
   color: string;
-  /** 0-1 per axis key — already normalized to "higher is better" before it reaches this component. */
-  values: Record<string, number>;
+  /** 0-1 per axis key — already normalized to "higher is better" before it
+   * reaches this component. `null` significa que **nadie ha declarado** ese
+   * dato (Milestone 39): se dibuja en el centro, como un cero, pero el gráfico
+   * lo dice debajo en vez de dejar que parezca una mala puntuación. */
+  values: Record<string, number | null>;
 }
 
 const SIZE = 220;
@@ -33,7 +36,13 @@ function pointFor(axisIndex: number, axisCount: number, value: number): { x: num
   return { x: round(CENTER + r * Math.cos(angle)), y: round(CENTER + r * Math.sin(angle)) };
 }
 
-function polygonPoints(axes: RadarAxis[], values: Record<string, number>): string {
+function missingAxes(axes: RadarAxis[], series: RadarSeries[]): string[] {
+  return axes
+    .filter((axis) => series.some((s) => s.values[axis.key] === null || s.values[axis.key] === undefined))
+    .map((axis) => axis.label);
+}
+
+function polygonPoints(axes: RadarAxis[], values: Record<string, number | null>): string {
   return axes.map((axis, i) => pointFor(i, axes.length, values[axis.key] ?? 0)).map((p) => `${p.x},${p.y}`).join(" ");
 }
 
@@ -52,6 +61,7 @@ export function RadarChart({
   centerLabel?: string;
 }) {
   const clipId = useId();
+  const withoutData = missingAxes(axes, series);
   const [hoveredAxis, setHoveredAxis] = useState<number | null>(null);
   const [showTable, setShowTable] = useState(false);
 
@@ -221,10 +231,22 @@ export function RadarChart({
           {series.map((s) => (
             <p key={s.label} className="flex items-center gap-1.5">
               <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
-              {s.label}: <strong>{((s.values[axes[hoveredAxis].key] ?? 0) * 100).toFixed(0)}%</strong>
+              {s.label}:{" "}
+              <strong>
+                {s.values[axes[hoveredAxis].key] === null || s.values[axes[hoveredAxis].key] === undefined
+                  ? "sin dato"
+                  : `${((s.values[axes[hoveredAxis].key] ?? 0) * 100).toFixed(0)}%`}
+              </strong>
             </p>
           ))}
         </div>
+      ) : null}
+
+      {withoutData.length > 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          Sin dato en {withoutData.join(", ")}: el polígono los dibuja en el centro porque un
+          gráfico no sabe dejar un hueco, pero nadie ha declarado esos valores — no son ceros.
+        </p>
       ) : null}
     </div>
   );

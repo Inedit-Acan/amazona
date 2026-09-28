@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type EconomicAnalysis, type Product, type SupplierQuote } from "@/lib/api";
+import { type EconomicAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { EconomicsWorkspace } from "./economics-workspace";
@@ -15,7 +15,7 @@ export default async function EconomicsPage({ searchParams }: PageProps<"/econom
   const requestedQuoteId = first(params.supplier_quote_id);
 
   let products: Product[] = [];
-  let quotes: SupplierQuote[] = [];
+  let quotes: SupplierQuoteDetail[] = [];
   let analyses: EconomicAnalysis[] = [];
   let productId: string | undefined;
   let error: string | null = null;
@@ -26,7 +26,7 @@ export default async function EconomicsPage({ searchParams }: PageProps<"/econom
     if (productId) {
       // Sin cotizaciones o sin análisis la pantalla sigue funcionando (con datos de demostración).
       [quotes, analyses] = await Promise.all([
-        api.listProductSuppliers(productId).catch(() => [] as SupplierQuote[]),
+        api.listProductSuppliers(productId).catch(() => [] as SupplierQuoteDetail[]),
         api.listProductEconomics(productId).catch(() => [] as EconomicAnalysis[]),
       ]);
     }

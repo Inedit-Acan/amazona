@@ -9,26 +9,24 @@ import {
   type Recommendation,
 } from "./economics.ts";
 import { formatAmount, formatInteger, formatPercent } from "./format.ts";
-import type { EconomicScenario, SupplierQuote } from "./api.ts";
+import type { EconomicScenario } from "./api.ts";
+import { quoteFixture } from "./quote-fixture.ts";
 
 function scenario(profit: number, units = 100): EconomicScenario {
   return { monthly_unit_sales: units, margin_percent: 0.5, monthly_revenue: units * 20, monthly_profit: profit };
 }
 
-function quote(id: string, supplierId: string, landed: number): SupplierQuote {
-  return {
+function quote(id: string, supplierId: string, landed: number) {
+  return quoteFixture({
     id,
     product_id: "p",
     supplier_id: supplierId,
     unit_price: landed - 1,
     moq: 100,
-    lead_time_days: 10,
-    verified: true,
-    reliability_score: 0.9,
     logistics_cost_per_unit: 1,
     total_landed_cost_per_unit: landed,
     data: null,
-  };
+  });
 }
 
 test("scenarioList devuelve siempre conservador → base → optimista, aunque el backend los envíe desordenados", () => {

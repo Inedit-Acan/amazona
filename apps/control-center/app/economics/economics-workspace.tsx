@@ -40,7 +40,7 @@ import {
   Activity,
   type LucideIcon,
 } from "lucide-react";
-import { ApiError, api, type EconomicAnalysis, type Product, type SupplierQuote } from "@/lib/api";
+import { ApiError, api, type EconomicAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
 import { DEMO_PRODUCT_META } from "@/lib/demo/economics";
 import { buildBaseline } from "@/lib/economics-baseline";
 import { dedupeQuotesBySupplier } from "@/lib/economics";
@@ -143,7 +143,7 @@ export function EconomicsWorkspace({
 }: {
   products: Product[];
   productId?: string;
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
   latestAnalysis?: EconomicAnalysis;
   requestedQuoteId?: string;
 }) {
@@ -205,11 +205,17 @@ export function EconomicsWorkspace({
   ];
 
   // Coste frente a la media de cotizaciones reales (solo si hay con qué comparar).
+  // Solo entran las cotizaciones que TIENEN coste: una media que cuenta un
+  // coste desconocido como cero sale más barata de lo que es (Milestone 39).
+  const landedCosts = quoteOptions
+    .map((q) => q.total_landed_cost_per_unit)
+    .filter((v): v is number => v !== null);
   const avgLanded =
-    quoteOptions.length > 1
-      ? quoteOptions.reduce((sum, q) => sum + q.total_landed_cost_per_unit, 0) / quoteOptions.length
+    landedCosts.length > 1 ? landedCosts.reduce((sum, v) => sum + v, 0) / landedCosts.length : undefined;
+  const vsAverage =
+    quote?.total_landed_cost_per_unit != null && avgLanded
+      ? quote.total_landed_cost_per_unit / avgLanded - 1
       : undefined;
-  const vsAverage = quote && avgLanded ? quote.total_landed_cost_per_unit / avgLanded - 1 : undefined;
 
   // Evolución del beneficio por escenario según los pedidos al mes.
   const optimisticOrders = scenarioResults[2].inputs.monthlyOrders;
@@ -357,7 +363,10 @@ export function EconomicsWorkspace({
                 >
                   {quoteOptions.map((q) => (
                     <option key={q.id} value={q.id} className="bg-popover text-foreground">
-                      {q.data?.name ?? q.supplier_id} · {formatEuro(q.total_landed_cost_per_unit)}
+                      {q.supplier?.name ?? q.data?.name ?? q.supplier_id} ·{" "}
+                      {q.total_landed_cost_per_unit === null
+                        ? "sin coste declarado"
+                        : formatEuro(q.total_landed_cost_per_unit)}
                     </option>
                   ))}
                 </select>

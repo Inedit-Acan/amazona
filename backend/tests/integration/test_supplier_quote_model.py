@@ -36,7 +36,14 @@ def _make_product(db_session: Session) -> Product:
 
 
 def _make_supplier(db_session: Session) -> Supplier:
-    supplier = Supplier(name="Shenzhen Volta Electronics", verified=True, region="china", reliability_score=0.88)
+    supplier = Supplier(
+        name="Shenzhen Volta Electronics",
+        verification="third_party_verified",
+        verified_by="Bureau of Test",
+        region="china",
+        reliability_score=0.88,
+        reliability_provenance="third_party_verified",
+    )
     db_session.add(supplier)
     db_session.commit()
     return supplier
@@ -49,11 +56,11 @@ def test_supplier_quote_can_be_persisted_with_a_valid_product_and_supplier(db_se
     quote = SupplierQuote(
         product_id=product.id,
         supplier_id=supplier.id,
+        currency="EUR",
+        provenance="supplier_claim",
         unit_price=4.2,
         moq=500,
         lead_time_days=25,
-        verified=True,
-        reliability_score=0.88,
         logistics_cost_per_unit=1.02,
         total_landed_cost_per_unit=5.22,
         data={"region": "china"},
@@ -75,11 +82,11 @@ def test_supplier_quote_requires_a_valid_product_id(db_session: Session):
     quote = SupplierQuote(
         product_id=new_id(),  # does not exist
         supplier_id=supplier.id,
+        currency="EUR",
+        provenance="supplier_claim",
         unit_price=4.2,
         moq=500,
         lead_time_days=25,
-        verified=True,
-        reliability_score=0.88,
         logistics_cost_per_unit=1.02,
         total_landed_cost_per_unit=5.22,
         correlation_id="corr-1",
@@ -96,11 +103,11 @@ def test_supplier_quote_requires_a_valid_supplier_id(db_session: Session):
     quote = SupplierQuote(
         product_id=product.id,
         supplier_id=new_id(),  # does not exist
+        currency="EUR",
+        provenance="supplier_claim",
         unit_price=4.2,
         moq=500,
         lead_time_days=25,
-        verified=True,
-        reliability_score=0.88,
         logistics_cost_per_unit=1.02,
         total_landed_cost_per_unit=5.22,
         correlation_id="corr-1",

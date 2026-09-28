@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, Bot, ClipboardCheck, Coins, Plus, Wallet } from "lucide-react";
-import type { Agent, AgentExecution, Approval, PipelineReview, Product, SupplierQuote } from "@/lib/api";
+import type { Agent, AgentExecution, Approval, PipelineReview, Product, SupplierQuoteDetail } from "@/lib/api";
 import { teamOf } from "@/lib/agents";
 import { agentCards } from "@/lib/agents-view";
 import { demoRequests, requestFromApproval, requestFromReview, type ApprovalRequest } from "@/lib/approvals-view";
@@ -46,14 +46,17 @@ const ACTIVITY_LIMIT = 5;
 const DECISION_LIMIT = 4;
 const OPPORTUNITY_LIMIT = 5;
 
-function quoteToSupplier(quote: SupplierQuote, isDemo: boolean): SupplierInput {
+function quoteToSupplier(quote: SupplierQuoteDetail, isDemo: boolean): SupplierInput {
   return {
     id: quote.supplier_id,
     name: quote.data?.name ?? quote.supplier_id,
     region: quote.data?.region ?? "eu",
-    leadTimeDays: quote.lead_time_days,
-    reliability: quote.reliability_score,
-    verified: quote.verified,
+    // Milestone 39: lo que nadie ha dicho llega como `null`. Aquí se degrada a
+    // un valor neutro porque estas vistas resumen, no deciden; la pantalla de
+    // Proveedores es la que enseña el hueco.
+    leadTimeDays: quote.lead_time_days ?? 0,
+    reliability: quote.supplier?.reliability_score ?? 0,
+    verified: quote.supplier?.verification === "third_party_verified",
     isDemo,
   };
 }

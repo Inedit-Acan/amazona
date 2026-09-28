@@ -140,6 +140,9 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   — ver abajo.
 - **Milestone 38:** dónde se mide una señal, y el mismo producto en varios idiomas
   ([ADR 0016](docs/architecture/adr-0016-signal-channel.md)) — ver abajo.
+- **Milestone 39:** quién sostiene un hecho sobre un proveedor, y por qué el riesgo
+  no es un número
+  ([ADR 0017](docs/architecture/adr-0017-supplier-facts-and-risk.md)) — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -506,6 +509,37 @@ equivalencia declarada, ese término **no se mide**: no se traduce ni se aproxim
 **interés**: nunca intención de compra, nunca volumen de búsqueda comercial, nunca
 demanda.
 
+### Quién sostiene un hecho sobre un proveedor (Milestone 39)
+
+Un proveedor estaba `verified: bool` y su fiabilidad valía `0.0` cuando nadie la había
+valorado. El plan maestro §10 pide cuatro niveles y dice «No marcar un proveedor como
+"verified" sin explicar qué significa»; §11 pide que el riesgo siga siendo explicable
+por dimensiones; §16 pide que cada proveedor **declare** si soporta envío directo,
+dropshipping, envío ciego, embalaje propio, tracking, devoluciones, retorno en la UE y
+SLA. Nada de eso existía: las ocho capacidades las inventaba un generador
+pseudoaleatorio en el frontend.
+
+**Cada hecho dice quién lo sostiene**: verificado por un tercero, dicho por el
+proveedor, estimado por AMAZONA, simulado, o **desconocido** — que no se guarda,
+porque una fila que dice «no se sabe» afirma lo mismo que no tener fila. Un
+«verificado por un tercero» **sin emisor falla al construirse**.
+
+**Una cotización lleva sus condiciones**: moneda, MOQ, Incoterm, condiciones de pago,
+preparación y transporte por separado, coste logístico, mercado de destino y vigencia.
+Todo puede faltar, y lo que falta **no vale cero**: sin coste logístico no hay coste de
+aterrizaje aunque haya precio, porque sumar cero diría que el transporte es gratis.
+
+**No se convierte entre monedas.** No hay fuente de tipos de cambio y no se inventa
+ninguno: dos precios en monedas distintas no se comparan, y el panel lo dice en vez de
+enseñar un total con símbolo de euro que no son euros.
+
+**El riesgo son ocho respuestas, no un número**, con un cuarto nivel además de
+bajo/medio/alto: **sin evaluar**. Un riesgo de fraude «bajo» porque nadie miró es una
+compra a ciegas que parece hecha con los ojos abiertos.
+
+**Y los proveedores reales se introducen a mano**, que es el camino que este milestone
+abre y que se sostiene permanentemente: un precio negociado no lo publica ninguna API.
+
 ## Notas
 
 - Amazon SP-API: prohibido usar sus datos para entrenar modelos.
@@ -517,5 +551,5 @@ demanda.
   (migraciones sobre PostgreSQL real, la conversión del `steps` histórico,
   la concurrencia de `SKIP LOCKED` y el login/refresco/cierre de sesión real).
   Están registradas en
-  [system-overview §18](docs/architecture/system-overview.md#18-pendientes-de-integración):
+  [system-overview §19](docs/architecture/system-overview.md#19-pendientes-de-integración):
   no bloquean el desarrollo, sí bloquean producción.

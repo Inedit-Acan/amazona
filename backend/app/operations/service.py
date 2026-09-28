@@ -9,6 +9,7 @@ from app.db.models.marketing_campaign import MarketingCampaign
 from app.db.models.operations_record import OperationsRecord
 from app.db.models.product import Product
 from app.db.models.supplier_quote import SupplierQuote
+from app.sourcing.service import supplier_identity_verified
 
 OPERATIONS_AGENT_ACTOR = "agent-operations-1"
 
@@ -67,7 +68,9 @@ class OperationsService:
                 "market": market,
                 "sale_price": economic_analysis.sale_price if economic_analysis else None,
                 "lead_time_days": quote.lead_time_days if quote else None,
-                "supplier_verified": quote.verified if quote else None,
+                "supplier_verified": (
+                    supplier_identity_verified(self._db, quote) if quote else None
+                ),
                 "economic_recommendation": economic_analysis.recommendation if economic_analysis else None,
                 "legal_recommendation": legal_analysis.recommendation if legal_analysis else None,
                 "restricted": legal_analysis.restricted if legal_analysis else None,

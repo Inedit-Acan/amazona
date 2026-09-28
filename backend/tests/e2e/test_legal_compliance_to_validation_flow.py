@@ -115,7 +115,10 @@ def test_full_five_step_flow_is_traceable_end_to_end_and_blocks_a_restricted_cat
                 "supplier_sourcing": {
                     "unit_cost": unit_landed_cost,
                     "lead_time_days": best_quote["lead_time_days"],
-                    "supplier_verified": best_quote["verified"],
+                    # Milestone 39: el booleano se fue. Lo que queda es quién
+                    # sostiene la oferta, y solo un tercero independiente la
+                    # convierte en «verificada».
+                    "supplier_verified": best_quote["provenance"] == "third_party_verified",
                 },
                 "finance_validation": {
                     "unit_cost": unit_landed_cost,

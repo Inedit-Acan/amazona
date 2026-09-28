@@ -83,6 +83,10 @@ BUSINESS_ROUTES = [
     "/api/projects/proj-1",
     "/api/research/runs/cid-1",
     "/api/sourcing/runs/cid-1",
+    # Milestone 39: la ficha de un proveedor es dato de negocio, como su
+    # cotización.
+    "/api/suppliers",
+    "/api/suppliers/sup-1",
     "/api/tasks?project_id=proj-1",
 ]
 
@@ -246,6 +250,8 @@ def test_the_inventory_covers_every_read_route():
         "/api/research/comparisons/{comparison_id}",
         "/api/research/runs/{correlation_id}",
         "/api/sourcing/runs/{correlation_id}",
+        "/api/suppliers",
+        "/api/suppliers/{supplier_id}",
         "/api/tasks",
     }
 

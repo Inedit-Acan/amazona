@@ -32,7 +32,7 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import { ApiError, api, type LegalAnalysis, type Product, type SupplierQuote } from "@/lib/api";
+import { ApiError, api, type LegalAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
 import {
   DEMO_CONTEXT,
   DEMO_DOCUMENTS,
@@ -94,7 +94,7 @@ const DOC_TONE = { Verificado: "text-primary", "Requiere revisión": "text-destr
 
 type Filter = "all" | "open" | Criticality;
 
-function quoteName(quote: SupplierQuote): string {
+function quoteName(quote: SupplierQuoteDetail): string {
   return quote.data?.name ?? quote.supplier_id;
 }
 
@@ -112,7 +112,7 @@ export function LegalWorkspace({
   products: Product[];
   productId?: string;
   analyses: LegalAnalysis[];
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
   initialMarket: string;
 }) {
   const router = useRouter();

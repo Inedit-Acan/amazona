@@ -18,7 +18,7 @@ import {
   Truck,
   Wallet,
 } from "lucide-react";
-import type { Agent, AuditEntry } from "@/lib/api";
+import type { Agent, AuditEntry, SupplierQuoteDetail } from "@/lib/api";
 import { DEMO_SALE, DEMO_UNIT_COSTS } from "@/lib/demo/economics";
 import { DEMO_RETURN_RATE } from "@/lib/demo/operations";
 import { demoQuotes } from "@/lib/demo/sourcing";
@@ -113,14 +113,17 @@ function syncUrl(id: string) {
   window.history.replaceState(null, "", url);
 }
 
-function quoteToSupplier(quote: { supplier_id: string; lead_time_days: number; reliability_score: number; verified: boolean; data: { name?: string; region?: string } | null }, isDemo: boolean): SupplierInput {
+function quoteToSupplier(quote: SupplierQuoteDetail, isDemo: boolean): SupplierInput {
   return {
     id: quote.supplier_id,
-    name: quote.data?.name ?? quote.supplier_id,
-    region: quote.data?.region ?? "eu",
-    leadTimeDays: quote.lead_time_days,
-    reliability: quote.reliability_score,
-    verified: quote.verified,
+    name: quote.supplier?.name ?? quote.data?.name ?? quote.supplier_id,
+    region: quote.supplier?.region ?? quote.data?.region ?? "eu",
+    // Milestone 39: lo que nadie ha dicho llega como `null`. Aquí se degrada a
+    // un valor neutro porque esta vista resume proyectos, no decide compras;
+    // la pantalla de Proveedores es la que enseña el hueco.
+    leadTimeDays: quote.lead_time_days ?? 0,
+    reliability: quote.supplier?.reliability_score ?? 0,
+    verified: quote.supplier?.verification === "third_party_verified",
     isDemo,
   };
 }

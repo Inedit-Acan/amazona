@@ -419,23 +419,125 @@ export interface ComparisonProviderSummary {
   channels?: string[];
 }
 
+/** Quién sostiene un hecho sobre un proveedor (Milestone 39, ADR 0017).
+ *
+ * `unknown` NO es un valor que el backend guarde: es lo que contesta cuando
+ * nadie ha declarado nada. Un hecho ausente se queda ausente. */
+export type SupplierProvenance =
+  | "third_party_verified"
+  | "supplier_claim"
+  | "amazona_estimate"
+  | "simulated"
+  | "unknown";
+
+/** Las ocho capacidades del plan maestro §16. Conjunto cerrado. */
+export type SupplyCapability =
+  | "direct_shipping"
+  | "dropshipping"
+  | "blind_shipping"
+  | "custom_packaging"
+  | "tracking"
+  | "returns"
+  | "eu_return_address"
+  | "sla";
+
+export interface SupplierCapabilityAnswer {
+  capability: SupplyCapability;
+  /** `null` significa **no declarado**, nunca «no lo soporta». */
+  supported: boolean | null;
+  provenance: SupplierProvenance;
+  source: string | null;
+  note: string | null;
+  observed_at: string | null;
+  /** Si la respuesta es una declaración específica de este producto. */
+  product_specific: boolean;
+}
+
+/** Una de las ocho dimensiones de riesgo del plan maestro §11. */
+export type RiskDimension =
+  | "identity"
+  | "financial"
+  | "quality"
+  | "delivery"
+  | "legal"
+  | "fraud"
+  | "dependency"
+  | "geopolitical_logistics";
+
+export type RiskLevel = "low" | "medium" | "high" | "unknown";
+
+export interface SupplierRiskAssessment {
+  dimension: RiskDimension;
+  level: RiskLevel;
+  rationale: string;
+  provenance: SupplierProvenance;
+  basis: string[];
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  identity_key: string | null;
+  identity_method: string | null;
+  region: string | null;
+  country: string | null;
+  city: string | null;
+  website: string | null;
+  /** `null` = nadie ha dicho de dónde sale esta ficha. No es «no verificado». */
+  verification: SupplierProvenance | null;
+  verified_by: string | null;
+  /** `null` = nadie la ha valorado. **No es cero.** */
+  reliability_score: number | null;
+  reliability_provenance: SupplierProvenance | null;
+  last_checked_at: string | null;
+}
+
+/** Una cotización. Desde el Milestone 39 casi todo puede faltar: lo que el
+ * proveedor no ha dicho se queda sin decir, y `null` no es cero. */
 export interface SupplierQuote {
   id: string;
   product_id: string;
   supplier_id: string;
-  unit_price: number;
-  moq: number;
-  lead_time_days: number;
-  verified: boolean;
-  reliability_score: number;
-  logistics_cost_per_unit: number;
-  total_landed_cost_per_unit: number;
+  unit_price: number | null;
+  /** ISO 4217. Sin moneda el precio no se compara con ningún otro. */
+  currency: string | null;
+  quoted_unit: string | null;
+  quoted_quantity: number | null;
+  moq: number | null;
+  /** Días de preparación, sin el transporte. */
+  lead_time_days: number | null;
+  transit_days: number | null;
+  transport_mode: string | null;
+  /** Incoterms 2020: hasta dónde llega el precio. */
+  incoterm: string | null;
+  payment_terms: string | null;
+  destination_market: string | null;
+  valid_from: string | null;
+  valid_until: string | null;
+  provenance: SupplierProvenance | null;
+  source: string | null;
+  logistics_cost_per_unit: number | null;
+  logistics_provenance: SupplierProvenance | null;
+  total_landed_cost_per_unit: number | null;
   data: {
     name?: string;
     region?: string;
     notes?: string;
     [key: string]: unknown;
   } | null;
+}
+
+/** La cotización con lo que hace falta para decidir. Un precio sin saber si el
+ * proveedor acepta devoluciones en la UE es la mitad de la información. */
+export interface SupplierQuoteDetail extends SupplierQuote {
+  supplier: Supplier | null;
+  /** Siempre las ocho, declaradas o no. */
+  capabilities: SupplierCapabilityAnswer[];
+  /** Las críticas para el modelo sin stock (§16) que siguen sin respuesta.
+   * Vacío no significa «compatible»: significa que ya no faltan respuestas. */
+  unanswered_capabilities: SupplyCapability[];
+  /** Las ocho dimensiones de §11. No hay puntuación total y no es un olvido. */
+  risk: SupplierRiskAssessment[];
 }
 
 export interface SourcingRun {
@@ -832,7 +934,63 @@ export const api = {
     max_results?: number;
   }) => request<SourcingRun>("/api/sourcing/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductSuppliers: (productId: string) =>
-    request<SupplierQuote[]>(`/api/products/${productId}/suppliers`),
+    request<SupplierQuoteDetail[]>(`/api/products/${productId}/suppliers`),
+  listSuppliers: () => request<Supplier[]>("/api/suppliers"),
+  getSupplier: (supplierId: string) => request<Supplier>(`/api/suppliers/${supplierId}`),
+  /** Alta manual de un proveedor real (Milestone 39). */
+  createSupplier: (payload: {
+    name: string;
+    region?: string | null;
+    country?: string | null;
+    city?: string | null;
+    website?: string | null;
+    verification?: SupplierProvenance;
+    verified_by?: string | null;
+    reliability?: number | null;
+  }) => request<Supplier>("/api/suppliers", { method: "POST", body: JSON.stringify(payload) }),
+  /** Alta manual de una cotización real. Lo que no se pasa se queda sin decir. */
+  createSupplierQuote: (
+    supplierId: string,
+    payload: {
+      product_id: string;
+      provenance?: SupplierProvenance;
+      source?: string | null;
+      unit_price?: number | null;
+      currency?: string | null;
+      quoted_unit?: string | null;
+      quoted_quantity?: number | null;
+      moq?: number | null;
+      lead_time_days?: number | null;
+      transit_days?: number | null;
+      transport_mode?: string | null;
+      incoterm?: string | null;
+      payment_terms?: string | null;
+      destination_market?: string | null;
+      logistics_cost_per_unit?: number | null;
+      valid_from?: string | null;
+      valid_until?: string | null;
+    },
+  ) =>
+    request<SupplierQuote>(`/api/suppliers/${supplierId}/quotes`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /** Declara una de las ocho capacidades del §16. */
+  declareSupplierCapability: (
+    supplierId: string,
+    payload: {
+      capability: SupplyCapability;
+      supported: boolean;
+      provenance?: SupplierProvenance;
+      product_id?: string | null;
+      source?: string | null;
+      note?: string | null;
+    },
+  ) =>
+    request<SupplierCapabilityAnswer>(`/api/suppliers/${supplierId}/capabilities`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   createEconomicAnalysisRun: (payload: {
     product_id: string;
     supplier_quote_id: string;

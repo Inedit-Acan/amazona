@@ -2,14 +2,88 @@
 //
 // Valores inventados (con permiso del propietario, 22-09-2026) para que el
 // panel se vea como el mockup mientras el backend no los proporciona.
-// Deterministas por proveedor. Sustituir cuando existan los endpoints
-// (docs/design/AMAZONA_estado_paneles_rediseno.md, sección 1).
+// Deterministas por proveedor. La pantalla dice cuáles son (DataProvenanceBadge).
+//
+// ## Qué dejó de estar aquí en el Milestone 39 (ADR 0017)
+//
+// Las ocho capacidades del plan maestro §16 —envío directo, dropshipping,
+// envío ciego, packaging, tracking, devoluciones, dirección de retorno UE y
+// SLA— y la verificación del proveedor. Eran ocho afirmaciones sobre el mundo
+// salidas de un generador pseudoaleatorio, y ahora son declaraciones reales con
+// procedencia que vienen del backend. Lo que nadie ha declarado se enseña como
+// **no declarado**, no como «no».
+//
+// Lo que sigue siendo de demostración, porque el backend no lo guarda todavía:
+// ciudad, certificaciones, calidad, compliance, escalabilidad y plazos de
+// entrega del perfil. Cada uno con su casilla pendiente en el milestone.
 
-import type { SupplierQuote } from "../api.ts";
+import type {
+  SupplierCapabilityAnswer,
+  SupplierQuoteDetail,
+  SupplierRiskAssessment,
+  SupplyCapability,
+} from "../api.ts";
 import { demoRandom } from "./random.ts";
 
+/** Moneda de las cotizaciones de ejemplo. Está escrita porque un precio sin
+ * moneda no se compara con ninguno, no porque nadie la haya negociado. */
+const DEMO_CURRENCY = "EUR";
+
+const DEMO_CAPABILITIES: SupplyCapability[] = [
+  "direct_shipping",
+  "dropshipping",
+  "blind_shipping",
+  "custom_packaging",
+  "tracking",
+  "returns",
+  "eu_return_address",
+  "sla",
+];
+
+/** Capacidades de ejemplo, declaradas como lo que son: simuladas. */
+function demoCapabilityAnswers(seed: string, moq: number): SupplierCapabilityAnswer[] {
+  const r = (salt: string) => demoRandom(seed, salt);
+  return DEMO_CAPABILITIES.map((capability, k) => ({
+    capability,
+    supported: capability === "dropshipping" ? moq <= 10 : r(`cap${k}`) > 0.45,
+    provenance: "simulated" as const,
+    source: "lib/demo/sourcing.ts",
+    note: null,
+    observed_at: null,
+    product_specific: false,
+  }));
+}
+
+const DEMO_RISK_DIMENSIONS = [
+  "identity",
+  "financial",
+  "quality",
+  "delivery",
+  "legal",
+  "fraud",
+  "dependency",
+  "geopolitical_logistics",
+] as const;
+
+/** Riesgo de ejemplo por dimensión. Igual que el real: ocho respuestas, ninguna
+ * puntuación total. */
+function demoRisk(seed: string): SupplierRiskAssessment[] {
+  const r = (salt: string) => demoRandom(seed, salt);
+  return DEMO_RISK_DIMENSIONS.map((dimension, k) => {
+    const draw = r(`risk${k}`);
+    const level = draw > 0.8 ? "high" : draw > 0.45 ? "medium" : "low";
+    return {
+      dimension,
+      level,
+      rationale: "evaluación de demostración: no sale de ningún hecho comprobado",
+      provenance: "simulated" as const,
+      basis: ["lib/demo/sourcing.ts"],
+    };
+  });
+}
+
 /** Cotizaciones de ejemplo cuando el producto no tiene ninguna real. */
-export function demoQuotes(productId: string): SupplierQuote[] {
+export function demoQuotes(productId: string): SupplierQuoteDetail[] {
   const rows: [string, string, string, number, number, number, number, number][] = [
     // id, nombre, región, precio, logística, MOQ, plazo (días), fiabilidad
     ["demo-shenzhen-audiotech", "Shenzhen AudioTech Co.", "china", 8.4, 2.46, 1, 9, 0.93],
@@ -23,17 +97,48 @@ export function demoQuotes(productId: string): SupplierQuote[] {
     product_id: productId,
     supplier_id: id,
     unit_price: unit,
+    currency: DEMO_CURRENCY,
+    quoted_unit: "piece",
+    quoted_quantity: 1,
     moq,
     lead_time_days: lead,
-    verified: reliability >= 0.85,
-    reliability_score: reliability,
+    transit_days: null,
+    transport_mode: null,
+    incoterm: region === "eu" ? "DAP" : "DDP",
+    payment_terms: null,
+    destination_market: "eu",
+    valid_from: null,
+    valid_until: null,
+    provenance: "simulated" as const,
+    source: "lib/demo/sourcing.ts",
     logistics_cost_per_unit: logistics,
+    logistics_provenance: "simulated" as const,
     total_landed_cost_per_unit: Math.round((unit + logistics) * 100) / 100,
     data: { name, region },
+    supplier: {
+      id,
+      name,
+      identity_key: null,
+      identity_method: null,
+      region,
+      country: null,
+      city: null,
+      website: null,
+      // Un proveedor de demostración no lo ha verificado nadie: lo escribió un
+      // fichero. Antes decía «verified» si su fiabilidad pasaba de 0,85.
+      verification: "simulated" as const,
+      verified_by: null,
+      reliability_score: reliability,
+      reliability_provenance: "simulated" as const,
+      last_checked_at: null,
+    },
+    capabilities: demoCapabilityAnswers(id, moq),
+    unanswered_capabilities: [],
+    risk: demoRisk(id),
   }));
 }
 
-/** País y ciudad de ejemplo por proveedor de demostración (el backend solo da la región). */
+/** País y ciudad de ejemplo por proveedor de demostración. */
 const DEMO_LOCATION: Record<string, { country: string; flag: "cn" | "eu" | "vn" | "mx" | "es" | "pl" | "hk"; city: string }> = {
   "demo-shenzhen-audiotech": { country: "China", flag: "cn", city: "Shenzhen" },
   "demo-soundpro-europe": { country: "Polonia", flag: "pl", city: "Varsovia" },
@@ -49,24 +154,12 @@ const REGION_LOCATION: Record<string, { country: string; flag: "cn" | "eu" | "vn
   eu: { country: "Unión Europea", flag: "eu", cities: ["Varsovia", "Róterdam", "Valencia"] },
 };
 
-export const COMPATIBILITY_CRITERIA = [
-  "Dropshipping / envío directo",
-  "MOQ bajo (≤ 10)",
-  "Packaging neutro",
-  "Tracking automático",
-  "Stock sincronizable (API/CSV)",
-  "Dirección de devoluciones UE",
-  "SLA contractual",
-  "Pago después de venta",
-] as const;
-
 export interface DemoSupplierProfile {
   country: string;
   flag: "cn" | "eu" | "vn" | "mx" | "es" | "pl" | "hk";
   city: string;
   certifications: string[];
   certificationPending: boolean;
-  directShipping: boolean;
   /** Días de entrega al destino (mín, máx). */
   delivery: [number, number];
   transport: string;
@@ -74,41 +167,39 @@ export interface DemoSupplierProfile {
   quality: number;
   compliance: number;
   scalability: number;
-  /** Criterios de compatibilidad que el proveedor no cumple (o no ha confirmado). */
-  compatibilityGaps: string[];
 }
 
-/** Perfil de demostración de un proveedor (real o demo): lo que el backend no guarda. */
-export function demoSupplierProfile(quote: SupplierQuote): DemoSupplierProfile {
+/** Perfil de demostración de un proveedor (real o demo): lo que el backend no
+ * guarda todavía. El país y la ciudad reales, cuando existen, mandan sobre el
+ * ejemplo: lo demo es relleno, nunca sustituto de un dato real. */
+export function demoSupplierProfile(quote: SupplierQuoteDetail): DemoSupplierProfile {
   const seed = quote.supplier_id;
-  const region = quote.data?.region ?? "china";
+  const region = quote.supplier?.region ?? (quote.data?.region as string | undefined) ?? "china";
   const fixed = DEMO_LOCATION[seed];
   const byRegion = REGION_LOCATION[region] ?? REGION_LOCATION.china;
   const r = (salt: string) => demoRandom(seed, salt);
   const nearby = region === "eu";
   const certs = ["CE", "RoHS", "FCC"].slice(0, 2 + Math.floor(r("certs") * 2));
   const deliveryMin = nearby ? 1 + Math.floor(r("dmin") * 2) : 6 + Math.floor(r("dmin") * 6);
-  const gaps = COMPATIBILITY_CRITERIA.filter((c, k) => k >= 5 && r(`gap${k}`) < 0.55);
+  const verified = quote.supplier?.verification === "third_party_verified";
   return {
-    country: fixed?.country ?? byRegion.country,
+    country: quote.supplier?.country ?? fixed?.country ?? byRegion.country,
     flag: fixed?.flag ?? byRegion.flag,
-    city: fixed?.city ?? byRegion.cities[Math.floor(r("city") * byRegion.cities.length)],
+    city: quote.supplier?.city ?? fixed?.city ?? byRegion.cities[Math.floor(r("city") * byRegion.cities.length)],
     certifications: certs,
-    certificationPending: !quote.verified,
-    directShipping: quote.moq <= 10 || r("direct") < 0.7,
+    certificationPending: !verified,
     delivery: [deliveryMin, deliveryMin + (nearby ? 2 : 3 + Math.floor(r("dspan") * 4))],
     transport: nearby ? "Terrestre (DDP)" : "Aéreo (DDP)",
     quality: 0.8 + r("quality") * 0.15,
-    compliance: quote.verified ? 0.88 + r("compliance") * 0.1 : 0.7 + r("compliance") * 0.1,
+    compliance: verified ? 0.88 + r("compliance") * 0.1 : 0.7 + r("compliance") * 0.1,
     scalability: 0.78 + r("scalability") * 0.18,
-    compatibilityGaps: gaps,
   };
 }
 
 export const DEMO_SEARCH_OPTIONS = {
   logisticsModels: [
-    { value: "direct", label: "Envío directo" },
     { value: "any", label: "Cualquiera" },
+    { value: "direct", label: "Declara envío directo" },
   ],
   leadTimes: [
     { value: "", label: "Sin límite" },

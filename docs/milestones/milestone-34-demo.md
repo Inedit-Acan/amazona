@@ -140,7 +140,7 @@ PRODUCT_INTELLIGENCE_PROVIDER=real python -m app.jobs.worker
 ## No verificado
 
 - **Los cinco pendientes de integración** siguen igual y ninguno bloqueaba este
-  milestone (ver [system-overview §18](../architecture/system-overview.md#18-pendientes-de-integración)).
+  milestone (ver [system-overview §19](../architecture/system-overview.md#19-pendientes-de-integración)).
 - **El comportamiento de Wikimedia bajo carga real**: no se ha ejercido el límite
   de ritmo de verdad (el 429 está probado con transporte simulado).
 - **La calidad de la señal como predictor de negocio.** Que «Air fryer» tenga

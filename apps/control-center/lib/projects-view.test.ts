@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEMO_CLOSED_PROJECTS, DEMO_PROJECTS } from "./demo/projects.ts";
-import { buildOrders, startOfDay, type ProductInput, type SupplierInput } from "./operations-view.ts";
+import { buildOrders, startOfDay,  type SupplierInput } from "./operations-view.ts";
 import {
   PHASES,
   demoProjects,
@@ -17,25 +17,14 @@ import {
   projectRisks,
   type ProductProjectInput,
 } from "./projects-view.ts";
-import type { AuditEntry, EconomicAnalysis, LegalAnalysis, Product, Storefront, SupplierQuote } from "./api.ts";
+import type { AuditEntry, EconomicAnalysis, LegalAnalysis, Product, Storefront } from "./api.ts";
+import { quoteFixture } from "./quote-fixture.ts";
 
 const TODAY = startOfDay("2026-09-22");
 
 const PRODUCT: Product = { id: "917ef890", name: "Silicone kitchen organizer", category: "home", status: "CANDIDATE", created_by: "agent", source: "research" };
 
-const QUOTE: SupplierQuote = {
-  id: "q1",
-  product_id: PRODUCT.id,
-  supplier_id: "sup-eu",
-  unit_price: 3.4,
-  moq: 10,
-  lead_time_days: 10,
-  verified: true,
-  reliability_score: 0.9,
-  logistics_cost_per_unit: 1.2,
-  total_landed_cost_per_unit: 4.6,
-  data: { name: "Bratislava Homeware Supply", region: "eu" },
-};
+const QUOTE = quoteFixture({ product_id: PRODUCT.id });
 
 const ANALYSIS: EconomicAnalysis = {
   correlation_id: "c-eco",

@@ -1,4 +1,4 @@
-import type { EconomicAnalysis, EconomicScenario, SupplierQuote } from "@/lib/api";
+import type { EconomicAnalysis, EconomicScenario,  SupplierQuoteDetail } from "@/lib/api";
 
 // El motor económico vive en el backend (economics/scenarios.py, "una única
 // fuente de verdad económica"). Este módulo NO calcula escenarios, punto de
@@ -79,14 +79,19 @@ export function viabilityStatement(recommendation: Recommendation): Viability {
  * puede tener el mismo proveedor varias veces (una por búsqueda). Se deja una
  * por proveedor — la de menor coste entregado, salvo que se pida conservar una
  * concreta (la que llega por URL desde Proveedores). */
-export function dedupeQuotesBySupplier(quotes: SupplierQuote[], keepId?: string): SupplierQuote[] {
-  const chosen = new Map<string, SupplierQuote>();
-  const sorted = [...quotes].sort((a, b) => a.total_landed_cost_per_unit - b.total_landed_cost_per_unit);
+export function dedupeQuotesBySupplier(quotes: SupplierQuoteDetail[], keepId?: string): SupplierQuoteDetail[] {
+  const chosen = new Map<string, SupplierQuoteDetail>();
+  const sorted = [...quotes].sort((a, b) => Number(a.total_landed_cost_per_unit === null) - Number(b.total_landed_cost_per_unit === null) ||
+      (a.total_landed_cost_per_unit ?? 0) - (b.total_landed_cost_per_unit ?? 0));
   for (const quote of sorted) {
     const current = chosen.get(quote.supplier_id);
     if (!current || (quote.id === keepId && current.id !== keepId)) {
       chosen.set(quote.supplier_id, quote);
     }
   }
-  return [...chosen.values()].sort((a, b) => a.total_landed_cost_per_unit - b.total_landed_cost_per_unit);
+  return [...chosen.values()].sort(
+    (a, b) =>
+      Number(a.total_landed_cost_per_unit === null) - Number(b.total_landed_cost_per_unit === null) ||
+      (a.total_landed_cost_per_unit ?? 0) - (b.total_landed_cost_per_unit ?? 0),
+  );
 }

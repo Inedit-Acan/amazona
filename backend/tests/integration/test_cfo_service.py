@@ -37,17 +37,24 @@ def _make_product(db_session: Session, name: str = "Product") -> Product:
 
 
 def _make_quote(db_session: Session, product: Product) -> SupplierQuote:
-    supplier = Supplier(name="Supplier Co", verified=True, region="china", reliability_score=0.9)
+    supplier = Supplier(
+        name="Supplier Co",
+        verification="third_party_verified",
+        verified_by="Bureau of Test",
+        region="china",
+        reliability_score=0.9,
+        reliability_provenance="third_party_verified",
+    )
     db_session.add(supplier)
     db_session.commit()
     quote = SupplierQuote(
         product_id=product.id,
         supplier_id=supplier.id,
+        currency="EUR",
+        provenance="supplier_claim",
         unit_price=2.0,
         moq=500,
         lead_time_days=20,
-        verified=True,
-        reliability_score=0.9,
         logistics_cost_per_unit=0.4,
         total_landed_cost_per_unit=2.4,
         correlation_id="corr-sourcing-1",

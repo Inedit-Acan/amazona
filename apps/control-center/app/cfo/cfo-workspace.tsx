@@ -55,7 +55,7 @@ import { Sparkline } from "@/components/sparkline";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { CFOReport, SupplierQuote } from "@/lib/api";
+import type { CFOReport, SupplierQuoteDetail } from "@/lib/api";
 import type { ProductFinanceData } from "./page";
 import { CFO_DESCRIPTION, CFO_TITLE } from "./copy";
 import {
@@ -81,14 +81,17 @@ const DEMO_TOOLTIP =
 /** Meses que se pueden mirar hacia atrás en el selector de periodo. */
 const PERIOD_OFFSETS = [0, -1, -2, -3];
 
-function quoteToSupplier(quote: SupplierQuote, isDemo: boolean): SupplierInput {
+function quoteToSupplier(quote: SupplierQuoteDetail, isDemo: boolean): SupplierInput {
   return {
     id: quote.supplier_id,
     name: quote.data?.name ?? quote.supplier_id,
     region: quote.data?.region ?? "eu",
-    leadTimeDays: quote.lead_time_days,
-    reliability: quote.reliability_score,
-    verified: quote.verified,
+    // Milestone 39: lo que nadie ha dicho llega como `null`. Aquí se degrada a
+    // un valor neutro porque estas vistas resumen, no deciden; la pantalla de
+    // Proveedores es la que enseña el hueco.
+    leadTimeDays: quote.lead_time_days ?? 0,
+    reliability: quote.supplier?.reliability_score ?? 0,
+    verified: quote.supplier?.verification === "third_party_verified",
     isDemo,
   };
 }

@@ -1,24 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { EconomicAnalysis, SupplierQuote } from "./api.ts";
+import type { EconomicAnalysis } from "./api.ts";
 import { buildBaseline } from "./economics-baseline.ts";
 import { DEMO_SALE, DEMO_UNIT_COSTS } from "./demo/economics.ts";
 import { demoQuotes } from "./demo/sourcing.ts";
 import { rankSuppliers } from "./sourcing-view.ts";
+import { quoteFixture } from "./quote-fixture.ts";
 
-const quote: SupplierQuote = {
-  id: "q1",
-  product_id: "p1",
+const quote = quoteFixture({
   supplier_id: "sup-1",
+  // El proveedor lo hereda del andamio: aquí solo importan los números.
   unit_price: 5,
   moq: 200,
   lead_time_days: 20,
-  verified: true,
-  reliability_score: 0.9,
   logistics_cost_per_unit: 2,
   total_landed_cost_per_unit: 7,
   data: { name: "Proveedor Real", region: "vietnam" },
-};
+  supplier: { name: "Proveedor Real", region: "vietnam" },
+});
 
 const analysis: EconomicAnalysis = {
   correlation_id: "c1",

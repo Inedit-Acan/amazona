@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type Agent, type AgentExecution, type Approval, type EconomicAnalysis, type LegalAnalysis, type MarketingCampaign, type PipelineReview, type Product, type Storefront, type SupplierQuote } from "@/lib/api";
+import { type Agent, type AgentExecution, type Approval, type EconomicAnalysis, type LegalAnalysis, type MarketingCampaign, type PipelineReview, type Product, type Storefront, type SupplierQuoteDetail } from "@/lib/api";
 import { projectCodeFor } from "@/lib/projects-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
@@ -12,7 +12,7 @@ const PRODUCT_LIMIT = 8;
 
 export interface DashboardProductData {
   product: Product;
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
   economics: EconomicAnalysis[];
   legal: LegalAnalysis[];
   storefronts: Storefront[];

@@ -24,7 +24,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
+from app.core.errors import ValidationError
 from app.integrations.channels import channel_for
+from app.sourcing.capabilities import CapabilityDeclaration
+from app.sourcing.provenance import MissingVerifierError, SupplierFactProvenance
+from app.sourcing.trade_terms import currency_for, incoterm_for
 
 
 class IntegrationDomain(StrEnum):
@@ -348,10 +352,121 @@ class ProductSignalProvider(Protocol):
     ) -> list[CandidateSignals]: ...
 
 
-class SupplierDirectory(Protocol):
-    """Suppliers able to provide a category, with their commercial terms."""
+@dataclass(frozen=True)
+class SupplierOffer:
+    """Lo que una fuente de proveedores contesta sobre un candidato
+    (Milestone 39, ADR 0017).
 
-    def get_suppliers(self, *, category: str, max_results: int = 5) -> list[dict]: ...
+    Sustituye al `dict` que devolvía `get_suppliers`. El cambio es el mismo que
+    el Milestone 34 hizo con Product Intelligence y por el mismo motivo: un
+    contrato moldeado sobre el mock solo se puede implementar con datos reales
+    inventando la mitad. Un directorio real no contesta «este proveedor es
+    verified y su fiabilidad es 0,88»; contesta un nombre, un país, a veces un
+    precio, casi nunca un Incoterm — y **calla** el resto.
+
+    Por eso casi todo es opcional y nada tiene valor por defecto distinto de
+    `None`. Un MOQ que el proveedor no ha publicado no es un MOQ de uno, y un
+    coste logístico que nadie ha calculado no es cero.
+
+    `provenance` es quién sostiene lo que viene aquí dentro. Es del conjunto,
+    no de cada campo: una fuente habla con una sola voz. Lo que se afirma con
+    voces distintas —el precio del proveedor y el transporte estimado por
+    nosotros— se separa al persistirlo, no aquí.
+    """
+
+    #: Cómo se llama la empresa, tal y como lo dice la fuente.
+    name: str
+    #: Quién sostiene estos datos. Una fuente que no lo sepa decir no debería
+    #: estar conectada: es la pregunta que el plan maestro §10 obliga a
+    #: contestar antes de llamar «verified» a nada.
+    provenance: SupplierFactProvenance
+    #: De dónde salió: el host de la API, la clave del fixture, `manual:<quién>`.
+    source: str
+
+    region: str | None = None
+    country: str | None = None
+    city: str | None = None
+    website: str | None = None
+
+    unit_price: float | None = None
+    #: ISO 4217. Sin moneda, el precio no se compara con ningún otro.
+    currency: str | None = None
+    quoted_unit: str | None = None
+    quoted_quantity: int | None = None
+    moq: int | None = None
+    #: Días de preparación, sin el transporte.
+    lead_time_days: int | None = None
+    transit_days: int | None = None
+    transport_mode: str | None = None
+    #: Incoterms 2020.
+    incoterm: str | None = None
+    payment_terms: str | None = None
+    destination_market: str | None = None
+    valid_from: datetime.datetime | None = None
+    valid_until: datetime.datetime | None = None
+
+    #: Lo que la fuente dice de la fiabilidad del proveedor, 0-1. `None` es
+    #: desconocido y **no es cero**.
+    reliability: float | None = None
+    #: Quién sostiene la identidad de la empresa, que es un hecho distinto de
+    #: quién sostiene su tarifa. `None` = nadie lo ha dicho.
+    verification: SupplierFactProvenance | None = None
+    #: Obligatorio cuando `verification` es `THIRD_PARTY_VERIFIED`.
+    verified_by: str | None = None
+
+    #: Las capacidades del plan §16 que la fuente declare. Vacío es lo normal:
+    #: ninguna fuente pública dice si hace envío ciego.
+    capabilities: tuple[CapabilityDeclaration, ...] = ()
+
+    observed_at: datetime.datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Falla si la oferta dice algo que no se puede sostener.
+
+        Se comprueba aquí, en los tests de quien escriba el adaptador, y no al
+        pintar la pantalla: es el mismo criterio que el techo de confianza del
+        Milestone 37. Un Incoterm inventado y un «verificado» sin emisor son
+        errores que solo se ven si algo los mira.
+        """
+        if self.provenance is SupplierFactProvenance.UNKNOWN:
+            raise ValidationError(
+                "a supplier offer must say who says so: an unattributed offer is "
+                "what Milestone 39 exists to remove"
+            )
+        if self.provenance is SupplierFactProvenance.THIRD_PARTY_VERIFIED and not (
+            self.source or ""
+        ).strip():
+            raise MissingVerifierError(
+                "a third-party verified offer must name the verifier (plan maestro §10)"
+            )
+        if self.verification is SupplierFactProvenance.THIRD_PARTY_VERIFIED and not (
+            self.verified_by or ""
+        ).strip():
+            raise MissingVerifierError(
+                f"{self.name}: identity cannot be third-party verified without naming "
+                "the verifier (plan maestro §10)"
+            )
+        if self.currency is not None:
+            currency_for(self.currency)
+        if self.incoterm is not None:
+            incoterm_for(self.incoterm)
+        if self.unit_price is not None and self.currency is None:
+            raise ValidationError(
+                f"{self.name}: a price without a currency cannot be compared with any "
+                "other price, and assuming they match invents an exchange rate of 1.00"
+            )
+
+
+class SupplierDirectory(Protocol):
+    """Proveedores capaces de suministrar una categoría, con lo que se sepa de
+    sus condiciones comerciales — y con la procedencia de cada respuesta."""
+
+    #: Nombre estable de la fuente, el que se persiste en cada cotización.
+    name: str
+
+    def find_suppliers(
+        self, *, category: str, destination_market: str, max_results: int = 5
+    ) -> list[SupplierOffer]: ...
 
 
 class RegulatoryDirectory(Protocol):

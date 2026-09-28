@@ -129,9 +129,21 @@ def pick_best_candidate(products: list[Product], score_by_product_id: dict[str, 
 
 
 def pick_best_quote(quotes: list[SupplierQuote]) -> SupplierQuote:
-    """Same ranking SupplierSourcingAgent/`/suppliers` endpoint already
-    apply internally (total_landed_cost_per_unit ascending)."""
-    return min(quotes, key=lambda q: q.total_landed_cost_per_unit)
+    """La cotización más barata, con el mismo criterio que el agente de sourcing
+    y el endpoint `/suppliers` (coste de aterrizaje ascendente).
+
+    Desde el Milestone 39 un coste de aterrizaje puede faltar, y las que faltan
+    van **al final**: no se pueden ordenar por un número que no existe, y
+    tratarlas como cero las convertiría en las más baratas del lote, que es lo
+    contrario de lo que significan.
+    """
+    return min(
+        quotes,
+        key=lambda q: (
+            q.total_landed_cost_per_unit is None,
+            q.total_landed_cost_per_unit or 0.0,
+        ),
+    )
 
 
 # --- Modelo de lectura -----------------------------------------------------

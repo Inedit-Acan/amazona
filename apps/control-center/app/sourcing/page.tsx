@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type Product, type SupplierQuote } from "@/lib/api";
+import { type Product, type SupplierQuoteDetail } from "@/lib/api";
 import { DEFAULT_SEARCH, type SearchParams } from "@/lib/sourcing-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
@@ -28,13 +28,13 @@ export default async function SourcingPage({ searchParams }: PageProps<"/sourcin
   };
 
   let products: Product[] = [];
-  let quotes: SupplierQuote[] = [];
+  let quotes: SupplierQuoteDetail[] = [];
   let productId: string | undefined;
   let error: string | null = null;
   try {
     products = await api.listProducts();
     productId = products.find((p) => p.id === requestedProductId)?.id ?? products[0]?.id;
-    if (productId) quotes = await api.listProductSuppliers(productId).catch(() => [] as SupplierQuote[]);
+    if (productId) quotes = await api.listProductSuppliers(productId).catch(() => [] as SupplierQuoteDetail[]);
   } catch (err) {
     error = err instanceof Error ? err.message : "Error desconocido";
   }

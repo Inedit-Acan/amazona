@@ -64,6 +64,12 @@ class ApiAction(StrEnum):
     #: Read deployment diagnostics: schema version, environment and which
     #: provider backs each external domain.
     DIAGNOSTICS_READ = "diagnostics.read"
+    #: Dar de alta un proveedor, una cotización o una capacidad del §16 a mano
+    #: (Milestone 39). Es distinto de `AGENT_RUN`: correr el agente de sourcing
+    #: es pedirle datos a un directorio, y esto es **afirmar un hecho** sobre una
+    #: empresa real. Un ANALYST analiza lo que hay; declarar que un proveedor
+    #: hace envío ciego es una decisión de negocio con consecuencias operativas.
+    SUPPLIER_WRITE = "supplier.write"
     #: Enqueue, cancel or requeue a job. Milestone 31. Reading jobs is
     #: BUSINESS_READ: seeing what the system is doing is not the same as
     #: making it do something.
@@ -88,6 +94,7 @@ API_ROLE_ACTIONS: dict[RoleName, frozenset[ApiAction]] = {
             ApiAction.PIPELINE_RUN,
             ApiAction.INCIDENT_WRITE,
             ApiAction.JOB_WRITE,
+            ApiAction.SUPPLIER_WRITE,
             ApiAction.BUSINESS_READ,
             ApiAction.DIAGNOSTICS_READ,
         }

@@ -192,7 +192,7 @@ curl -X POST localhost:8000/api/research/runs -H 'Content-Type: application/json
   lógica está cubierta por tests de `lib` y del endpoint; el render a ojo, no.
 - **`AI_INGESTION` de Wikimedia**: CC-BY-SA no lo aborda.
 - **Los cinco pendientes de integración** siguen igual
-  ([system-overview §18](../architecture/system-overview.md#18-pendientes-de-integración)).
+  ([system-overview §19](../architecture/system-overview.md#19-pendientes-de-integración)).
 - **La incidencia del test intermitente del Milestone 35** no ha reaparecido en
   ninguna pasada de este milestone. Sigue sin explicación y sigue anotada.
 

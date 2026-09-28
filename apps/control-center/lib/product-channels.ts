@@ -6,7 +6,7 @@ import {
   type MarketplaceListing,
   type OperationsRecord,
   type Storefront,
-  type SupplierQuote,
+  type SupplierQuoteDetail,
 } from "@/lib/api";
 
 /** Todo lo persistido de un producto que necesita el panel de Tienda y canales. */
@@ -15,7 +15,7 @@ export interface ProductChannelData {
   listings: MarketplaceListing[];
   legal: LegalAnalysis[];
   economics: EconomicAnalysis[];
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
 }
 
 export const EMPTY_PRODUCT_CHANNEL_DATA: ProductChannelData = {

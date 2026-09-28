@@ -2,36 +2,43 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { supplierRadarValues } from "./sourcing.ts";
 import { toCsv } from "./csv.ts";
-import type { SupplierQuote } from "./api.ts";
+import { quoteFixture } from "./quote-fixture.ts";
 
-function quote(overrides: Partial<SupplierQuote> & { id: string }): SupplierQuote {
-  return {
-    product_id: "p1",
-    supplier_id: `s-${overrides.id}`,
-    unit_price: 4,
-    moq: 500,
-    lead_time_days: 20,
-    verified: true,
-    reliability_score: 0.8,
-    logistics_cost_per_unit: 1,
-    total_landed_cost_per_unit: 5,
-    data: null,
-    ...overrides,
-  };
-}
+const cheap = quoteFixture({
+  id: "a",
+  supplier_id: "s-a",
+  unit_price: 2,
+  logistics_cost_per_unit: 0.5,
+  total_landed_cost_per_unit: 2.5,
+  moq: 1000,
+  lead_time_days: 30,
+});
+const fast = quoteFixture({
+  id: "b",
+  supplier_id: "s-b",
+  unit_price: 4,
+  logistics_cost_per_unit: 1,
+  total_landed_cost_per_unit: 5,
+  moq: 200,
+  lead_time_days: 10,
+});
+const pricey = quoteFixture({
+  id: "c",
+  supplier_id: "s-c",
+  unit_price: 8,
+  logistics_cost_per_unit: 2,
+  total_landed_cost_per_unit: 10,
+  moq: 400,
+  lead_time_days: 20,
+});
 
-const cheap = quote({ id: "a", unit_price: 2, logistics_cost_per_unit: 0.5, total_landed_cost_per_unit: 2.5, moq: 1000, lead_time_days: 30, reliability_score: 0.7 });
-const fast = quote({ id: "b", unit_price: 4, logistics_cost_per_unit: 1, total_landed_cost_per_unit: 5, moq: 200, lead_time_days: 10, reliability_score: 0.95 });
-const pricey = quote({ id: "c", unit_price: 8, logistics_cost_per_unit: 2, total_landed_cost_per_unit: 10, moq: 400, lead_time_days: 20, reliability_score: 0.5, verified: false });
-
-test("supplierRadarValues: el mejor del conjunto vale 1 y el resto es proporcional; fiabilidad es literal", () => {
+test("supplierRadarValues: el mejor del conjunto vale 1 y el resto es proporcional", () => {
   const all = [cheap, fast, pricey];
   const values = supplierRadarValues(cheap, all);
   assert.equal(values.price, 1);
   assert.equal(values.logistics, 1);
-  assert.equal(values.reliability, 0.7);
   assert.equal(values.flexibility, 0.2); // min moq 200 / 1000
-  assert.ok(Math.abs(values.speed - 10 / 30) < 1e-9);
+  assert.ok(Math.abs((values.speed ?? 0) - 10 / 30) < 1e-9);
 
   const worst = supplierRadarValues(pricey, all);
   assert.equal(worst.price, 0.25); // 2 / 8
@@ -42,9 +49,35 @@ test("supplierRadarValues nunca sale del rango 0-1", () => {
   const all = [cheap, fast, pricey];
   for (const q of all) {
     for (const value of Object.values(supplierRadarValues(q, all))) {
-      assert.ok(value >= 0 && value <= 1, `fuera de rango: ${value}`);
+      assert.ok(value !== null && value >= 0 && value <= 1, `fuera de rango: ${value}`);
     }
   }
+});
+
+test("supplierRadarValues: un dato que nadie ha declarado no vale cero, vale nada", () => {
+  // Un MOQ desconocido pintado como 0 sería un proveedor perfectamente flexible
+  // que nadie ha comprobado (Milestone 39).
+  const silent = quoteFixture({
+    id: "d",
+    supplier_id: "s-d",
+    moq: null,
+    unit_price: null,
+    logistics_cost_per_unit: 2,
+  });
+
+  const values = supplierRadarValues(silent, [cheap, fast, pricey, silent]);
+
+  assert.equal(values.flexibility, null);
+  assert.equal(values.price, null);
+  // Lo que sí declara se sigue puntuando con normalidad.
+  assert.equal(values.logistics, 0.25);
+});
+
+test("supplierRadarValues: si nadie del conjunto declara un eje, el que lo declara es el mejor", () => {
+  const only = quoteFixture({ id: "e", supplier_id: "s-e", moq: 50 });
+  const silent = quoteFixture({ id: "f", supplier_id: "s-f", moq: null });
+
+  assert.equal(supplierRadarValues(only, [only, silent]).flexibility, 1);
 });
 
 test("toCsv escapa comillas, comas y saltos de línea, y antepone BOM", () => {

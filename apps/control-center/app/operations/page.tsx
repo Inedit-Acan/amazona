@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type EconomicAnalysis, type OperationsRecord, type Product, type SupplierQuote } from "@/lib/api";
+import { type EconomicAnalysis, type OperationsRecord, type Product, type SupplierQuoteDetail } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { OPERATIONS_DESCRIPTION, OPERATIONS_TITLE } from "./copy";
@@ -11,7 +11,7 @@ function first(value: string | string[] | undefined): string | undefined {
 
 export interface ProductOperations {
   product: Product;
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
   economics: EconomicAnalysis[];
   operations: OperationsRecord[];
 }

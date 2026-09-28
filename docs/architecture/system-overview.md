@@ -818,7 +818,56 @@ se traduce ni se aproxima.
 sigue en `DEMAND` y sigue significando **interés**. El razonamiento completo, en la
 [ADR 0016](adr-0016-signal-channel.md).
 
-## 17. El coste de las llamadas externas (Milestone 37)
+## 17. Quién sostiene un hecho sobre un proveedor (Milestone 39)
+
+El plan maestro §10 pide cuatro niveles de procedencia y dice, con esas palabras: «No
+marcar un proveedor como "verified" sin explicar qué significa». Lo que había era un
+`bool` en `Supplier` y otro en `SupplierQuote`, y un `reliability_score` con
+`default=0.0` que hacía indistinguible «no sabemos si es fiable» de «no es nada
+fiable».
+
+**`SupplierFactProvenance`**: `third_party_verified`, `supplier_claim`,
+`amazona_estimate`, `simulated` y `unknown`. `unknown` **no se guarda** —una fila que
+dice «no se sabe» afirma lo mismo que no tener fila— y `third_party_verified` **falla
+al construirse** sin emisor, en el dominio y no en la pantalla.
+
+Son **tres hechos distintos**, y por eso tres columnas: quién sostiene que la empresa
+es quien dice ser (`suppliers.verification`), quién sostiene **esa tarifa**
+(`supplier_quotes.provenance`) y quién sostiene el coste logístico
+(`logistics_provenance`, casi siempre nuestro estimador). Que una empresa esté
+auditada no audita su tarifa.
+
+**Una cotización lleva ya sus condiciones comerciales**: moneda, unidad y cantidad
+cotizadas, MOQ, Incoterm (los once de 2020, conjunto cerrado), condiciones de pago,
+preparación separada de transporte, modo de transporte, coste logístico, mercado de
+destino y vigencia. Todo nulable: un Incoterm por defecto sería una condición pactada
+que nadie pactó, y cinco columnas dejaron de ser `NOT NULL` para que un número que
+nadie ha dicho pueda faltar.
+
+**No se convierte entre monedas.** Un precio sin moneda se rechaza; dos precios en
+monedas distintas no se comparan y se dice que no se pueden comparar. Inventar un tipo
+de cambio metería un error del 5 % en el margen sin que nadie lo viera.
+
+**Las ocho capacidades del §16 son declaraciones**, no booleanos: `supplier_capabilities`
+guarda qué, si la soporta, quién lo dice, desde cuándo y una nota, por proveedor o por
+producto. Sin fila la respuesta es `unknown`, **nunca** `false`.
+
+**La identidad de proveedor es la regla del Milestone 36 aplicada a empresas**: nombre
+normalizado más dónde está, determinista o declarada, nunca por parecido. `fold` vive
+desde aquí en `app/core/text.py` para no tener dos copias que divergen.
+
+**El riesgo del §11 son ocho respuestas, no un número.** `SupplierRiskProfile` no tiene
+puntuación total y hay un test que lo comprueba; cada dimensión trae nivel, motivo y
+los hechos que miró, y existe un cuarto nivel —`unknown`— porque un riesgo que nadie
+ha evaluado no es un riesgo bajo. Se deriva al leer y no se guarda: una evaluación
+guardada envejece sin avisar.
+
+**La entrada manual es permanente**, con acción propia `SUPPLIER_WRITE` —distinta de
+`AGENT_RUN`, porque correr el agente es pedir datos y esto es afirmar un hecho sobre
+una empresa real— y sin `SYSTEM`: ningún proceso automático afirma hechos sobre una
+empresa. El razonamiento completo, en la [ADR 0017](adr-0017-supplier-facts-and-risk.md).
+
+## 18. El coste de las llamadas externas (Milestone 37)
 
 El plan maestro §25 lo pide **antes** de introducir LLM o APIs comerciales, y la
 secuencia del §32 no lo programó en ningún milestone: `provider, operation, units,
@@ -852,7 +901,7 @@ Está **separado del ActionGate** a propósito: aquél gobierna publicar, anunci
 gastar dinero del negocio; esto es infraestructura con sus propias ventanas. Los dos
 los leerá el CFO más adelante.
 
-## 18. Pendientes de integración
+## 19. Pendientes de integración
 
 Cuatro comprobaciones que **no se pueden cerrar en esta máquina** y que no
 pertenecen a ningún milestone concreto: son deuda de verificación, no de código.
@@ -868,7 +917,7 @@ opere sobre datos reales.
 | **Concurrencia real de `SELECT … FOR UPDATE SKIP LOCKED`.** SQLite lo ignora sin error, así que el reclamo único está probado por construcción y por los tests, pero no contra PostgreSQL con varios workers a la vez. | Milestone 31 ([ADR 0009](adr-0009-async-job-runtime.md) §1) | Dos o más `python -m app.jobs.worker` contra la misma base PostgreSQL, comprobando que ningún trabajo se ejecuta dos veces |
 | **Login, refresco y cierre de sesión reales.** El flujo de sesión del Control Center está construido y probado con tokens fabricados; falta ejercerlo contra Supabase con credenciales de prueba. | Milestone 29.1 ([ADR 0007](adr-0007-production-security.md)) | Un usuario de prueba en Supabase: entrar, dejar caducar el token para ver el refresco del middleware, y salir |
 
-## 19. Deuda funcional registrada
+## 20. Deuda funcional registrada
 
 Lo del §18 es deuda de **verificación**: cosas ciertas que solo un entorno real
 confirma. Esto es otra cosa — deuda de **función**: cosas que el sistema todavía no
@@ -877,4 +926,7 @@ en el milestone donde se descubrieron.
 
 | Deuda | Por qué importa | Dónde debería ir |
 |---|---|---|
+| **Fuente de tipos de cambio** | Desde el Milestone 39 una cotización lleva su moneda, y **no hay con qué convertirla**. Dos cotizaciones en monedas distintas no se comparan, el coste de aterrizaje del mock (en dólares) no se puede sumar a costes en euros, y el margen que Economics calcula sobre un coste en otra moneda lleva un aviso en vez de una conversión. Inventar un tipo de cambio metería un error del 5 % que nadie vería | Un adaptador de tipos de cambio con fecha y fuente, bajo el libro de coste del §25. Es requisito previo para que el margen del M40 sea real sobre cualquier proveedor que no cotice en euros |
+| **Catálogo de qué países forman cada mercado** | Sin él, un proveedor con país declarado (`ES`) y un destino expresado como mercado (`eu`) dan riesgo geopolítico **desconocido**: el sistema se niega a decir que cruza una frontera porque `es` no es la misma cadena que `eu`. Afecta a una de las ocho dimensiones del §11 | Una línea de catálogo por mercado, como los canales del Milestone 38. Ninguna migración |
+| **Certificaciones de proveedor** | El plan §10 las pide («certifications») y el Milestone 39 no las modela: siguen siendo dato de demostración en la pantalla. Una certificación necesita emisor, alcance y caducidad, que es una tabla propia | Con §12 Legal Intelligence, que es donde vive la conformidad de producto |
 | **Coste de adquisición (CAC) en Economics** | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |

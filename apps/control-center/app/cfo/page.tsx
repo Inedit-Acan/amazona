@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type CFOReport, type EconomicAnalysis, type Product, type SupplierQuote } from "@/lib/api";
+import { type CFOReport, type EconomicAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { CFO_DESCRIPTION, CFO_TITLE } from "./copy";
@@ -12,7 +12,7 @@ const PORTFOLIO_PRODUCT_LIMIT = 20;
 export interface ProductFinanceData {
   product: Product;
   economics: EconomicAnalysis[];
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
 }
 
 export default async function CFOPage() {

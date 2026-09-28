@@ -31,6 +31,7 @@ from app.db.models.research_comparison import ResearchComparison
 from app.db.models.role import Role
 from app.db.models.storefront import Storefront
 from app.db.models.supplier import Supplier
+from app.db.models.supplier_capability import SupplierCapability
 from app.db.models.supplier_quote import SupplierQuote
 from app.db.models.task import Task, TaskDependency
 from app.db.models.user import User
@@ -76,6 +77,7 @@ __all__ = [
     "Role",
     "Storefront",
     "Supplier",
+    "SupplierCapability",
     "SupplierQuote",
     "Task",
     "TaskDependency",

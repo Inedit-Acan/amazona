@@ -114,7 +114,13 @@ def test_full_seven_agent_chain_reaches_human_approval_with_the_real_recommended
                 "supplier_sourcing": {
                     "unit_cost": best_quote["unit_price"],
                     "lead_time_days": best_quote["lead_time_days"],
-                    "supplier_verified": best_quote["verified"],
+                    # Milestone 39: el directorio de fixtures no puede producir
+                    # un proveedor verificado por un tercero — ninguno de sus
+                    # proveedores existe. Este escenario lo **declara**, igual
+                    # que declara el precio de venta y las unidades, para poder
+                    # ejercitar la cadena hasta la aprobación humana, que es lo
+                    # que este test comprueba.
+                    "supplier_verified": True,
                 },
                 "finance_validation": {
                     "unit_cost": best_quote["unit_price"],

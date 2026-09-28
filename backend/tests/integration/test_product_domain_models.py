@@ -39,12 +39,22 @@ def test_product_can_be_persisted_with_defaults(db_session: Session):
 
 
 def test_supplier_can_be_persisted(db_session: Session):
-    supplier = Supplier(name="Acme Supplies", verified=True, region="EU", reliability_score=0.9)
+    supplier = Supplier(
+        name="Acme Supplies",
+        verification="third_party_verified",
+        verified_by="Bureau of Test",
+        region="EU",
+        reliability_score=0.9,
+        reliability_provenance="third_party_verified",
+    )
     db_session.add(supplier)
     db_session.commit()
 
     persisted = db_session.get(Supplier, supplier.id)
-    assert persisted.verified is True
+    # Milestone 39: la verificación dice quién verificó. Un «sí» sin emisor
+    # dejó de poder guardarse.
+    assert persisted.verification == "third_party_verified"
+    assert persisted.verified_by == "Bureau of Test"
     assert persisted.reliability_score == 0.9
 
 

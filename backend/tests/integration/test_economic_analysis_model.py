@@ -32,18 +32,25 @@ def db_session():
 def _make_product_and_quote(db_session: Session) -> tuple[Product, SupplierQuote]:
     product = Product(name="Wireless earbuds", category="electronics", created_by="owner@amazona.local")
     db_session.add(product)
-    supplier = Supplier(name="Shenzhen Volta Electronics", verified=True, region="china", reliability_score=0.88)
+    supplier = Supplier(
+        name="Shenzhen Volta Electronics",
+        verification="third_party_verified",
+        verified_by="Bureau of Test",
+        region="china",
+        reliability_score=0.88,
+        reliability_provenance="third_party_verified",
+    )
     db_session.add(supplier)
     db_session.commit()
 
     quote = SupplierQuote(
         product_id=product.id,
         supplier_id=supplier.id,
+        currency="EUR",
+        provenance="supplier_claim",
         unit_price=4.2,
         moq=500,
         lead_time_days=25,
-        verified=True,
-        reliability_score=0.88,
         logistics_cost_per_unit=1.02,
         total_landed_cost_per_unit=5.22,
         correlation_id="corr-sourcing-1",

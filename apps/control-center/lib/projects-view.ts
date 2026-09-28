@@ -1,4 +1,4 @@
-import type { AuditEntry, EconomicAnalysis, LegalAnalysis, MarketingCampaign, OperationsRecord, Product, Storefront, SupplierQuote } from "./api.ts";
+import type { AuditEntry, EconomicAnalysis, LegalAnalysis, MarketingCampaign, OperationsRecord, Product, Storefront,  SupplierQuoteDetail } from "./api.ts";
 import { DEMO_ACTUAL_SPREAD, DEMO_CLOSED_PROJECTS, DEMO_PROJECTS, DEMO_SUPPLIER_ADVANCE, PROJECT_CODE_PREFIX } from "./demo/projects.ts";
 import { demoRandom } from "./demo/random.ts";
 import { launchReadiness } from "./ecommerce.ts";
@@ -75,7 +75,7 @@ export interface ProjectCard {
 
 export interface ProductProjectInput {
   product: Product;
-  quotes: SupplierQuote[];
+  quotes: SupplierQuoteDetail[];
   economics: EconomicAnalysis[];
   legal: LegalAnalysis[];
   storefronts: Storefront[];
@@ -113,8 +113,16 @@ export function projectFromProduct(input: ProductProjectInput, index: number, to
   phases.push(phase("research", "done", `${researchScore}/100`, researchScore));
 
   const ranked = quotes.length > 0 ? rankSuppliers(dedupeQuotesBySupplier(quotes)) : [];
-  const supplierScore = ranked[0] ? Math.round(ranked[0].score) : null;
-  phases.push(quotes.length > 0 ? phase("suppliers", "done", `${supplierScore}/100`, supplierScore) : phase("suppliers", "current", "Sin cotizaciones"));
+  // `null` cuando faltan ejes: un proveedor del que no se sabe la mitad no
+  // tiene nota, y ponerle una lo haría comparable con uno que sí la tiene.
+  const supplierScore = ranked[0]?.score ?? null;
+  phases.push(
+    quotes.length === 0
+      ? phase("suppliers", "current", "Sin cotizaciones")
+      : supplierScore === null
+        ? phase("suppliers", "done", "Sin nota: faltan datos")
+        : phase("suppliers", "done", `${supplierScore}/100`, supplierScore),
+  );
 
   const marginScore = analysis ? Math.round(Math.max(0, Math.min(1, economicsResult.contributionMargin / 0.5)) * 100) : null;
   phases.push(analysis ? phase("economics", "done", `${marginScore}/100`, marginScore) : phase("economics", "todo", "Pendiente"));

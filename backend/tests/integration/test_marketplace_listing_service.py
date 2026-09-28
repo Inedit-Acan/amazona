@@ -48,18 +48,25 @@ def _make_full_chain(db_session: Session, product: Product, market: str = "us") 
             correlation_id="corr-research-1",
         )
     )
-    supplier = Supplier(name="Travel Cable Organizer Co", verified=True, region="china", reliability_score=0.9)
+    supplier = Supplier(
+        name="Travel Cable Organizer Co",
+        verification="third_party_verified",
+        verified_by="Bureau of Test",
+        region="china",
+        reliability_score=0.9,
+        reliability_provenance="third_party_verified",
+    )
     db_session.add(supplier)
     db_session.commit()
 
     quote = SupplierQuote(
         product_id=product.id,
         supplier_id=supplier.id,
+        currency="EUR",
+        provenance="supplier_claim",
         unit_price=1.3,
         moq=1500,
         lead_time_days=20,
-        verified=True,
-        reliability_score=0.9,
         logistics_cost_per_unit=0.4,
         total_landed_cost_per_unit=1.7,
         correlation_id="corr-sourcing-1",

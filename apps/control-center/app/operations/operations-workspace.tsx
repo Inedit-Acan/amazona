@@ -17,7 +17,7 @@ import {
   Truck,
   type LucideIcon,
 } from "lucide-react";
-import type { SupplierQuote } from "@/lib/api";
+import type { SupplierQuoteDetail } from "@/lib/api";
 import { DEMO_SALE } from "@/lib/demo/economics";
 import {
   DEMO_CHANNELS,
@@ -107,14 +107,17 @@ function syncUrl(params: Record<string, string | undefined>) {
   window.history.replaceState(null, "", url);
 }
 
-function quoteToSupplier(quote: SupplierQuote, isDemo: boolean): SupplierInput {
+function quoteToSupplier(quote: SupplierQuoteDetail, isDemo: boolean): SupplierInput {
   return {
     id: quote.supplier_id,
     name: quote.data?.name ?? quote.supplier_id,
     region: quote.data?.region ?? "eu",
-    leadTimeDays: quote.lead_time_days,
-    reliability: quote.reliability_score,
-    verified: quote.verified,
+    // Milestone 39: lo que nadie ha dicho llega como `null`. Aquí se degrada a
+    // un valor neutro porque estas vistas resumen, no deciden; la pantalla de
+    // Proveedores es la que enseña el hueco.
+    leadTimeDays: quote.lead_time_days ?? 0,
+    reliability: quote.supplier?.reliability_score ?? 0,
+    verified: quote.supplier?.verification === "third_party_verified",
     isDemo,
   };
 }

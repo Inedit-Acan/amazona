@@ -95,7 +95,10 @@ def test_research_to_sourcing_to_validation_flow_is_traceable_end_to_end(client:
                 "supplier_sourcing": {
                     "unit_cost": best_quote["unit_price"],
                     "lead_time_days": best_quote["lead_time_days"],
-                    "supplier_verified": best_quote["verified"],
+                    # Milestone 39: el booleano se fue. Lo que queda es quién
+                    # sostiene la oferta, y solo un tercero independiente la
+                    # convierte en «verificada».
+                    "supplier_verified": best_quote["provenance"] == "third_party_verified",
                 },
                 "finance_validation": {
                     "unit_cost": best_quote["unit_price"],

@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type LegalAnalysis, type Product, type SupplierQuote } from "@/lib/api";
+import { type LegalAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { LEGAL_DESCRIPTION, LEGAL_TITLE } from "./copy";
@@ -15,7 +15,7 @@ export default async function LegalPage({ searchParams }: PageProps<"/legal">) {
 
   let products: Product[] = [];
   let analyses: LegalAnalysis[] = [];
-  let quotes: SupplierQuote[] = [];
+  let quotes: SupplierQuoteDetail[] = [];
   let productId: string | undefined;
   let error: string | null = null;
 
@@ -25,7 +25,7 @@ export default async function LegalPage({ searchParams }: PageProps<"/legal">) {
     if (productId) {
       [analyses, quotes] = await Promise.all([
         api.listProductLegal(productId).catch(() => [] as LegalAnalysis[]),
-        api.listProductSuppliers(productId).catch(() => [] as SupplierQuote[]),
+        api.listProductSuppliers(productId).catch(() => [] as SupplierQuoteDetail[]),
       ]);
     }
   } catch (err) {
