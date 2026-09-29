@@ -1203,6 +1203,79 @@ Esto permite:
 
 ---
 
+# 23 bis. Capa de ejecución externa (candidata / aplazada)
+
+**Estado: APLAZADA. Nada de esto se implementa ni se instala.** Se registra para
+que la decisión no se repita ni se tome por accidente. Propuesta de origen, no
+implementable: [`KOVA_n8n_Automation_Execution_Layer.md`](KOVA_n8n_Automation_Execution_Layer.md).
+
+## Abstracción, no producto
+
+Si algún día se delega el último tramo de una acción, será mediante un puerto y
+adaptadores intercambiables, como cualquier otra integración (§23):
+
+```text
+ActionGate → Job (runtime, ADR 0009) → AutomationPort → Adapter → sistema externo
+```
+
+`AutomationPort` es un nombre conceptual. Un adaptador para n8n (`N8nAdapter`)
+sería **uno posible** entre otros (código propio, otra plataforma). Ninguna
+regla del sistema puede nombrar una plataforma concreta.
+
+## Qué permanece SIEMPRE en AMAZONA/KOVA
+
+Decisiones · ActionGate · permisos · presupuesto y costes · idempotencia · estado
+canónico de los trabajos · confirmación de pagos y pedidos · matriz de derechos de
+uso · auditoría · cálculos de economía, riesgo y legal.
+
+## Qué podría delegarse
+
+Solo **el último tramo de una acción ya autorizada** (enviar un correo, llamar a
+la API concreta de un proveedor, notificar) y **devolver su resultado**. Una capa
+externa **no decide, no autoriza, no altera presupuestos y no es fuente de verdad.**
+
+## Prohibiciones arquitectónicas
+
+Registradas a partir de la auditoría de encaje (2026-09-29). Son condiciones de
+entrada, no preferencias:
+
+- **P1. Sin doble reintento.** El reintento, el arriendo y el estado de una
+  ejecución son del `Job` (ADR 0009 §3: dos máquinas de estados no). La capa
+  externa ejecuta una vez por intento y devuelve el resultado; no reintenta por
+  su cuenta.
+- **P2. Sin doble auditoría ni segundo guardián.** La capa externa no aplica
+  permisos ni presupuesto y no mantiene un historial de ejecución que sustituya
+  al de AMAZONA. La decisión ya la tomó el ActionGate (ADR 0011); el
+  registro canónico es `JobAttempt`, el libro de coste y `app/audit/`.
+- **P3. Sin costes invisibles.** Cada llamada de pago que haga un flujo externo
+  tiene que pasar por el libro de coste (`app/costs/`, ADR 0015) con límite
+  autorizado **antes** de salir, y por la matriz de derechos (`UNKNOWN → DENIED`).
+  Si eso no se puede garantizar por llamada, el flujo no puede llamarla. Tampoco
+  hay IA dentro del flujo que decida (§26).
+- **P4. Nunca delante de la confirmación de pagos y pedidos.** El webhook del
+  proveedor de pagos se verifica y se confirma en el backend (§15) antes de que
+  exista un pedido. La capa externa solo actúa después, sobre un pedido ya
+  confirmado.
+
+## Condición de reconsideración
+
+Volver a evaluarlo cuando **exista el modelo real de pedido (§15)** y haya **al
+menos 2-3 acciones externas repetitivas** cuya implementación con adaptadores
+propios demuestre ser un cuello de botella.
+
+Antes de adoptar cualquier plataforma habrá que reevaluar: licencia vigente,
+coste, seguridad, gestión de secretos, observabilidad y alternativas.
+Verificado el 2026-09-29 para n8n (Sustainable Use License): el uso interno se
+permite, pero **no** ofrecer n8n a clientes para que conecten sus cuentas y
+construyan flujos; y en la edición gratuita no hay entornos ni gestor externo de
+secretos. Cualquier producto para clientes que se apoye en una plataforma así
+requiere revisión de licencia previa.
+
+**Redis** sigue aplazado hasta que exista carga demostrada (ADR 0009 §2), con o sin
+esta capa.
+
+---
+
 # 24. Observabilidad
 
 Ampliar progresivamente:
@@ -1605,7 +1678,8 @@ Hasta terminar P0/P1 inicial, NO:
 - enviar pedidos a proveedores;
 - otorgar autonomía económica;
 - dar acceso público al backend;
-- permitir ejecución remota sin RBAC.
+- permitir ejecución remota sin RBAC;
+- instalar o adoptar una capa de ejecución externa (§23 bis).
 
 ---
 
