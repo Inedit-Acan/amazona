@@ -8,6 +8,7 @@ import datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from regulatory_test_support import GPSR, FakeSource, anchor
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -19,7 +20,6 @@ from app.db.session import get_db
 from app.integrations.regulatory.eur_lex import AnchorUnavailableError
 from app.legal.regulatory import RegulatoryService
 from app.main import app
-from tests.integration.test_regulatory_service import GPSR, FakeSource, anchor
 
 BODY = {
     "product_scope": "Toys",
