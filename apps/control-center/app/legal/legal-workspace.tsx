@@ -32,7 +32,14 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import { ApiError, api, type LegalAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
+import {
+  ApiError,
+  api,
+  type LegalAnalysis,
+  type Product,
+  type RegulatoryRequirement,
+  type SupplierQuoteDetail,
+} from "@/lib/api";
 import {
   DEMO_CONTEXT,
   DEMO_DOCUMENTS,
@@ -49,6 +56,7 @@ import { formatPercent } from "@/lib/format";
 import { certificationsDeclared } from "@/lib/legal";
 import { buildLegalView, isRequirementOk, type RequirementRow, type RiskLevel } from "@/lib/legal-view";
 import { rankSuppliers } from "@/lib/sourcing-view";
+import { analysisHeadline, isRealAnalysis } from "@/lib/regulatory-requirements";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
@@ -60,6 +68,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
 import { PageHeader } from "@/components/page-header";
 import { ProductSummary } from "@/components/product-summary";
+import { RegulatoryPanel } from "@/components/regulatory-panel";
 import { RingGauge } from "@/components/ring-gauge";
 import { RiskMatrix } from "@/components/risk-matrix";
 import { SectionNav } from "@/components/section-nav";
@@ -107,12 +116,14 @@ export function LegalWorkspace({
   productId,
   analyses,
   quotes,
+  requirements,
   initialMarket,
 }: {
   products: Product[];
   productId?: string;
   analyses: LegalAnalysis[];
   quotes: SupplierQuoteDetail[];
+  requirements: RegulatoryRequirement[];
   initialMarket: string;
 }) {
   const router = useRouter();
@@ -180,6 +191,12 @@ export function LegalWorkspace({
     review: { title: "REVISIÓN HUMANA", banner: "REQUIERE REVISIÓN HUMANA", tone: "warning" as const },
     ready: { title: "PREPARADO", banner: "PREPARADO PARA LANZAMIENTO", tone: "success" as const },
   }[view.gate.state];
+  // `PASS` de un análisis real solo significa «sin bloqueo en lo declarado»: no se
+  // presenta como «preparado para lanzamiento» ni como «legal».
+  if (isRealAnalysis(analysis) && view.gate.state === "ready") {
+    gate.title = "SIN BLOQUEO";
+    gate.banner = "SIN BLOQUEO EN LO DECLARADO";
+  }
   const importerPossible = supplierQuote?.data?.region !== market;
 
   function changeProduct(id: string) {
@@ -656,15 +673,17 @@ export function LegalWorkspace({
           <CardHeader>
             <CardTitle>Evaluación legal</CardTitle>
             <CardDescription>
-              {analysis
-                ? `Agente legal: ${analysis.recommendation === "GO" ? "favorable" : analysis.recommendation === "REVIEW" ? "a revisar" : "no viable"} · confianza ${formatPercent(analysis.confidence, 0)}`
-                : `Sin análisis del agente en ${marketInfo.label}`}
+              {analysisHeadline(analysis, marketInfo.label)}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <dl className="space-y-1.5 text-sm">
               {[
-                ["Cumplimiento general", formatPercent(view.compliance.ratio, 0), "text-primary"],
+                // Del análisis real no sale un porcentaje de cumplimiento: es de la
+                // matriz de demostración y contradiría a «PASS no es legal».
+                ...(isRealAnalysis(analysis)
+                  ? []
+                  : [["Cumplimiento general", formatPercent(view.compliance.ratio, 0), "text-primary"]]),
                 ["Riesgo residual", view.risk.level, view.risk.level === "Bajo" ? "text-primary" : view.risk.level === "Medio" ? "text-warning" : "text-destructive"],
                 ["Requisitos críticos", String(view.gate.criticalOpen), view.gate.criticalOpen ? "text-destructive" : "text-primary"],
                 ["Documentos pendientes", String(view.documents.pending), view.documents.pending ? "text-warning" : "text-primary"],
@@ -677,15 +696,17 @@ export function LegalWorkspace({
               ))}
             </dl>
             <div className="space-y-2 border-t pt-3">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={certificationAvailable}
-                  onChange={(e) => setCertificationAvailable(e.target.checked)}
-                  className="accent-primary"
-                />
-                Ya se cuenta con las certificaciones exigidas
-              </label>
+              {isRealAnalysis(analysis) ? null : (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={certificationAvailable}
+                    onChange={(e) => setCertificationAvailable(e.target.checked)}
+                    className="accent-primary"
+                  />
+                  Ya se cuenta con las certificaciones exigidas
+                </label>
+              )}
               <Button size="sm" variant="outline" className="w-full" onClick={() => void runAnalysis()} disabled={running}>
                 {running ? <Loader2 className="animate-spin" /> : <RefreshCw />}
                 {analysis ? "Reanalizar con el agente legal" : "Ejecutar análisis legal"}
@@ -693,6 +714,15 @@ export function LegalWorkspace({
             </div>
           </CardContent>
         </Card>
+
+        <div className="lg:col-span-3">
+          <RegulatoryPanel
+            requirements={requirements}
+            analysis={analysis}
+            productId={product.id}
+            productCategory={product.category}
+          />
+        </div>
 
         <Card
           id="decision"

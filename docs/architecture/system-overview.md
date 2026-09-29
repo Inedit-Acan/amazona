@@ -980,5 +980,54 @@ en el milestone donde se descubrieron.
 | **`Decimal` en el resto del repositorio** | El dominio monetario del Milestone 40 es exacto; `budgets` (que ya almacenaba `Numeric` y razonaba en `float`), `external_api_cost` y las columnas heredadas de `economic_analyses` no | Un milestone propio de migración, o irlo pagando cada vez que un dominio toque dinero |
 | **Fuente de tipos de cambio** | Desde el Milestone 39 una cotización lleva su moneda, y **no hay con qué convertirla**. Dos cotizaciones en monedas distintas no se comparan, el coste de aterrizaje del mock (en dólares) no se puede sumar a costes en euros, y el margen que Economics calcula sobre un coste en otra moneda lleva un aviso en vez de una conversión. Inventar un tipo de cambio metería un error del 5 % que nadie vería | Un adaptador de tipos de cambio con fecha y fuente, bajo el libro de coste del §25. Es requisito previo para que el margen del M40 sea real sobre cualquier proveedor que no cotice en euros |
 | **Catálogo de qué países forman cada mercado** | Sin él, un proveedor con país declarado (`ES`) y un destino expresado como mercado (`eu`) dan riesgo geopolítico **desconocido**: el sistema se niega a decir que cruza una frontera porque `es` no es la misma cadena que `eu`. Afecta a una de las ocho dimensiones del §11 | Una línea de catálogo por mercado, como los canales del Milestone 38. Ninguna migración |
-| **Certificaciones de proveedor** | El plan §10 las pide («certifications») y el Milestone 39 no las modela: siguen siendo dato de demostración en la pantalla. Una certificación necesita emisor, alcance y caducidad, que es una tabla propia | Con §12 Legal Intelligence, que es donde vive la conformidad de producto |
+| **Certificaciones de proveedor** | El plan §10 las pide («certifications») y el Milestone 39 no las modela: siguen siendo dato de demostración en la pantalla. Una certificación necesita emisor, alcance y caducidad, que es una tabla propia. **El Milestone 41 modela la evidencia de cumplimiento de un *producto* frente a un requisito, no las certificaciones de un *proveedor*: esta sigue abierta** | Un milestone propio; puede reutilizar `compliance_evidence` y su regla de emisor obligatorio |
+| **Derecho nacional y otras fuentes de normativa** | El Milestone 41 solo ancla Derecho de la UE (EUR-Lex). Una directiva no puede dar `PASS` sin una transposición nacional **declarada**, y esa declaración no la verifica nadie. Safety Gate, BOE, ECHA y Access2Markets quedan fuera | Safety Gate como milestone complementario (señal de riesgo por producto); BOE para verificar transposiciones. Cada uno pasa antes por derechos y coste (ADR 0015) |
 | **~~Coste de adquisición (CAC) en Economics~~** *(cerrada en el Milestone 40)* | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |
+
+## 22. Requisitos legales declarados y anclados en una fuente (Milestone 41)
+
+El plan maestro §12 pide sustituir el directorio regulatorio simulado por fuentes
+verificables. La tentación es preguntarle a una base pública a qué productos se aplica
+una norma, y **ninguna lo responde**: EUR-Lex publica el texto, la vigencia y las
+fechas, y decidir que una norma se aplica a *este* producto es un juicio jurídico. Un
+adaptador que lo respondiera lo estaría infiriendo y lo presentaría como un dato de una
+fuente oficial. El razonamiento completo, en la
+[ADR 0019](adr-0019-legal-requirements-and-source-anchoring.md).
+
+**Tres cuestiones que no se rellenan una con otra**, cada una con su procedencia
+(`SupplierFactProvenance`, ADR 0017) y su tabla:
+
+| Cuestión | La sostiene | Tabla |
+|---|---|---|
+| Aplicabilidad | Una persona (`declared`); el sistema no puede | `regulatory_requirements` |
+| Existencia y vigencia | EUR-Lex vía Cellar (`third_party_verified`) | `regulatory_anchors` |
+| Evidencia de cumplimiento | Una persona o el emisor del certificado | `compliance_evidence` |
+
+**Cuatro estados cerrados.** `PASS` significa únicamente *dentro del alcance y de los
+requisitos declarados y comprobados, Legal no ha encontrado un bloqueo*: nunca «producto
+legal». `UNKNOWN` —nada declarado, o una jurisdicción sin fuente— **jamás asciende a
+`PASS`** y sale como `REVIEW`, no como `NO_GO` (ADR 0018). `BLOCKED` exige una restricción
+con la norma verificada y en vigor. Hacia el ActionGate: `PASS→GO`, `REVIEW_REQUIRED` y
+`UNKNOWN→REVIEW`, `BLOCKED→NO_GO`; presupuesto, permisos y aprobaciones siguen aplicándose.
+
+**Fechas que no se confunden**: `verified_at` (cuándo se preguntó), las fechas de la fuente
+(`source_effective_from/to`, **sin interpretar**: puede haber dos fechas de entrada en vigor
+y `9999-12-31` no está documentado como «sin fin») y `recheck_after`, una **política operativa
+nuestra** (30 días, configurable) cuyo vencimiento pide revisión y **no** dice que la norma
+haya dejado de estar en vigor.
+
+**Una directiva no basta**: verifica el acto de la UE, no la ley nacional. **La confianza** es
+el techo del eslabón más débil (`third_party_verified` 0,8, `declared` 0,6), reglas internas
+**no calibradas**.
+
+**Fuente**: el SPARQL público de Cellar, sin alta (el «webservice» y el volcado de EUR-Lex
+exigen cuenta EU Login y **no se usan**). Metadatos CC0; derechos y coste escritos antes de la
+primera llamada. Con `REGULATORY_PROVIDER=mock` (por defecto) el análisis es el de siempre,
+con las mismas cifras y sin `legal_status`; con `real` evalúa los requisitos declarados. En
+la prueba de humo Cellar agotó el tiempo en dos de tres consultas y dio un 504 en la tercera:
+el sistema degradó a `REVIEW_REQUIRED` sin guardar nada.
+
+Escribir es `REGULATORY_WRITE` (solo OWNER y ADMIN); leer es `BUSINESS_READ`. La pantalla
+Legal enseña los tres bloques por separado y sigue rotulando como demostración el resto de
+su matriz. Detalle y límites, en
+[`milestone-41-demo.md`](../milestones/milestone-41-demo.md).

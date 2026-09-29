@@ -47,6 +47,7 @@ EXPECTED: dict[RoleName, set[ApiAction]] = {
 #: tienen todas—, y **ni siquiera SYSTEM**. Es la cifra por la que se multiplica
 #: todo lo demás, y ningún proceso automático la afirma.
 _RATE_WRITERS = {RoleName.OWNER, RoleName.ADMIN}
+_REGULATORY_WRITERS = {RoleName.OWNER, RoleName.ADMIN}
 
 
 #: Actions that change something. Used to state "read-only" precisely.
@@ -130,3 +131,14 @@ def test_only_the_two_administrative_roles_can_declare_an_exchange_rate():
     ni, sobre todo, SYSTEM pueden declararlo."""
     for role in RoleName:
         assert role_can(role, ApiAction.EXCHANGE_RATE_WRITE) is (role in _RATE_WRITERS)
+
+
+def test_only_the_two_administrative_roles_can_declare_regulatory_requirements():
+    """Milestone 41: declarar que una norma se aplica a una clase de producto es
+    un juicio jurídico. REVIEWER es solo lectura y `SYSTEM` no puede declarar
+    aplicabilidad normativa por iniciativa propia."""
+    for role in RoleName:
+        assert role_can(role, ApiAction.REGULATORY_WRITE) is (role in _REGULATORY_WRITERS)
+    assert role_can(RoleName.SYSTEM, ApiAction.REGULATORY_WRITE) is False
+    assert role_can(RoleName.REVIEWER, ApiAction.REGULATORY_WRITE) is False
+    assert role_can(RoleName.REVIEWER, ApiAction.BUSINESS_READ) is True

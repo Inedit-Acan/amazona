@@ -75,6 +75,13 @@ class ApiAction(StrEnum):
     #: es la cifra por la que se multiplica todo lo demás. `SYSTEM` no la tiene:
     #: ningún proceso automático declara un cambio.
     EXCHANGE_RATE_WRITE = "exchange_rate.write"
+    #: Declarar, sustituir o retirar un requisito regulatorio, aportar evidencia de
+    #: cumplimiento y pedir una comprobación contra la fuente (Milestone 41, ADR
+    #: 0019). Declarar que una norma **se aplica** a una clase de producto es un
+    #: juicio jurídico con consecuencias: solo OWNER y ADMIN. REVIEWER lee y no
+    #: escribe, y `SYSTEM` no la tiene: ningún proceso automático declara
+    #: aplicabilidad normativa por iniciativa propia.
+    REGULATORY_WRITE = "regulatory.write"
     #: Enqueue, cancel or requeue a job. Milestone 31. Reading jobs is
     #: BUSINESS_READ: seeing what the system is doing is not the same as
     #: making it do something.

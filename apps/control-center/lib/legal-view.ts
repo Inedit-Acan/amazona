@@ -8,6 +8,7 @@ import {
   type RequirementStatus,
 } from "./demo/legal.ts";
 import { certificationsDeclared } from "./legal.ts";
+import { isRealAnalysis } from "./regulatory-requirements.ts";
 
 // Vista de la pantalla de Legal (mockup docs/design/legal y cumplimiento.png).
 // Real (agente legal, dataset simulado del backend): certificaciones exigidas,
@@ -143,8 +144,16 @@ export function buildLegalView(market: string, analysis: LegalAnalysis | undefin
   ].sort((a, b) => b.date.localeCompare(a.date));
 
   const criticalOpen = open.filter((r) => r.criticality === "Crítico").length;
-  const state: GateState =
-    analysis?.recommendation === "NO_GO" || analysis?.restricted || criticalOpen > 0
+  // Un análisis real (Milestone 41) decide por su propio estado: la matriz de
+  // requisitos de esta pantalla es de demostración y no puede levantar ni
+  // imponer un bloqueo sobre lo que Legal ha comprobado de verdad.
+  const state: GateState = isRealAnalysis(analysis)
+    ? analysis.data.legal_status === "BLOCKED"
+      ? "blocked"
+      : analysis.data.legal_status === "PASS"
+        ? "ready"
+        : "review"
+    : analysis?.recommendation === "NO_GO" || analysis?.restricted || criticalOpen > 0
       ? "blocked"
       : analysis?.recommendation === "REVIEW" || open.length > 0
         ? "review"

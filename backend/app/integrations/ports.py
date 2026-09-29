@@ -475,6 +475,49 @@ class RegulatoryDirectory(Protocol):
     def get_requirements(self, *, category: str, market: str) -> dict | None: ...
 
 
+@dataclass(frozen=True)
+class SourceAnchor:
+    """Lo que una fuente normativa dice de **una norma que alguien nombró**
+    (Milestone 41, ADR 0019).
+
+    No dice a qué productos se aplica: ninguna fuente pública lo dice. Solo que
+    la norma existe, si está en vigor y con qué fechas, **tal como la fuente las
+    entrega** — sin elegir entre dos fechas de entrada en vigor y sin dar
+    significado jurídico a un valor que la fuente no documenta.
+    """
+
+    provider: str
+    celex: str
+    #: `False` cuando la fuente respondió y no conoce ese número. No es un error:
+    #: es una respuesta, y es distinta de «no pude preguntar».
+    found: bool
+    retrieved_at: datetime.datetime
+    #: La consulta que produjo esto, para poder repetirla.
+    source_url: str
+    in_force: bool | None = None
+    #: Código del tipo de acto en la fuente (`DIR`, `REG`…), sin traducir.
+    act_type_code: str | None = None
+    eli: str | None = None
+    document_date: str | None = None
+    entry_into_force: tuple[str, ...] = ()
+    end_of_validity: str | None = None
+    #: Todo lo que la fuente devolvió, sin interpretar. Es la evidencia.
+    raw: dict[str, list[str]] = field(default_factory=dict)
+
+
+class RegulatoryAnchorSource(Protocol):
+    """Una fuente que ancla una norma **ya declarada**: existe, vigencia, fechas.
+
+    Contrato distinto de `RegulatoryDirectory`: aquel responde «qué se exige a
+    esta categoría», que es un juicio; este responde «qué dice la fuente de esta
+    norma», que es un hecho. La diferencia es la ADR 0019.
+    """
+
+    name: str
+
+    def lookup(self, celex: str) -> SourceAnchor: ...
+
+
 class AdPerformanceDirectory(Protocol):
     """Expected advertising performance for a category on a platform."""
 

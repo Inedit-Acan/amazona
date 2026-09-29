@@ -1,5 +1,10 @@
 import { api } from "@/lib/api-server";
-import { type LegalAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
+import {
+  type LegalAnalysis,
+  type Product,
+  type RegulatoryRequirement,
+  type SupplierQuoteDetail,
+} from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { LEGAL_DESCRIPTION, LEGAL_TITLE } from "./copy";
@@ -16,11 +21,13 @@ export default async function LegalPage({ searchParams }: PageProps<"/legal">) {
   let products: Product[] = [];
   let analyses: LegalAnalysis[] = [];
   let quotes: SupplierQuoteDetail[] = [];
+  let requirements: RegulatoryRequirement[] = [];
   let productId: string | undefined;
   let error: string | null = null;
 
   try {
     products = await api.listProducts();
+    requirements = await api.listRegulatoryRequirements().catch(() => [] as RegulatoryRequirement[]);
     productId = products.find((p) => p.id === requestedProductId)?.id ?? products[0]?.id;
     if (productId) {
       [analyses, quotes] = await Promise.all([
@@ -49,6 +56,7 @@ export default async function LegalPage({ searchParams }: PageProps<"/legal">) {
       // El backend los devuelve del más reciente al más antiguo.
       analyses={analyses}
       quotes={quotes}
+      requirements={requirements}
       initialMarket={first(params.market) ?? analyses[0]?.market ?? "eu"}
     />
   );

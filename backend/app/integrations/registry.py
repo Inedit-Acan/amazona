@@ -20,7 +20,12 @@ from app.ai.mock_regulatory_directory import MockRegulatoryDirectory
 from app.ai.mock_supplier_directory import MockSupplierDirectory
 from app.core.config import Settings, get_settings
 from app.costs.service import CallMeter, UnmeteredCalls
-from app.integrations.ports import IntegrationDomain, ProductSignalProvider, ProviderKind
+from app.integrations.ports import (
+    IntegrationDomain,
+    ProductSignalProvider,
+    ProviderKind,
+    RegulatoryAnchorSource,
+)
 from app.integrations.product_intelligence import (
     CompositeProductSignalProvider,
     MockProductSignalProvider,
@@ -32,6 +37,7 @@ from app.integrations.product_intelligence.ebay import (
     EbayBrowseProvider,
 )
 from app.integrations.product_intelligence.langlinks import LanglinkResolver
+from app.integrations.regulatory.eur_lex import EurLexCellarSource
 
 
 class ProviderNotAvailableError(RuntimeError):
@@ -143,6 +149,10 @@ def _real_product_intelligence(settings: Settings, meter: CallMeter) -> ProductS
     return CompositeProductSignalProvider(sources)
 
 
+def _real_regulatory(settings: Settings, meter: CallMeter) -> RegulatoryAnchorSource:
+    return EurLexCellarSource(meter=meter)
+
+
 def _composite_product_intelligence(settings: Settings, meter: CallMeter) -> ProductSignalProvider:
     """Lo real primero, el relleno después (ADR 0008 y ADR 0012)."""
     return CompositeProductSignalProvider(
@@ -160,6 +170,7 @@ BUILDERS: dict[
     (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.REAL): _real_product_intelligence,
     (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.SANDBOX): _real_product_intelligence,
     (IntegrationDomain.PRODUCT_INTELLIGENCE, ProviderKind.COMPOSITE): _composite_product_intelligence,
+    (IntegrationDomain.REGULATORY, ProviderKind.REAL): _real_regulatory,
 }
 
 
@@ -176,7 +187,12 @@ IMPLEMENTATIONS: dict[IntegrationDomain, dict[ProviderKind, Callable[..., object
         ProviderKind.COMPOSITE: CompositeProductSignalProvider,
     },
     IntegrationDomain.SUPPLIERS: {ProviderKind.MOCK: MockSupplierDirectory},
-    IntegrationDomain.REGULATORY: {ProviderKind.MOCK: MockRegulatoryDirectory},
+    IntegrationDomain.REGULATORY: {
+        ProviderKind.MOCK: MockRegulatoryDirectory,
+        # Ancla normas que una persona declara (ADR 0019). No responde «qué se
+        # exige a esta categoría»: ese juicio no lo da ninguna fuente pública.
+        ProviderKind.REAL: EurLexCellarSource,
+    },
     IntegrationDomain.ADS: {ProviderKind.MOCK: MockAdPerformanceDirectory},
     IntegrationDomain.MARKETPLACES: {ProviderKind.MOCK: MockMarketplaceDirectory},
 }

@@ -147,6 +147,10 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   evaluar
   ([ADR 0018](docs/architecture/adr-0018-money-conversion-and-not-evaluable.md))
   — ver abajo.
+- **Milestone 41:** Legal con requisitos declarados por una persona y anclados en
+  EUR-Lex
+  ([ADR 0019](docs/architecture/adr-0019-legal-requirements-and-source-anchoring.md))
+  — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -570,6 +574,26 @@ que nadie ha declarado no vale: deja el techo de CAC sin evaluar.
 
 El CAC máximo dice **cuánto podríamos permitirnos pagar** por un cliente, no cuánto
 costará: eso se mide con campañas reales y queda fuera.
+
+### Requisitos legales declarados y anclados en EUR-Lex (Milestone 41)
+
+Ninguna fuente pública dice a qué productos se aplica una norma: EUR-Lex publica su
+texto y su vigencia, y «una freidora de aire necesita CE» es un juicio jurídico.
+**Legal no lo infiere.** Tres cuestiones que no se rellenan una con otra:
+
+- **Aplicabilidad** — la declara una persona (solo OWNER y ADMIN; REVIEWER lee y el
+  sistema no puede).
+- **Existencia y vigencia** — la comprueba EUR-Lex sobre la norma que se nombró, con
+  fecha, y las fechas de la fuente se enseñan **sin interpretar**.
+- **Evidencia de cumplimiento** — la aporta una persona, con emisor si la emitió un
+  tercero.
+
+El resultado son **cuatro estados**: `PASS`, `REVIEW_REQUIRED`, `BLOCKED` y `UNKNOWN`.
+**`PASS` solo significa que, dentro de lo declarado y comprobado, Legal no ha
+encontrado un bloqueo — nunca «producto legal».** Lo que nadie declaró no se ha
+mirado, y `UNKNOWN` jamás asciende a `PASS`. Una directiva sola no basta: hace falta
+la transposición nacional. Solo cubre Derecho de la UE, y con el proveedor por
+defecto (`mock`) todo sigue exactamente como antes. Requiere `REGULATORY_PROVIDER=real`.
 
 ## Notas
 

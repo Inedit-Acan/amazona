@@ -729,8 +729,112 @@ export interface LegalAnalysis {
     terms_and_conditions?: string;
     risks?: string[];
     evidence?: string[];
+    /** Solo en el análisis real (Milestone 41). Ausente en el simulado. */
+    legal_status?: LegalStatus;
+    reasons?: string[];
+    requirements?: LegalRequirementResult[];
+    disclaimer?: string;
+    confidence_rule?: string;
+    source_errors?: Record<string, string>;
+    certification_flag_ignored?: boolean;
     [key: string]: unknown;
   } | null;
+}
+
+/** Los cuatro estados cerrados de Legal (Milestone 41, ADR 0019). `PASS` significa
+ * únicamente: dentro del alcance y de los requisitos declarados y comprobados,
+ * Legal no ha encontrado un bloqueo. Nunca «producto legal». */
+export type LegalStatus = "PASS" | "REVIEW_REQUIRED" | "BLOCKED" | "UNKNOWN";
+
+/** Lo que la fuente dijo de una norma. Independiente de si se aplica. */
+export type ExistenceState =
+  | "verified_in_force"
+  | "verified_not_in_force"
+  | "not_found"
+  | "source_inconsistent"
+  | "unverified"
+  | "stale"
+  | "never_checked";
+
+export type ComplianceState = "none" | "declared" | "third_party_verified" | "expired";
+
+export interface RegulatoryAnchor {
+  celex: string;
+  provider: string;
+  provenance: string;
+  verified_at: string;
+  recheck_after: string;
+  found: boolean;
+  in_force: boolean | null;
+  act_type: string;
+  act_type_code: string | null;
+  eli: string | null;
+  document_date: string | null;
+  source_effective_from: string[] | null;
+  source_effective_to: string | null;
+  source_url: string;
+}
+
+export interface RegulatoryRequirement {
+  id: string;
+  product_scope: string;
+  jurisdiction: string;
+  celex: string;
+  regulation: string;
+  reference: string | null;
+  requirement: string;
+  kind: "obligation" | "restriction";
+  applicability_provenance: SupplierProvenance;
+  applicability_source: string | null;
+  declared_by: string;
+  transposition_reference: string | null;
+  transposition_provenance: SupplierProvenance | null;
+  transposition_source: string | null;
+  note: string | null;
+  created_at: string;
+  anchor: RegulatoryAnchor | null;
+  existence: ExistenceState;
+}
+
+export interface ComplianceEvidence {
+  id: string;
+  product_id: string;
+  requirement_id: string;
+  provenance: SupplierProvenance;
+  source: string | null;
+  reference: string | null;
+  valid_until: string | null;
+  declared_by: string;
+  note: string | null;
+  created_at: string;
+}
+
+/** Un requisito evaluado por Legal, con las tres cuestiones **separadas**. */
+export interface LegalRequirementResult {
+  requirement_id: string;
+  celex: string;
+  regulation: string;
+  reference: string | null;
+  requirement: string;
+  kind: "obligation" | "restriction";
+  status: LegalStatus;
+  reasons: string[];
+  confidence: number;
+  weakest_link: SupplierProvenance;
+  applicability: { provenance: SupplierProvenance; source: string | null; declared_by: string };
+  existence: {
+    state: ExistenceState;
+    provider: string | null;
+    verified_at: string | null;
+    recheck_after: string | null;
+    in_force: boolean | null;
+    act_type: string | null;
+    eli: string | null;
+    source_effective_from: string[];
+    source_effective_to: string | null;
+  };
+  compliance: { state: ComplianceState };
+  transposition: { reference: string | null; provenance: SupplierProvenance | null };
 }
 
 export interface LandingPageCopy {
@@ -1159,6 +1263,49 @@ export const api = {
     certification_available?: boolean;
   }) => request<LegalAnalysis>("/api/legal/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductLegal: (productId: string) => request<LegalAnalysis[]>(`/api/products/${productId}/legal`),
+  /** Requisitos regulatorios que una persona declaró (Milestone 41). */
+  listRegulatoryRequirements: () => request<RegulatoryRequirement[]>("/api/regulatory-requirements"),
+  declareRegulatoryRequirement: (payload: {
+    product_scope: string;
+    jurisdiction: string;
+    celex: string;
+    regulation: string;
+    requirement: string;
+    kind: "obligation" | "restriction";
+    reference?: string | null;
+    applicability_provenance?: SupplierProvenance;
+    applicability_source?: string | null;
+    transposition_reference?: string | null;
+    transposition_provenance?: SupplierProvenance | null;
+    transposition_source?: string | null;
+    note?: string | null;
+  }) =>
+    request<RegulatoryRequirement>("/api/regulatory-requirements", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  withdrawRegulatoryRequirement: (id: string) =>
+    request<RegulatoryRequirement>(`/api/regulatory-requirements/${id}/withdraw`, { method: "POST" }),
+  /** Pregunta a la fuente por la norma de un requisito: es una llamada externa. */
+  verifyRegulatoryRequirement: (id: string) =>
+    request<RegulatoryAnchor>(`/api/regulatory-requirements/${id}/verify`, { method: "POST" }),
+  listComplianceEvidence: (productId: string) =>
+    request<ComplianceEvidence[]>(`/api/products/${productId}/compliance-evidence`),
+  declareComplianceEvidence: (
+    productId: string,
+    payload: {
+      requirement_id: string;
+      provenance?: SupplierProvenance;
+      source?: string | null;
+      reference?: string | null;
+      valid_until?: string | null;
+      note?: string | null;
+    },
+  ) =>
+    request<ComplianceEvidence>(`/api/products/${productId}/compliance-evidence`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   createStorefrontRun: (payload: { product_id: string; market: string }) =>
     request<Storefront>("/api/ecommerce/runs", { method: "POST", body: JSON.stringify(payload) }),
   listProductStorefronts: (productId: string) =>

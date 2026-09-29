@@ -105,6 +105,23 @@ _WIKIMEDIA_LANGLINKS = CostPolicy(
     source="https://www.mediawiki.org/wiki/API:Langlinks — API de acciones, sin clave",
 )
 
+#: EUR-Lex a través de Cellar (Milestone 41). Consulta SPARQL anónima, sin clave y
+#: sin coste (verificado el 29-09-2026: dos consultas anónimas devolvieron HTTP 200;
+#: la documentación de reutilización de EUR-Lex lista el punto SPARQL como acceso
+#: directo). **No he encontrado una cuota publicada**, así que no se escribe
+#: ninguna: `quota_units_per_day` queda en `None` y eso significa «no sé», no «sin
+#: límite». El tope por ejecución es nuestro y no una condición del proveedor.
+_EUR_LEX_CELLAR = CostPolicy(
+    provider="eur-lex-cellar",
+    pricing=Pricing.FREE,
+    unit="requests",
+    cost_per_unit=0.0,
+    currency="EUR",
+    quota_units_per_day=None,
+    max_units_per_run=10,
+    source="https://eur-lex.europa.eu/content/help/data-reuse/reuse-contents-eurlex-details.html — SPARQL de Cellar",
+)
+
 #: Los fixtures no salen a ninguna parte. Existe la política para que el contador
 #: no tenga que tratarlos como un caso especial.
 _FIXTURES = CostPolicy(
@@ -121,6 +138,7 @@ POLICIES: dict[str, CostPolicy] = {
     _WIKIMEDIA.provider: _WIKIMEDIA,
     _WIKIMEDIA_LANGLINKS.provider: _WIKIMEDIA_LANGLINKS,
     _EBAY_BROWSE.provider: _EBAY_BROWSE,
+    _EUR_LEX_CELLAR.provider: _EUR_LEX_CELLAR,
     _FIXTURES.provider: _FIXTURES,
 }
 

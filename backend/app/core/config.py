@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     api_spend_limits: dict[str, SpendLimitSettings] = {}
     suppliers_provider: ProviderKind = ProviderKind.MOCK
     regulatory_provider: ProviderKind = ProviderKind.MOCK
+    #: Cada cuántos días se vuelve a comprobar una norma contra la fuente (ADR
+    #: 0019). **Política operativa nuestra, no un plazo jurídico**: superarlo hace
+    #: que Legal pida revisión hasta la siguiente comprobación, y no dice nada de
+    #: si la norma sigue en vigor.
+    legal_anchor_recheck_days: int = 30
     ads_provider: ProviderKind = ProviderKind.MOCK
     marketplaces_provider: ProviderKind = ProviderKind.MOCK
 

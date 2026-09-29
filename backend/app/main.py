@@ -24,6 +24,7 @@ from app.api import (
     pipeline,
     products,
     projects,
+    regulatory,
     research,
     sourcing,
     tasks,
@@ -217,6 +218,7 @@ app.include_router(products.router, dependencies=BUSINESS)
 app.include_router(sourcing.router, dependencies=BUSINESS)
 app.include_router(economics.router, dependencies=BUSINESS)
 app.include_router(legal.router, dependencies=BUSINESS)
+app.include_router(regulatory.router, dependencies=BUSINESS)
 app.include_router(ecommerce.router, dependencies=BUSINESS)
 app.include_router(marketplace.router, dependencies=BUSINESS)
 app.include_router(marketing.router, dependencies=BUSINESS)

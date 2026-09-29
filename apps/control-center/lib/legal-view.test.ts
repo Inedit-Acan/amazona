@@ -67,3 +67,20 @@ test("translateLegal: traduce el dataset y quita el prefijo «simulated»", () =
   assert.equal(translateLegal("simulated: EU RoHS scope update for wireless accessories"), "Ampliación del alcance de RoHS a accesorios inalámbricos");
   assert.equal(translateLegal("simulated: something new"), "Something new");
 });
+
+test("un análisis real decide el gate por su estado, no por la matriz de demostración", () => {
+  const real = (status: "PASS" | "REVIEW_REQUIRED" | "BLOCKED" | "UNKNOWN"): LegalAnalysis => ({
+    correlation_id: "c",
+    product_id: "p",
+    supplier_quote_id: null,
+    market: "eu",
+    restricted: status === "BLOCKED" ? true : null,
+    recommendation: status === "PASS" ? "GO" : status === "BLOCKED" ? "NO_GO" : "REVIEW",
+    confidence: 0.6,
+    data: { legal_status: status },
+  });
+  assert.equal(buildLegalView("eu", real("PASS")).gate.state, "ready");
+  assert.equal(buildLegalView("eu", real("BLOCKED")).gate.state, "blocked");
+  assert.equal(buildLegalView("eu", real("REVIEW_REQUIRED")).gate.state, "review");
+  assert.equal(buildLegalView("eu", real("UNKNOWN")).gate.state, "review");
+});

@@ -221,6 +221,50 @@ _WIKIMEDIA_LANGLINKS = ProviderRights(
 )
 
 
+#: EUR-Lex a través de Cellar (Milestone 41, ADR 0019). Leído el 29-09-2026 en el
+#: aviso legal de EUR-Lex (`eur-lex.europa.eu/content/legal-notice/legal-notice.html`):
+#: «EUR-Lex **metadata** is dedicated to the public domain» (CC0 1.0), y los
+#: documentos jurídicos se pueden reutilizar «for commercial or non-commercial
+#: purposes» bajo la Decisión 2011/833/UE salvo condiciones especiales indicadas
+#: en el propio documento.
+#:
+#: **Lo que se guarda son solo metadatos**: existencia, vigencia, fechas, ELI. Ni el
+#: texto de un artículo ni una traducción, que son lo que sí tendría condiciones.
+#: Por eso los permisos de abajo valen para lo que se guarda y **no** se extienden
+#: al contenido de los documentos, que no se toca.
+#:
+#: Aparte de la licencia, el aviso legal advierte de que la información «no es
+#: asesoramiento profesional ni jurídico» y de que solo el Diario Oficial es
+#: auténtico. Esa advertencia se traslada a la salida de Legal.
+_EUR_LEX_CELLAR = ProviderRights(
+    provider="eur-lex-cellar",
+    source="https://eur-lex.europa.eu/content/legal-notice/legal-notice.html — aviso de derechos de autor",
+    verified_on=datetime.date(2026, 9, 29),
+    rights={
+        UsageRight.STORAGE: RightStatus.ALLOWED,
+        UsageRight.RETENTION: RightStatus.ALLOWED,
+        UsageRight.TRANSFORMATION: RightStatus.ALLOWED,
+        UsageRight.DERIVED_METRICS: RightStatus.ALLOWED,
+        UsageRight.SCORING: RightStatus.ALLOWED,
+        UsageRight.AI_INGESTION: RightStatus.ALLOWED,
+        UsageRight.REDISTRIBUTION: RightStatus.ALLOWED,
+        UsageRight.COMMERCIAL_USE: RightStatus.ALLOWED,
+    },
+    attribution=AttributionRequirement.NOT_REQUIRED,
+    notes={
+        UsageRight.STORAGE: "Solo metadatos (CC0). El texto de los documentos no se guarda.",
+        UsageRight.AI_INGESTION: (
+            "Permitido para los metadatos por CC0. No se usa: el plan maestro §26 prohíbe un LLM "
+            "en el camino de decisión, y el requisito legal lo declara una persona."
+        ),
+        UsageRight.REDISTRIBUTION: (
+            "Metadatos CC0. Los textos consolidados y resúmenes de EUR-Lex son CC BY 4.0 y "
+            "exigirían citar la fuente e indicar cambios: no se redistribuyen."
+        ),
+    },
+)
+
+
 #: eBay Browse. La licencia se leyó el 28-09-2026 y **dejó más preguntas que
 #: respuestas**, así que casi todo queda sin resolver — y por tanto denegado.
 #:
@@ -299,6 +343,7 @@ USAGE_RIGHTS: dict[str, ProviderRights] = {
     _WIKIMEDIA.provider: _WIKIMEDIA,
     _WIKIMEDIA_LANGLINKS.provider: _WIKIMEDIA_LANGLINKS,
     _EBAY_BROWSE.provider: _EBAY_BROWSE,
+    _EUR_LEX_CELLAR.provider: _EUR_LEX_CELLAR,
 }
 
 

@@ -4,6 +4,7 @@ from app.db.models.approval import Approval
 from app.db.models.audit import AuditLog
 from app.db.models.budget import Budget, BudgetAllocation, FinancialEvent
 from app.db.models.cfo_report import CFOReport
+from app.db.models.compliance_evidence import ComplianceEvidence
 from app.db.models.decision import Decision, DecisionEvidence
 from app.db.models.economic_analysis import EconomicAnalysis
 from app.db.models.event import Event
@@ -28,6 +29,8 @@ from app.db.models.product_identity_alias import ProductIdentityAlias
 from app.db.models.product_signal import ProductSignal
 from app.db.models.product_signal_observation import ProductSignalObservation
 from app.db.models.project import Project
+from app.db.models.regulatory_anchor import RegulatoryAnchor
+from app.db.models.regulatory_requirement import RegulatoryRequirement
 from app.db.models.research_comparison import ResearchComparison
 from app.db.models.role import Role
 from app.db.models.storefront import Storefront
@@ -47,6 +50,9 @@ __all__ = [
     "BudgetAllocation",
     "FinancialEvent",
     "CFOReport",
+    "ComplianceEvidence",
+    "RegulatoryAnchor",
+    "RegulatoryRequirement",
     "Decision",
     "DecisionEvidence",
     "EconomicAnalysis",
