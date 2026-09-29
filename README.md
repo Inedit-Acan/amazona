@@ -143,6 +143,10 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
 - **Milestone 39:** quién sostiene un hecho sobre un proveedor, y por qué el riesgo
   no es un número
   ([ADR 0017](docs/architecture/adr-0017-supplier-facts-and-risk.md)) — ver abajo.
+- **Milestone 40:** economía por canal, dinero con moneda y lo que no se puede
+  evaluar
+  ([ADR 0018](docs/architecture/adr-0018-money-conversion-and-not-evaluable.md))
+  — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -540,6 +544,33 @@ compra a ciegas que parece hecha con los ojos abiertos.
 **Y los proveedores reales se introducen a mano**, que es el camino que este milestone
 abre y que se sostiene permanentemente: un precio negociado no lo publica ninguna API.
 
+### Economía por canal, moneda y techo de CAC (Milestone 40)
+
+Un margen se calculaba restando un coste en dólares de un precio en euros, sin decir
+en qué canal se vendía, y el techo de CAC que la pantalla enseñaba salía de confundir
+una unidad con un pedido.
+
+**Un importe no existe sin su moneda**, y restar dos monedas distintas falla al
+construir el resultado. Convertir exige un tipo de cambio con fecha, fuente y
+procedencia, y **sin tasa no se convierte: el análisis queda sin evaluar**. Nunca se
+supone 1:1. La tasa la escribe una persona —el cambio que aplicó el banco—, que es la
+fuente que cuesta cero euros.
+
+**«No evaluable» no es un resultado negativo.** Un margen negativo se sabe y es malo;
+esto es que no se sabe, y nunca bloquea el sistema como si fuera un «no».
+
+**Cada coste está en una de cinco situaciones**, y las cuatro que suman cero euros
+significan cosas distintas: está dentro de otro coste, no aplica en este canal, nadie
+lo ha dicho y hace falta, o nadie lo ha dicho y da igual. Con eso, contar un arancel
+dos veces deja de ser posible.
+
+**Unidad, pedido y adquisición son tres cosas.** Si cada pedido lleva tres unidades,
+el margen que financia esa adquisición es el de tres. Y un «una unidad por pedido»
+que nadie ha declarado no vale: deja el techo de CAC sin evaluar.
+
+El CAC máximo dice **cuánto podríamos permitirnos pagar** por un cliente, no cuánto
+costará: eso se mide con campañas reales y queda fuera.
+
 ## Notas
 
 - Amazon SP-API: prohibido usar sus datos para entrenar modelos.
@@ -551,5 +582,5 @@ abre y que se sostiene permanentemente: un precio negociado no lo publica ningun
   (migraciones sobre PostgreSQL real, la conversión del `steps` histórico,
   la concurrencia de `SKIP LOCKED` y el login/refresco/cierre de sesión real).
   Están registradas en
-  [system-overview §19](docs/architecture/system-overview.md#19-pendientes-de-integración):
+  [system-overview §20](docs/architecture/system-overview.md#20-pendientes-de-integración):
   no bloquean el desarrollo, sí bloquean producción.

@@ -65,6 +65,10 @@ def _make_supplier_quote(db_session: Session, product: Product) -> SupplierQuote
         supplier_id=supplier.id,
         currency="EUR",
         provenance="supplier_claim",
+        # Milestone 40: sin Incoterm nadie sabe si el arancel está dentro del
+        # precio, y el análisis se niega a suponerlo. DDP dice que el proveedor
+        # asume los derechos.
+        incoterm="DDP",
         unit_price=4.2,
         moq=500,
         lead_time_days=25,
@@ -93,8 +97,13 @@ def test_run_analysis_uses_real_research_and_sourcing_data(db_session: Session):
     assert analysis.product_id == product.id
     assert analysis.supplier_quote_id == quote.id
     assert analysis.analysis_type == "economic_risk"
-    # margin_percent derives from the real landed cost (5.22), not a default.
-    assert analysis.margin_percent == pytest.approx((20.0 - 5.22) / 20.0)
+    # Milestone 40: el margen ya descuenta también el coste de cobrar, que el
+    # coste de aterrizaje del Milestone 39 no incluía. 4,20 de producto + 1,02
+    # de logística + 0,83 de pasarela (2,9 % de 20 € + 0,25 €).
+    assert analysis.margin_percent == pytest.approx((20.0 - 6.05) / 20.0)
+    assert analysis.margin_evaluability == "evaluable"
+    assert analysis.channel == "own_web"
+    assert analysis.currency == "EUR"
     assert analysis.data["scenarios"]["base"]["monthly_unit_sales"] > 0
 
 
@@ -115,6 +124,10 @@ def test_run_analysis_persists_risks_and_evidence_alongside_scenarios(db_session
         supplier_id=supplier.id,
         currency="EUR",
         provenance="supplier_claim",
+        # Milestone 40: sin Incoterm nadie sabe si el arancel está dentro del
+        # precio, y el análisis se niega a suponerlo. DDP dice que el proveedor
+        # asume los derechos.
+        incoterm="DDP",
         unit_price=4.2,
         moq=500,
         lead_time_days=60,

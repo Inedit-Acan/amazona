@@ -228,6 +228,7 @@ export const RISK_DIMENSION_LABEL: Record<RiskDimension, string> = {
 export const PROVENANCE_LABEL: Record<SupplierProvenance, string> = {
   third_party_verified: "Verificado por un tercero",
   supplier_claim: "Lo dice el proveedor",
+  declared: "Declarado por nosotros",
   amazona_estimate: "Estimación de AMAZONA",
   simulated: "Dato de demostración",
   unknown: "Sin declarar",

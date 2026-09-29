@@ -426,6 +426,10 @@ export interface ComparisonProviderSummary {
 export type SupplierProvenance =
   | "third_party_verified"
   | "supplier_claim"
+  /** Lo afirma el operador: el precio de venta, los costes fijos, el cambio que
+   * aplicó el banco. No lo dice el proveedor ni lo calcula un modelo
+   * (Milestone 40). */
+  | "declared"
   | "amazona_estimate"
   | "simulated"
   | "unknown";
@@ -552,21 +556,150 @@ export interface EconomicScenario {
   monthly_profit: number;
 }
 
+/** Si una cifra se pudo calcular (Milestone 40).
+ *
+ * **No es un resultado económico.** Un margen negativo se sabe y es malo;
+ * `not_evaluable` es que no se sabe. Confundirlos descartaría productos buenos
+ * por falta de un dato administrativo. */
+export type Evaluability = "evaluable" | "not_evaluable";
+
+/** Los seis componentes de la economía unitaria. */
+export type CostConcept =
+  | "product"
+  | "logistics"
+  | "import"
+  | "channel"
+  | "payment"
+  | "other_variable";
+
+/** Las cinco situaciones en que puede estar un coste. Las cuatro últimas suman
+ * cero euros y significan cuatro cosas distintas. */
+export type CostStatus =
+  | "known"
+  | "included_in_another"
+  | "not_applicable"
+  | "unknown_required"
+  | "unknown_optional";
+
+/** Un importe exacto. Viaja como **cadena** a propósito: en JavaScript un
+ * número es un `float64`, y mandar `6.4` devolvería el error de redondeo que el
+ * backend acaba de quitar. */
+export interface MoneyAmount {
+  amount: string;
+  currency: string;
+}
+
+export interface CostComponentView {
+  concept: CostConcept;
+  status: CostStatus;
+  /** Solo cuando `known`. */
+  amount: MoneyAmount | null;
+  provenance: SupplierProvenance;
+  source: string | null;
+  /** Solo cuando `included_in_another`: dentro de cuál está. */
+  included_in: CostConcept | null;
+  /** Solo cuando `not_applicable`: por qué no aplica. */
+  reason: string | null;
+}
+
+/** La cadena unidad → pedido → adquisición, y de qué está hecha. */
+export interface UnitEconomicsView {
+  currency: string;
+  contribution_margin_per_unit: MoneyAmount | null;
+  contribution_margin_percent: string | null;
+  contribution_margin_per_order: MoneyAmount | null;
+  breakeven_cac_before_fixed_costs: MoneyAmount | null;
+  allocated_fixed_cost_per_order: MoneyAmount | null;
+  max_breakeven_cac: MoneyAmount | null;
+  margin_evaluability: Evaluability;
+  cac_evaluability: Evaluability;
+  missing_inputs: string[];
+  omitted_costs: string[];
+  /** La procedencia más floja de lo que se sumó. Un suelo, no una nota: un
+   * margen no vale más que el más flojo de sus sumandos. */
+  weakest_provenance: SupplierProvenance;
+  orders_per_acquisition: string;
+  components: CostComponentView[];
+}
+
+/** La conversión aplicada, con los diez campos que la hacen auditable. */
+export interface FxConversionView {
+  source_currency: string;
+  source_amount: string;
+  target_currency: string;
+  converted_amount: string;
+  rate: string;
+  /** El par tal y como se declaró la tasa: `USD/EUR` es cuántos EUR vale 1 USD. */
+  pair: string;
+  direction: "direct" | "inverted";
+  effective_date: string;
+  source: string;
+  provenance: SupplierProvenance;
+}
+
+/** Identidad, fiabilidad comercial y procedencia de la cotización: tres hechos
+ * distintos, y **ninguno es un término del margen**. */
+export interface SupplierIdentityView {
+  /** `null` = nadie lo ha dicho. No es `false`. */
+  identity_verified: boolean | null;
+  identity_provenance: SupplierProvenance;
+  commercial_reliability: number | null;
+  commercial_reliability_provenance: SupplierProvenance;
+  quote_provenance: SupplierProvenance;
+  note: string;
+}
+
 export interface EconomicAnalysis {
   correlation_id: string;
   product_id: string;
   supplier_quote_id: string;
   sale_price: number;
   monthly_fixed_costs: number;
-  margin_percent: number;
+  /** `null` cuando el análisis no se pudo evaluar. **No es cero.** */
+  margin_percent: number | null;
   recommendation: "GO" | "REVIEW" | "NO_GO";
   confidence: number;
+  /** Dónde se vende. Del catálogo de canales del Milestone 38. */
+  channel: string | null;
+  currency: string | null;
+  /** Cuántas unidades lleva un pedido. `null` = **no declarado**, y entonces no
+   * hay margen por pedido ni techo de CAC. */
+  units_per_order: number | null;
+  units_per_order_provenance: SupplierProvenance | null;
+  margin_evaluability: Evaluability;
+  cac_evaluability: Evaluability;
+  /** Qué faltó, por su nombre. */
+  missing_inputs: string[] | null;
+  contribution_margin_per_unit: string | null;
+  contribution_margin_per_order: string | null;
+  allocated_fixed_cost_per_order: string | null;
+  /** Lo que **podríamos permitirnos** pagar por una adquisición. No dice lo que
+   * costará: eso es CAC medido y queda fuera del Milestone 40. */
+  max_breakeven_cac: string | null;
+  /** **Una lista**: el precio y el coste logístico se convierten por separado,
+   * y guardar solo la última dejaría la otra sin rastro. */
+  fx_conversions: FxConversionView[] | null;
   data: {
     scenarios?: Record<"conservative" | "base" | "optimistic", EconomicScenario>;
     risks?: string[];
     evidence?: string[];
+    unit_economics?: UnitEconomicsView;
+    supplier_identity?: SupplierIdentityView;
     [key: string]: unknown;
   } | null;
+}
+
+/** Un tipo de cambio declarado: `1 base_currency = rate quote_currency`. */
+export interface ExchangeRate {
+  id: string;
+  base_currency: string;
+  quote_currency: string;
+  rate: string;
+  effective_date: string;
+  source: string;
+  provenance: SupplierProvenance;
+  declared_by: string | null;
+  note: string | null;
 }
 
 export interface EconomicsTimeseriesPoint {
@@ -996,7 +1129,26 @@ export const api = {
     supplier_quote_id: string;
     sale_price: number;
     monthly_fixed_costs?: number;
+    monthly_unit_sales_base?: number;
+    channel?: string;
+    currency?: string;
+    units_per_order?: number | null;
+    payment_cost_per_unit?: number | null;
+    other_variable_cost_per_unit?: number | null;
   }) => request<EconomicAnalysis>("/api/economics/runs", { method: "POST", body: JSON.stringify(payload) }),
+  listExchangeRates: () => request<ExchangeRate[]>("/api/exchange-rates"),
+  /** Alta manual de un tipo de cambio (Milestone 40). La dirección va en los
+   * nombres: `1 base = rate quote`. */
+  declareExchangeRate: (payload: {
+    base_currency: string;
+    quote_currency: string;
+    rate: string;
+    effective_date: string;
+    source?: string | null;
+    provenance?: SupplierProvenance;
+    declared_by?: string | null;
+    note?: string | null;
+  }) => request<ExchangeRate>("/api/exchange-rates", { method: "POST", body: JSON.stringify(payload) }),
   listProductEconomics: (productId: string) =>
     request<EconomicAnalysis[]>(`/api/products/${productId}/economics`),
   getEconomicsTimeseries: (days = 30) =>

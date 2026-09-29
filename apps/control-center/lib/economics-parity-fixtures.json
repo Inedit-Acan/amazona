@@ -1,0 +1,97 @@
+[
+  {
+    "name": "web-1u",
+    "inputs": {
+      "salePrice": "20.00",
+      "product": "4.00",
+      "logistics": "1.00",
+      "payment": "0.83",
+      "channel": null,
+      "unitsPerOrder": 1,
+      "expectedMonthlyOrders": 300,
+      "monthlyFixedCosts": "500.00"
+    },
+    "expected": {
+      "marginPerUnit": "14.1700",
+      "marginPerOrder": "14.1700",
+      "allocatedFixedCostPerOrder": "1.6667",
+      "maxBreakevenCac": "12.5033"
+    }
+  },
+  {
+    "name": "web-3u",
+    "inputs": {
+      "salePrice": "20.00",
+      "product": "4.00",
+      "logistics": "1.00",
+      "payment": "0.83",
+      "channel": null,
+      "unitsPerOrder": 3,
+      "expectedMonthlyOrders": 100,
+      "monthlyFixedCosts": "500.00"
+    },
+    "expected": {
+      "marginPerUnit": "14.1700",
+      "marginPerOrder": "42.5100",
+      "allocatedFixedCostPerOrder": "5.0000",
+      "maxBreakevenCac": "37.5100"
+    }
+  },
+  {
+    "name": "marketplace",
+    "inputs": {
+      "salePrice": "20.00",
+      "product": "4.00",
+      "logistics": "1.00",
+      "payment": "0.00",
+      "channel": "5.10",
+      "unitsPerOrder": 1,
+      "expectedMonthlyOrders": 300,
+      "monthlyFixedCosts": "500.00"
+    },
+    "expected": {
+      "marginPerUnit": "9.9000",
+      "marginPerOrder": "9.9000",
+      "allocatedFixedCostPerOrder": "1.6667",
+      "maxBreakevenCac": "8.2333"
+    }
+  },
+  {
+    "name": "perdida",
+    "inputs": {
+      "salePrice": "5.00",
+      "product": "4.00",
+      "logistics": "1.00",
+      "payment": "0.83",
+      "channel": null,
+      "unitsPerOrder": 1,
+      "expectedMonthlyOrders": 300,
+      "monthlyFixedCosts": "500.00"
+    },
+    "expected": {
+      "marginPerUnit": "-0.8300",
+      "marginPerOrder": "-0.8300",
+      "allocatedFixedCostPerOrder": "1.6667",
+      "maxBreakevenCac": "-2.4967"
+    }
+  },
+  {
+    "name": "decimales",
+    "inputs": {
+      "salePrice": "19.99",
+      "product": "4.205",
+      "logistics": "1.0425",
+      "payment": "0.8299",
+      "channel": null,
+      "unitsPerOrder": 2,
+      "expectedMonthlyOrders": 137,
+      "monthlyFixedCosts": "499.99"
+    },
+    "expected": {
+      "marginPerUnit": "13.9126",
+      "marginPerOrder": "27.8252",
+      "allocatedFixedCostPerOrder": "3.6496",
+      "maxBreakevenCac": "24.1756"
+    }
+  }
+]

@@ -43,6 +43,12 @@ EXPECTED: dict[RoleName, set[ApiAction]] = {
     },
 }
 
+#: Milestone 40: declarar un tipo de cambio solo lo pueden OWNER y ADMIN —que
+#: tienen todas—, y **ni siquiera SYSTEM**. Es la cifra por la que se multiplica
+#: todo lo demás, y ningún proceso automático la afirma.
+_RATE_WRITERS = {RoleName.OWNER, RoleName.ADMIN}
+
+
 #: Actions that change something. Used to state "read-only" precisely.
 WRITES = set(ApiAction) - READS - {ApiAction.AUDIT_READ}
 
@@ -117,3 +123,10 @@ def test_watching_the_queue_is_not_the_same_as_feeding_it():
     for role in (RoleName.VIEWER, RoleName.ANALYST, RoleName.REVIEWER):
         assert role_can(role, ApiAction.BUSINESS_READ) is True
         assert role_can(role, ApiAction.JOB_WRITE) is False
+
+
+def test_only_the_two_administrative_roles_can_declare_an_exchange_rate():
+    """Milestone 40: un tipo de cambio multiplica el coste de todo. Ni OPERATOR
+    ni, sobre todo, SYSTEM pueden declararlo."""
+    for role in RoleName:
+        assert role_can(role, ApiAction.EXCHANGE_RATE_WRITE) is (role in _RATE_WRITERS)

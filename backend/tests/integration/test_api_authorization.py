@@ -70,6 +70,15 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
         {"capability": "dropshipping", "supported": True},
         ApiAction.SUPPLIER_WRITE,
     ),
+    # Milestone 40: declarar un tipo de cambio es una acción propia. No es
+    # `SUPPLIER_WRITE`: un cambio no es un hecho sobre un proveedor, y es la
+    # cifra por la que se multiplica todo lo demás.
+    (
+        "POST",
+        "/api/exchange-rates",
+        {"base_currency": "USD", "quote_currency": "EUR", "rate": "0.92", "effective_date": "2026-09-01"},
+        ApiAction.EXCHANGE_RATE_WRITE,
+    ),
     ("POST", "/api/jobs", {"type": "diagnostic.echo"}, ApiAction.JOB_WRITE),
     ("POST", "/api/jobs/job-1/cancel", {}, ApiAction.JOB_WRITE),
     ("POST", "/api/jobs/job-1/requeue", {}, ApiAction.JOB_WRITE),
@@ -223,6 +232,7 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/suppliers"),
         ("POST", "/api/suppliers/{supplier_id}/quotes"),
         ("POST", "/api/suppliers/{supplier_id}/capabilities"),
+        ("POST", "/api/exchange-rates"),
         ("POST", "/api/jobs"),
         ("POST", "/api/jobs/{job_id}/cancel"),
         ("POST", "/api/jobs/{job_id}/requeue"),

@@ -19,8 +19,13 @@ importa cuando el dato es un precio negociado o una promesa de envío directo.
 - `SUPPLIER_CLAIM`: lo dice el proveedor. Es la procedencia normal de casi todo
   lo que hay en una cotización, y es información legítima — de parte interesada.
   Una ficha de catálogo y un correo del comercial son esto.
+- `DECLARED`: lo afirma el operador. El precio de venta, los costes fijos o el
+  tipo de cambio que aplicó el banco no los dice el proveedor ni los calcula un
+  modelo: los escribe una persona porque los sabe (Milestone 40).
 - `AMAZONA_ESTIMATE`: lo calculamos nosotros con un método propio. El coste
-  logístico estimado es esto. No viene del proveedor ni de un tercero.
+  logístico estimado es esto. **No es lo mismo que `DECLARED`**: una estimación
+  sale de un método y puede estar mal por el método; un dato declarado sale de
+  alguien y puede estar mal por quien lo dijo.
 - `SIMULATED`: un fixture. No viene del mundo en absoluto.
 - `UNKNOWN`: **nadie lo ha dicho**. No es un valor que se guarde: es lo que
   contesta el sistema cuando no hay declaración. Un hecho ausente se queda
@@ -51,6 +56,9 @@ class SupplierFactProvenance(StrEnum):
 
     THIRD_PARTY_VERIFIED = "third_party_verified"
     SUPPLIER_CLAIM = "supplier_claim"
+    #: Lo afirma el operador (Milestone 40). Va por delante de una estimación
+    #: nuestra: quien lo escribe lo sabe de primera mano.
+    DECLARED = "declared"
     AMAZONA_ESTIMATE = "amazona_estimate"
     SIMULATED = "simulated"
     UNKNOWN = "unknown"
@@ -58,8 +66,12 @@ class SupplierFactProvenance(StrEnum):
 
 #: En qué orden se prefiere una declaración cuando hay varias del mismo hecho.
 #: Lo comprobado por un tercero antes que lo que dice el interesado, lo que dice
-#: el interesado antes que lo que calculamos nosotros, y un fixture el último de
-#: los que dicen algo. `UNKNOWN` cierra la lista porque no dice nada.
+#: el interesado antes que lo que afirma el operador, lo afirmado antes que lo
+#: calculado, y un fixture el último de los que dicen algo. `UNKNOWN` cierra la
+#: lista porque no dice nada.
+#:
+#: `DECLARED` va por delante de `AMAZONA_ESTIMATE` (Milestone 40): quien escribe
+#: el cambio que le aplicó el banco lo sabe; un estimador solo lo modela.
 #:
 #: **No es una puntuación de riesgo** y no se promedia: es un criterio de
 #: desempate, y existe para que «hay dos precios para este proveedor» tenga una
@@ -67,9 +79,10 @@ class SupplierFactProvenance(StrEnum):
 _PROVENANCE_RANK: dict[SupplierFactProvenance, int] = {
     SupplierFactProvenance.THIRD_PARTY_VERIFIED: 0,
     SupplierFactProvenance.SUPPLIER_CLAIM: 1,
-    SupplierFactProvenance.AMAZONA_ESTIMATE: 2,
-    SupplierFactProvenance.SIMULATED: 3,
-    SupplierFactProvenance.UNKNOWN: 4,
+    SupplierFactProvenance.DECLARED: 2,
+    SupplierFactProvenance.AMAZONA_ESTIMATE: 3,
+    SupplierFactProvenance.SIMULATED: 4,
+    SupplierFactProvenance.UNKNOWN: 5,
 }
 
 #: Las procedencias que se pueden **guardar**. `UNKNOWN` no está: una fila que

@@ -70,6 +70,11 @@ class ApiAction(StrEnum):
     #: empresa real. Un ANALYST analiza lo que hay; declarar que un proveedor
     #: hace envío ciego es una decisión de negocio con consecuencias operativas.
     SUPPLIER_WRITE = "supplier.write"
+    #: Declarar un tipo de cambio a mano (Milestone 40). Acción propia y no
+    #: `SUPPLIER_WRITE`: un tipo de cambio no es un hecho sobre un proveedor, y
+    #: es la cifra por la que se multiplica todo lo demás. `SYSTEM` no la tiene:
+    #: ningún proceso automático declara un cambio.
+    EXCHANGE_RATE_WRITE = "exchange_rate.write"
     #: Enqueue, cancel or requeue a job. Milestone 31. Reading jobs is
     #: BUSINESS_READ: seeing what the system is doing is not the same as
     #: making it do something.

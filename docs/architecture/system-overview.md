@@ -867,7 +867,55 @@ guardada envejece sin avisar.
 una empresa real— y sin `SYSTEM`: ningún proceso automático afirma hechos sobre una
 empresa. El razonamiento completo, en la [ADR 0017](adr-0017-supplier-facts-and-risk.md).
 
-## 18. El coste de las llamadas externas (Milestone 37)
+## 18. Dinero, conversión y lo que no se puede evaluar (Milestone 40)
+
+El Milestone 39 dejó una cotización con moneda y la regla de no convertir entre
+ellas. Lo que no dejó fue nada que lo impidiera: el margen se seguía calculando
+restando un coste en dólares de un precio en euros, con un aviso en la lista de
+riesgos y el número mal. Un aviso no es una salvaguarda.
+
+**`Money` lleva importe y moneda, y restar dos monedas distintas falla al construir
+el resultado.** El importe es `Decimal`: `0,1 + 0,2` vale `0,30000000000000004` en
+coma flotante, y un céntimo por unidad son cuarenta euros en un pedido de cuatro
+mil. Cuatro decimales por dentro, dos al presentar, y **se redondea al final**. El
+resto del repositorio sigue en `float` y la frontera tiene una puerta por sentido
+en `app/money/serialization.py`.
+
+**Una conversión es un hecho con procedencia**: diez campos, con el par y la
+dirección sin ambigüedad —«1,08» puede ser dólares por euro o al revés, y entre las
+dos lecturas hay un 16 %— y **se guardan todas**, porque el precio y la logística se
+convierten por separado. Sin tasa aplicable no hay conversión: hay `NOT_EVALUABLE`,
+y **nunca 1:1**. Una tasa de más de treinta días deja de valer; una del futuro se
+rechaza. La fuente es una persona escribiendo el cambio que le aplicó el banco, bajo
+una acción propia que ni `SYSTEM` tiene.
+
+**`NOT_EVALUABLE` no es un resultado negativo.** Un margen negativo se sabe y es
+malo; esto es que no se sabe. Sale como `REVIEW` y **nunca** como `NO_GO`, porque el
+ActionGate veta los `NO_GO` que gastan (ADR 0011). Y hay tres evaluabilidades: el
+margen por unidad puede ser firme mientras el margen por pedido y el techo de CAC no
+lo son.
+
+**Cada coste está en una de cinco situaciones**, y las cuatro que suman cero euros
+significan cuatro cosas distintas: está dentro de otro (y dice cuál), no aplica (con
+motivo), nadie lo ha dicho y hace falta, o nadie lo ha dicho y no cambia nada. Los
+invariantes fallan si un contenedor no existe o no se conoce, y así las tres
+instancias de doble contabilización del Milestone 39 —DDP, estimador logístico,
+comisión de marketplace— dejan de ser parches por caso.
+
+**Cada componente lleva su procedencia**, y el margen declara la **más floja**: un
+suelo, no una nota. Si un solo sumando viene de un fixture, el margen es simulado.
+
+**Unidad, pedido y adquisición dejan de ser lo mismo.** Hasta aquí el backend
+llamaba `monthly_unit_sales` a la cifra que el frontend llamaba `monthlyOrders`, y
+el techo de CAC salía de esa confusión. Ahora son cinco cifras nombradas, y
+`unidades_por_pedido` es un dato **declarado**: un 1 que nadie declaró deja el CAC
+sin evaluar. Una adquisición es un pedido, escrito para que no sea una suposición.
+
+El CAC máximo dice **cuánto podríamos permitirnos pagar**, no cuánto costará.
+`target_cac` no se calcula. El razonamiento completo, en la
+[ADR 0018](adr-0018-money-conversion-and-not-evaluable.md).
+
+## 19. El coste de las llamadas externas (Milestone 37)
 
 El plan maestro §25 lo pide **antes** de introducir LLM o APIs comerciales, y la
 secuencia del §32 no lo programó en ningún milestone: `provider, operation, units,
@@ -901,7 +949,7 @@ Está **separado del ActionGate** a propósito: aquél gobierna publicar, anunci
 gastar dinero del negocio; esto es infraestructura con sus propias ventanas. Los dos
 los leerá el CFO más adelante.
 
-## 19. Pendientes de integración
+## 20. Pendientes de integración
 
 Cuatro comprobaciones que **no se pueden cerrar en esta máquina** y que no
 pertenecen a ningún milestone concreto: son deuda de verificación, no de código.
@@ -917,7 +965,7 @@ opere sobre datos reales.
 | **Concurrencia real de `SELECT … FOR UPDATE SKIP LOCKED`.** SQLite lo ignora sin error, así que el reclamo único está probado por construcción y por los tests, pero no contra PostgreSQL con varios workers a la vez. | Milestone 31 ([ADR 0009](adr-0009-async-job-runtime.md) §1) | Dos o más `python -m app.jobs.worker` contra la misma base PostgreSQL, comprobando que ningún trabajo se ejecuta dos veces |
 | **Login, refresco y cierre de sesión reales.** El flujo de sesión del Control Center está construido y probado con tokens fabricados; falta ejercerlo contra Supabase con credenciales de prueba. | Milestone 29.1 ([ADR 0007](adr-0007-production-security.md)) | Un usuario de prueba en Supabase: entrar, dejar caducar el token para ver el refresco del middleware, y salir |
 
-## 20. Deuda funcional registrada
+## 21. Deuda funcional registrada
 
 Lo del §18 es deuda de **verificación**: cosas ciertas que solo un entorno real
 confirma. Esto es otra cosa — deuda de **función**: cosas que el sistema todavía no
@@ -926,7 +974,11 @@ en el milestone donde se descubrieron.
 
 | Deuda | Por qué importa | Dónde debería ir |
 |---|---|---|
+| **CAC real medido** | El Milestone 40 calcula **cuánto podríamos permitirnos pagar** por una adquisición, y sigue sin saber cuánto costará. Un techo de 12,50 € no dice nada sobre si el clic cuesta 0,40 € o 4 € | Exige plataformas de anuncios con gasto real. Es §17 del plan maestro, y no antes de que haya una web propia con tráfico |
+| **Rentabilidad objetivo (`target_cac`)** | El Milestone 40 calcula el techo de **equilibrio**: el CAC con el que el beneficio es cero. Operar en el equilibrio no es un negocio | Fijar un beneficio o margen mínimo por pedido. El contrato ya tiene el hueco (`target_margin_per_order`) y está vacío a propósito |
+| **Fuente automática de tipos de cambio** | Hoy la tasa la escribe una persona. Funciona para una negociación al mes y no para un catálogo | Un adaptador con fecha y fuente, bajo el libro de coste del §25. El BCE publica referencias diarias gratis y sin alta: pendiente de pasar por la matriz de derechos del Milestone 37 |
+| **`Decimal` en el resto del repositorio** | El dominio monetario del Milestone 40 es exacto; `budgets` (que ya almacenaba `Numeric` y razonaba en `float`), `external_api_cost` y las columnas heredadas de `economic_analyses` no | Un milestone propio de migración, o irlo pagando cada vez que un dominio toque dinero |
 | **Fuente de tipos de cambio** | Desde el Milestone 39 una cotización lleva su moneda, y **no hay con qué convertirla**. Dos cotizaciones en monedas distintas no se comparan, el coste de aterrizaje del mock (en dólares) no se puede sumar a costes en euros, y el margen que Economics calcula sobre un coste en otra moneda lleva un aviso en vez de una conversión. Inventar un tipo de cambio metería un error del 5 % que nadie vería | Un adaptador de tipos de cambio con fecha y fuente, bajo el libro de coste del §25. Es requisito previo para que el margen del M40 sea real sobre cualquier proveedor que no cotice en euros |
 | **Catálogo de qué países forman cada mercado** | Sin él, un proveedor con país declarado (`ES`) y un destino expresado como mercado (`eu`) dan riesgo geopolítico **desconocido**: el sistema se niega a decir que cruza una frontera porque `es` no es la misma cadena que `eu`. Afecta a una de las ocho dimensiones del §11 | Una línea de catálogo por mercado, como los canales del Milestone 38. Ninguna migración |
 | **Certificaciones de proveedor** | El plan §10 las pide («certifications») y el Milestone 39 no las modela: siguen siendo dato de demostración en la pantalla. Una certificación necesita emisor, alcance y caducidad, que es una tabla propia | Con §12 Legal Intelligence, que es donde vive la conformidad de producto |
-| **Coste de adquisición (CAC) en Economics** | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |
+| **~~Coste de adquisición (CAC) en Economics~~** *(cerrada en el Milestone 40)* | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |

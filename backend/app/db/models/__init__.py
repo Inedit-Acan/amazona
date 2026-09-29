@@ -7,6 +7,7 @@ from app.db.models.cfo_report import CFOReport
 from app.db.models.decision import Decision, DecisionEvidence
 from app.db.models.economic_analysis import EconomicAnalysis
 from app.db.models.event import Event
+from app.db.models.exchange_rate import ExchangeRate
 from app.db.models.external_api_cost import ExternalApiCost
 from app.db.models.incident import Incident
 from app.db.models.job import Job, JobAttempt, JobEvent
@@ -50,6 +51,7 @@ __all__ = [
     "DecisionEvidence",
     "EconomicAnalysis",
     "Event",
+    "ExchangeRate",
     "ExternalApiCost",
     "Incident",
     "LegalAnalysis",

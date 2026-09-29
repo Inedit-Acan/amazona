@@ -54,6 +54,9 @@ BUSINESS_ROUTES = [
     "/api/decisions/dec-1",
     "/api/ecommerce/runs/cid-1",
     "/api/economics/analyses/timeseries",
+    # Milestone 40: las tasas declaradas son dato de negocio; los siete roles
+    # las leen, y solo OWNER y ADMIN las escriben.
+    "/api/exchange-rates",
     "/api/economics/runs/cid-1",
     "/api/incidents",
     "/api/jobs",
@@ -224,6 +227,7 @@ def test_the_inventory_covers_every_read_route():
         "/api/ecommerce/runs/{correlation_id}",
         "/api/economics/analyses/timeseries",
         "/api/economics/runs/{correlation_id}",
+        "/api/exchange-rates",
         "/api/incidents",
         "/api/jobs",
         "/api/jobs/types",

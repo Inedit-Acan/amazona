@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { EconomicAnalysis } from "./api.ts";
 import { buildBaseline } from "./economics-baseline.ts";
 import { DEMO_SALE, DEMO_UNIT_COSTS } from "./demo/economics.ts";
 import { demoQuotes } from "./demo/sourcing.ts";
 import { rankSuppliers } from "./sourcing-view.ts";
 import { quoteFixture } from "./quote-fixture.ts";
+import { economicAnalysisFixture } from "./quote-fixture.ts";
 
 const quote = quoteFixture({
   supplier_id: "sup-1",
@@ -19,7 +19,7 @@ const quote = quoteFixture({
   supplier: { name: "Proveedor Real", region: "vietnam" },
 });
 
-const analysis: EconomicAnalysis = {
+const analysis = economicAnalysisFixture({
   correlation_id: "c1",
   product_id: "p1",
   supplier_quote_id: "q1",
@@ -29,7 +29,7 @@ const analysis: EconomicAnalysis = {
   recommendation: "GO",
   confidence: 0.8,
   data: { scenarios: { conservative: s(50), base: s(210.4), optimistic: s(400) } },
-};
+});
 
 function s(units: number) {
   return { monthly_unit_sales: units, margin_percent: 0.7, monthly_revenue: 0, monthly_profit: 0 };

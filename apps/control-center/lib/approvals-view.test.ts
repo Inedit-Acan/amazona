@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Agent, Approval, EconomicAnalysis, LegalAnalysis, PipelineReview, Product, Storefront } from "./api.ts";
+import type { Agent, Approval,  LegalAnalysis, PipelineReview, Product, Storefront } from "./api.ts";
 import { REQUEST_TEMPLATES, RESOLVED_STATS, SLA_HOURS } from "./demo/approvals.ts";
 import {
   countFor,
@@ -16,6 +16,7 @@ import {
   type ProductContext,
 } from "./approvals-view.ts";
 import { quoteFixture } from "./quote-fixture.ts";
+import { economicAnalysisFixture } from "./quote-fixture.ts";
 
 const NOW = Date.parse("2026-09-22T12:00:00Z");
 const HOUR = 3_600_000;
@@ -24,7 +25,7 @@ const PRODUCT: Product = { id: "p-917", name: "Silicone kitchen organizer", cate
 
 const QUOTE = quoteFixture({ product_id: PRODUCT.id });
 
-const ANALYSIS: EconomicAnalysis = {
+const ANALYSIS = economicAnalysisFixture({
   correlation_id: "c-eco",
   product_id: PRODUCT.id,
   supplier_quote_id: "q1",
@@ -34,7 +35,7 @@ const ANALYSIS: EconomicAnalysis = {
   recommendation: "GO",
   confidence: 0.85,
   data: { scenarios: { conservative: { monthly_unit_sales: 186, margin_percent: 0.93, monthly_revenue: 9318, monthly_profit: 8197 }, base: { monthly_unit_sales: 266, margin_percent: 0.93, monthly_revenue: 13312, monthly_profit: 11924 }, optimistic: { monthly_unit_sales: 346, margin_percent: 0.93, monthly_revenue: 17306, monthly_profit: 15651 } }, risks: ["muestra limitada"] },
-};
+});
 
 const LEGAL: LegalAnalysis = {
   correlation_id: "c-legal",

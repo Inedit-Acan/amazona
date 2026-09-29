@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type EconomicAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
+import { type EconomicAnalysis, type ExchangeRate, type Product, type SupplierQuoteDetail } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { EconomicsWorkspace } from "./economics-workspace";
@@ -17,11 +17,15 @@ export default async function EconomicsPage({ searchParams }: PageProps<"/econom
   let products: Product[] = [];
   let quotes: SupplierQuoteDetail[] = [];
   let analyses: EconomicAnalysis[] = [];
+  let exchangeRates: ExchangeRate[] = [];
   let productId: string | undefined;
   let error: string | null = null;
 
   try {
-    products = await api.listProducts();
+    [products, exchangeRates] = await Promise.all([
+      api.listProducts(),
+      api.listExchangeRates().catch(() => [] as ExchangeRate[]),
+    ]);
     productId = products.find((p) => p.id === requestedProductId)?.id ?? products[0]?.id;
     if (productId) {
       // Sin cotizaciones o sin análisis la pantalla sigue funcionando (con datos de demostración).
@@ -52,6 +56,7 @@ export default async function EconomicsPage({ searchParams }: PageProps<"/econom
       // El backend los devuelve del más reciente al más antiguo.
       latestAnalysis={analyses[0]}
       requestedQuoteId={requestedQuoteId}
+      exchangeRates={exchangeRates}
     />
   );
 }

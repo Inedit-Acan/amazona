@@ -158,7 +158,7 @@ en cada push, así que es el sitio donde más probablemente vuelva a verse.
 ## No verificado
 
 - Los **cinco pendientes de integración** siguen igual (ver
-  [system-overview §19](../architecture/system-overview.md#19-pendientes-de-integración));
+  [system-overview §20](../architecture/system-overview.md#20-pendientes-de-integración));
   ninguno bloqueaba este milestone.
 - **La comparación en producción**: por diseño no existe allí.
 - **La evolución del informe en el tiempo**: cada ejecución es una foto y nada

@@ -25,6 +25,7 @@ import {
 } from "./cfo-view.ts";
 import type { EconomicsInputs } from "./economics-model.ts";
 import { buildOrders, startOfDay, type ProductInput, type SupplierInput } from "./operations-view.ts";
+import { economicAnalysisFixture } from "./quote-fixture.ts";
 
 const INPUTS: EconomicsInputs = {
   salePrice: 29.9,
@@ -219,7 +220,7 @@ test("forecast: usa los escenarios reales del análisis y crece mes a mes", () =
   const withAnalysis: ProductFinance[] = [
     {
       ...PRODUCTS[0],
-      analysis: {
+      analysis: economicAnalysisFixture({
         correlation_id: "c",
         product_id: "p1",
         supplier_quote_id: "q",
@@ -235,7 +236,7 @@ test("forecast: usa los escenarios reales del análisis y crece mes a mes", () =
             optimistic: { monthly_unit_sales: 346, margin_percent: 0.93, monthly_revenue: 17306.25, monthly_profit: 15651.58 },
           },
         },
-      },
+      }),
     },
   ];
   const base = forecast(withAnalysis, "base", 6, 8);

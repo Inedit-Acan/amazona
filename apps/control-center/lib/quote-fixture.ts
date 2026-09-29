@@ -1,4 +1,4 @@
-import type { Supplier, SupplierQuoteDetail } from "./api.ts";
+import type { EconomicAnalysis, Supplier, SupplierQuoteDetail } from "./api.ts";
 
 type QuoteOverrides = Partial<Omit<SupplierQuoteDetail, "supplier">> & {
   /** Solo los campos del proveedor que interesen al test; el resto se hereda.
@@ -67,5 +67,40 @@ export function quoteFixture(overrides: QuoteOverrides = {}): SupplierQuoteDetai
             last_checked_at: null,
             ...(supplier ?? {}),
           },
+  };
+}
+
+type AnalysisOverrides = Partial<EconomicAnalysis>;
+
+/** Análisis económico de ejemplo **para los tests**, con la forma completa que
+ * el backend devuelve desde el Milestone 40.
+ *
+ * Por defecto describe un análisis evaluable de web propia en euros, con un
+ * pedido de una unidad declarada. Cada test cambia lo que le interesa y, sobre
+ * todo, puede dejar en `null` lo que quiera declarar como no evaluable. */
+export function economicAnalysisFixture(overrides: AnalysisOverrides = {}): EconomicAnalysis {
+  return {
+    correlation_id: "c-eco",
+    product_id: "p1",
+    supplier_quote_id: "q1",
+    sale_price: 50,
+    monthly_fixed_costs: 500,
+    margin_percent: 0.93,
+    recommendation: "GO",
+    confidence: 0.85,
+    channel: "own_web",
+    currency: "EUR",
+    units_per_order: 1,
+    units_per_order_provenance: "declared",
+    margin_evaluability: "evaluable",
+    cac_evaluability: "evaluable",
+    missing_inputs: null,
+    contribution_margin_per_unit: "46.5000",
+    contribution_margin_per_order: "46.5000",
+    allocated_fixed_cost_per_order: "1.8797",
+    max_breakeven_cac: "44.6203",
+    fx_conversions: null,
+    data: null,
+    ...overrides,
   };
 }

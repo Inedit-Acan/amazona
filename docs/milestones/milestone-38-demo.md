@@ -148,7 +148,7 @@ adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo.
 El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en
 §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**.
 Queda registrada en
-[system-overview §20](../architecture/system-overview.md#20-deuda-funcional-registrada)
+[system-overview §21](../architecture/system-overview.md#21-deuda-funcional-registrada)
 con un milestone propio propuesto. No es de este milestone: es del dominio Economics.
 
 ## Probarlo

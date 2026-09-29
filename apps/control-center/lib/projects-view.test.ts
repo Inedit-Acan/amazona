@@ -17,8 +17,9 @@ import {
   projectRisks,
   type ProductProjectInput,
 } from "./projects-view.ts";
-import type { AuditEntry, EconomicAnalysis, LegalAnalysis, Product, Storefront } from "./api.ts";
+import type { AuditEntry,  LegalAnalysis, Product, Storefront } from "./api.ts";
 import { quoteFixture } from "./quote-fixture.ts";
+import { economicAnalysisFixture } from "./quote-fixture.ts";
 
 const TODAY = startOfDay("2026-09-22");
 
@@ -26,7 +27,7 @@ const PRODUCT: Product = { id: "917ef890", name: "Silicone kitchen organizer", c
 
 const QUOTE = quoteFixture({ product_id: PRODUCT.id });
 
-const ANALYSIS: EconomicAnalysis = {
+const ANALYSIS = economicAnalysisFixture({
   correlation_id: "c-eco",
   product_id: PRODUCT.id,
   supplier_quote_id: "q1",
@@ -42,7 +43,7 @@ const ANALYSIS: EconomicAnalysis = {
       optimistic: { monthly_unit_sales: 346, margin_percent: 0.93, monthly_revenue: 17306, monthly_profit: 15651 },
     },
   },
-};
+});
 
 const LEGAL: LegalAnalysis = {
   correlation_id: "c-legal",

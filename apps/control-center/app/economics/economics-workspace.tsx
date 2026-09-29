@@ -40,7 +40,14 @@ import {
   Activity,
   type LucideIcon,
 } from "lucide-react";
-import { ApiError, api, type EconomicAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
+import {
+  ApiError,
+  api,
+  type EconomicAnalysis,
+  type ExchangeRate,
+  type Product,
+  type SupplierQuoteDetail,
+} from "@/lib/api";
 import { DEMO_PRODUCT_META } from "@/lib/demo/economics";
 import { buildBaseline } from "@/lib/economics-baseline";
 import { dedupeQuotesBySupplier } from "@/lib/economics";
@@ -74,6 +81,8 @@ import { ProductSummary } from "@/components/product-summary";
 import { ScenarioCard } from "@/components/scenario-card";
 import { SectionNav } from "@/components/section-nav";
 import { SensitivityBars } from "@/components/sensitivity-bars";
+import { ExchangeRateForm } from "@/components/exchange-rate-form";
+import { UnitEconomicsCard } from "@/components/unit-economics-card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -104,6 +113,7 @@ const SCENARIO_COLOR: Record<ScenarioKey, string> = {
 };
 
 const SECTIONS = [
+  { id: "economia-unitaria", label: "Economía unitaria", icon: Boxes },
   { id: "escenarios", label: "Escenarios", icon: Target },
   { id: "desglose", label: "Desglose de costes", icon: Boxes },
   { id: "simulacion", label: "Simulación", icon: SlidersHorizontal },
@@ -139,12 +149,14 @@ export function EconomicsWorkspace({
   productId,
   quotes,
   latestAnalysis,
+  exchangeRates,
   requestedQuoteId,
 }: {
   products: Product[];
   productId?: string;
   quotes: SupplierQuoteDetail[];
   latestAnalysis?: EconomicAnalysis;
+  exchangeRates?: ExchangeRate[];
   requestedQuoteId?: string;
 }) {
   const router = useRouter();
@@ -692,7 +704,9 @@ export function EconomicsWorkspace({
                     ? `${result.paybackMonths.toLocaleString("es-ES", { maximumFractionDigits: 1 })} meses`
                     : "—",
                 ],
-                ["CAC máximo tolerable", formatEuro(Math.max(0, result.maxCac))],
+                // Simulación local, no el resultado oficial: el CAC máximo de
+                // equilibrio lo calcula el backend y vive en «Economía unitaria».
+                ["CAC máximo (simulación)", formatEuro(Math.max(0, result.maxCac))],
                 ["Precio mínimo viable", Number.isFinite(result.minViablePrice) ? formatEuro(result.minViablePrice) : "—"],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between gap-3 border-b py-1.5 last:border-b-0">
@@ -703,6 +717,10 @@ export function EconomicsWorkspace({
             </dl>
           </CardContent>
         </Card>
+
+        {latestAnalysis && <UnitEconomicsCard analysis={latestAnalysis} />}
+
+        <ExchangeRateForm rates={exchangeRates ?? []} />
 
         <Card id="resumen" className="scroll-mt-4">
           <CardHeader>

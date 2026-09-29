@@ -1,3 +1,6 @@
+import datetime
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -150,3 +153,151 @@ def test_timeseries_days_parameter_is_bounded(client: TestClient):
 
     assert too_many.status_code == 422
     assert too_few.status_code == 422
+
+
+# --- Milestone 40: canal, moneda y techo de CAC ------------------------------
+
+
+def _declare_rate(client: TestClient, rate: str = "0.92") -> None:
+    response = client.post(
+        "/api/exchange-rates",
+        json={
+            "base_currency": "USD",
+            "quote_currency": "EUR",
+            "rate": rate,
+            "effective_date": datetime.date.today().isoformat(),
+        },
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_an_exchange_rate_can_be_declared_and_read_back(client: TestClient):
+    _declare_rate(client)
+
+    rates = client.get("/api/exchange-rates").json()
+
+    assert len(rates) == 1
+    assert rates[0]["base_currency"] == "USD"
+    assert rates[0]["quote_currency"] == "EUR"
+    assert rates[0]["provenance"] == "declared"
+    assert rates[0]["source"].startswith("manual:")
+
+
+def test_a_rate_dated_in_the_future_is_a_422(client: TestClient):
+    response = client.post(
+        "/api/exchange-rates",
+        json={
+            "base_currency": "USD",
+            "quote_currency": "EUR",
+            "rate": "0.92",
+            "effective_date": (datetime.date.today() + datetime.timedelta(days=1)).isoformat(),
+        },
+    )
+
+    assert response.status_code == 422
+    assert "future" in response.json()["detail"]
+
+
+def test_a_rate_between_a_currency_and_itself_is_a_422(client: TestClient):
+    response = client.post(
+        "/api/exchange-rates",
+        json={
+            "base_currency": "EUR",
+            "quote_currency": "EUR",
+            "rate": "1",
+            "effective_date": datetime.date.today().isoformat(),
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_an_analysis_declares_its_channel_currency_and_evaluability(client: TestClient):
+    product_id, supplier_quote_id = _create_product_and_quote(client)
+
+    body = client.post(
+        "/api/economics/runs",
+        json={
+            "product_id": product_id,
+            "supplier_quote_id": supplier_quote_id,
+            "sale_price": 20.0,
+            "channel": "own_web",
+            "units_per_order": 1,
+        },
+    ).json()
+
+    assert body["channel"] == "own_web"
+    assert body["currency"] == "EUR"
+    assert body["margin_evaluability"] == "evaluable"
+    # Importes como cadena: en JavaScript un número es un float64.
+    assert isinstance(body["contribution_margin_per_unit"], str)
+    assert isinstance(body["max_breakeven_cac"], str)
+
+
+def test_without_units_per_order_the_cac_ceiling_is_not_evaluable(client: TestClient):
+    """Un 1 que nadie ha declarado no vale."""
+    product_id, supplier_quote_id = _create_product_and_quote(client)
+
+    body = client.post(
+        "/api/economics/runs",
+        json={
+            "product_id": product_id,
+            "supplier_quote_id": supplier_quote_id,
+            "sale_price": 20.0,
+        },
+    ).json()
+
+    assert body["margin_evaluability"] == "evaluable"
+    assert body["cac_evaluability"] == "not_evaluable"
+    assert body["max_breakeven_cac"] is None
+    assert "units_per_order" in body["missing_inputs"]
+
+
+def test_more_units_per_order_raise_the_ceiling_without_touching_the_unit_margin(
+    client: TestClient,
+):
+    product_id, supplier_quote_id = _create_product_and_quote(client)
+
+    def run(units: int) -> dict:
+        return client.post(
+            "/api/economics/runs",
+            json={
+                "product_id": product_id,
+                "supplier_quote_id": supplier_quote_id,
+                "sale_price": 20.0,
+                "units_per_order": units,
+                "monthly_unit_sales_base": 300.0,
+            },
+        ).json()
+
+    one, three = run(1), run(3)
+
+    assert one["contribution_margin_per_unit"] == three["contribution_margin_per_unit"]
+    assert Decimal(three["max_breakeven_cac"]) > Decimal(one["max_breakeven_cac"])
+
+
+def test_the_breakdown_explains_where_every_figure_comes_from(client: TestClient):
+    product_id, supplier_quote_id = _create_product_and_quote(client)
+
+    body = client.post(
+        "/api/economics/runs",
+        json={
+            "product_id": product_id,
+            "supplier_quote_id": supplier_quote_id,
+            "sale_price": 20.0,
+            "units_per_order": 1,
+        },
+    ).json()
+
+    components = {c["concept"]: c for c in body["data"]["unit_economics"]["components"]}
+    assert set(components) == {
+        "product",
+        "logistics",
+        "import",
+        "channel",
+        "payment",
+        "other_variable",
+    }
+    assert all(c["provenance"] for c in components.values())
+    # El precio viene del mock, así que el margen entero es simulado y lo dice.
+    assert body["data"]["unit_economics"]["weakest_provenance"] == "simulated"

@@ -189,4 +189,4 @@ lo que esa limitación recomienda.
   (`supplier_identity_verified`): verificado, no verificado, y **nadie lo ha mirado**.
   Hasta aquí los dos últimos eran el mismo `False`.
 - **El CAC sigue sin existir** en `EconomicAnalysis`: es la deuda registrada en
-  [system-overview §20](../architecture/system-overview.md#20-deuda-funcional-registrada) y el trabajo del M40.
+  [system-overview §21](../architecture/system-overview.md#21-deuda-funcional-registrada) y el trabajo del M40.
