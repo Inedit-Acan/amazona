@@ -1,7 +1,10 @@
 import datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.approvals.service import ApprovalNotPendingError
@@ -67,6 +70,35 @@ def _as_aware_utc(value: datetime.datetime) -> datetime.datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=datetime.UTC)
 
 
+def _claim(db: Session, approval_id: str, *, to_status: str, now: datetime.datetime, resolved_by: str | None) -> bool:
+    """Compare-and-set: `PENDING` -> `to_status`, en **una sola sentencia**.
+
+    Devuelve True solo para la petición que ha cambiado la fila. Leer el estado,
+    comprobar en Python que sigue `PENDING` y escribir después dejaba que N peticiones
+    simultáneas vieran todas `PENDING` y todas registraran su `record_commit`: el
+    `UPDATE ... WHERE status = 'PENDING'` hace que, de N, solo una afecte a una fila y
+    las demás (que esperan a que la primera confirme y vuelven a evaluar el WHERE)
+    afecten a cero.
+    """
+    result = cast(
+        CursorResult,
+        db.execute(
+            update(ApprovalModel)
+            .where(ApprovalModel.id == approval_id, ApprovalModel.status == "PENDING")
+            .values(status=to_status, resolved_at=now, resolved_by=resolved_by)
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    return result.rowcount == 1
+
+
+def _not_pending(db: Session, approval: ApprovalModel) -> ApprovalNotPendingError:
+    """La respuesta de siempre para «ya resuelta», con el estado que tiene ahora
+    de verdad en la base (no el que se leyó al principio)."""
+    db.refresh(approval)
+    return ApprovalNotPendingError(f"approval {approval.id} is not pending (status={approval.status})")
+
+
 def _resolve(
     approval_id: str,
     new_status: str,
@@ -83,29 +115,34 @@ def _resolve(
     now = datetime.datetime.now(datetime.UTC)
     budget_ledger = BudgetLedgerService(db)
     if approval.status == "PENDING" and approval.expires_at and _as_aware_utc(approval.expires_at) <= now:
-        approval.status = "EXPIRED"
-        approval.resolved_at = now
-        if approval.amount:
-            budget_ledger.record_release(amount=approval.amount, reference=f"approval:{approval.id}")
-        db.add(
-            AuditLogModel(
-                actor="system",
-                action="approval.expire",
-                resource=f"approval:{approval.id}",
-                before={"status": "PENDING"},
-                after={"status": "EXPIRED"},
-                correlation_id=approval.correlation_id,
+        # Caducar es también una resolución: solo una petición la hace, y solo ella
+        # libera la reserva. Si otra ya resolvió, esa es la que manda.
+        if _claim(db, approval_id, to_status="EXPIRED", now=now, resolved_by=None):
+            if approval.amount:
+                budget_ledger.record_release(amount=approval.amount, reference=f"approval:{approval.id}")
+            db.add(
+                AuditLogModel(
+                    actor="system",
+                    action="approval.expire",
+                    resource=f"approval:{approval.id}",
+                    before={"status": "PENDING"},
+                    after={"status": "EXPIRED"},
+                    correlation_id=approval.correlation_id,
+                )
             )
-        )
-        db.commit()
+            db.commit()
+        else:
+            db.rollback()
+        raise _not_pending(db, approval)
 
     if approval.status != "PENDING":
-        raise ApprovalNotPendingError(f"approval {approval_id} is not pending (status={approval.status})")
+        raise _not_pending(db, approval)
 
-    before_status = approval.status
-    approval.status = new_status
-    approval.resolved_at = now
-    approval.resolved_by = actor
+    if not _claim(db, approval_id, to_status=new_status, now=now, resolved_by=actor):
+        db.rollback()
+        raise _not_pending(db, approval)
+
+    before_status = "PENDING"
     if approval.amount:
         if new_status == "APPROVED":
             budget_ledger.record_commit(amount=approval.amount, reference=f"approval:{approval.id}")

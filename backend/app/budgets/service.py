@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+from sqlalchemy import case, update
 from sqlalchemy.orm import Session
 
 from app.db.models.budget import Budget, BudgetAllocation, FinancialEvent
@@ -33,31 +36,59 @@ class BudgetLedgerService:
         self._soft_limit = soft_limit
 
     def record_reserve(self, *, amount: float, reference: str) -> None:
-        amount = float(amount)
         allocation = self._get_or_create_allocation()
-        allocation.reserved = float(allocation.reserved) + amount
-        self._db.add(
-            FinancialEvent(budget_id=allocation.budget_id, type="RESERVE", amount=amount, reference=reference)
-        )
-        self._db.flush()
+        self._apply(allocation, amount, reserve=True)
+        self._event(allocation, "RESERVE", amount, reference)
 
     def record_commit(self, *, amount: float, reference: str) -> None:
-        amount = float(amount)
         allocation = self._get_or_create_allocation()
-        allocation.reserved = max(0.0, float(allocation.reserved) - amount)
-        allocation.committed = float(allocation.committed) + amount
-        allocation.spent = float(allocation.spent) + amount
-        self._db.add(
-            FinancialEvent(budget_id=allocation.budget_id, type="COMMIT", amount=amount, reference=reference)
-        )
-        self._db.flush()
+        self._apply(allocation, amount, release_reserved=True, commit=True)
+        self._event(allocation, "COMMIT", amount, reference)
 
     def record_release(self, *, amount: float, reference: str) -> None:
-        amount = float(amount)
         allocation = self._get_or_create_allocation()
-        allocation.reserved = max(0.0, float(allocation.reserved) - amount)
+        self._apply(allocation, amount, release_reserved=True)
+        self._event(allocation, "RELEASE", amount, reference)
+
+    def _apply(
+        self,
+        allocation: BudgetAllocation,
+        amount: float,
+        *,
+        reserve: bool = False,
+        release_reserved: bool = False,
+        commit: bool = False,
+    ) -> None:
+        """Mueve los saldos con aritmética **de la base de datos**
+        (`SET committed = committed + :amount`), no leyendo el total, sumando en
+        Python y escribiendo el resultado: con dos peticiones a la vez, la segunda
+        habría pisado la suma de la primera y el libro habría perdido un importe.
+        La fila queda bloqueada por el UPDATE hasta el commit, así que las
+        peticiones concurrentes se ordenan solas."""
+        delta = Decimal(str(amount))
+        values: dict[str, object] = {}
+        if reserve:
+            values["reserved"] = BudgetAllocation.reserved + delta
+        if release_reserved:
+            # Nunca negativo, como antes: liberar más de lo reservado deja cero.
+            values["reserved"] = case(
+                (BudgetAllocation.reserved - delta > 0, BudgetAllocation.reserved - delta), else_=0
+            )
+        if commit:
+            values["committed"] = BudgetAllocation.committed + delta
+            values["spent"] = BudgetAllocation.spent + delta
+        self._db.execute(
+            update(BudgetAllocation)
+            .where(BudgetAllocation.id == allocation.id)
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        # El objeto que hay en la sesión ya no refleja la fila: que se vuelva a leer.
+        self._db.expire(allocation)
+
+    def _event(self, allocation: BudgetAllocation, kind: str, amount: float, reference: str) -> None:
         self._db.add(
-            FinancialEvent(budget_id=allocation.budget_id, type="RELEASE", amount=amount, reference=reference)
+            FinancialEvent(budget_id=allocation.budget_id, type=kind, amount=float(amount), reference=reference)
         )
         self._db.flush()
 

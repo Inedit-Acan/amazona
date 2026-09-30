@@ -1,7 +1,10 @@
 import datetime
+from typing import cast
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
@@ -279,10 +282,29 @@ def _resolve_review(
     if review.status != "PENDING":
         raise PipelineReviewNotPendingError(f"pipeline review {review_id} is not pending (status={review.status})")
 
-    before_status = review.status
-    review.status = new_status
-    review.resolved_at = datetime.datetime.now(datetime.UTC)
-    review.resolved_by = actor
+    # Compare-and-set: `PENDING` -> nuevo estado en una sola sentencia. Comprobar el
+    # estado en Python y escribirlo después dejaba que dos peticiones simultáneas
+    # resolvieran la misma revisión y reanudaran dos veces la ejecución. Solo la que
+    # cambia la fila sigue adelante; las demás reciben el «ya resuelta» de siempre,
+    # con el estado que la base tiene de verdad.
+    claimed = cast(
+        CursorResult,
+        db.execute(
+            update(PipelineReviewModel)
+            .where(PipelineReviewModel.id == review_id, PipelineReviewModel.status == "PENDING")
+            .values(status=new_status, resolved_at=datetime.datetime.now(datetime.UTC), resolved_by=actor)
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        db.refresh(review)
+        raise PipelineReviewNotPendingError(f"pipeline review {review_id} is not pending (status={review.status})")
+    # El objeto de la sesión todavía dice PENDING: quien lo lea después (el
+    # orquestador, al reanudar) tiene que ver el estado real.
+    db.refresh(review)
+
+    before_status = "PENDING"
     action_verb = "approve" if new_status == "APPROVED" else "reject"
 
     # Una revisión post-hoc es una anotación de gobernanza sobre algo que ya
