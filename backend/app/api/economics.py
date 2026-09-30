@@ -1,8 +1,8 @@
 import datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -10,11 +10,15 @@ from app.auth.actor import Actor
 from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError, ValidationError
 from app.core.ids import new_correlation_id
+from app.costs.service import ApiBudgetExceededError
 from app.db.models.audit import AuditLog
 from app.db.models.economic_analysis import EconomicAnalysis as EconomicAnalysisModel
 from app.db.models.exchange_rate import ExchangeRate as ExchangeRateModel
 from app.db.session import get_db
 from app.economics.service import DEFAULT_CHANNEL, EconomicAnalysisService
+from app.integrations.fx.ecb import FeedUnavailableError
+from app.money.ecb import ATTRIBUTION, NOTICE, is_ecb_source
+from app.money.fx_refresh import FxRefreshService, FxSourceNotConfiguredError, RefreshResult
 from app.money.rates import ExchangeRate
 from app.permissions.policies import ApiAction
 from app.sourcing.provenance import SupplierFactProvenance
@@ -99,6 +103,44 @@ class ExchangeRateOut(BaseModel):
     provenance: str
     declared_by: str | None
     note: str | None
+    #: Cuándo entró la tasa en nuestra base. No es la fecha efectiva: esa es la del
+    #: día al que pertenece la tasa (Milestone 42).
+    ingested_at: datetime.datetime = Field(validation_alias="created_at")
+    #: Solo en las referencias del BCE: la atribución que su licencia exige y la
+    #: advertencia de que no es una tasa transaccional.
+    attribution: str | None = None
+    notice: str | None = None
+
+    @model_validator(mode="after")
+    def _explain_the_source(self) -> "ExchangeRateOut":
+        if is_ecb_source(self.source):
+            self.attribution = ATTRIBUTION
+            self.notice = NOTICE
+        return self
+
+
+class RepublicationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    pair: str
+    effective_date: datetime.date
+    previous_rate: Decimal
+    new_rate: Decimal
+
+
+class RefreshOut(BaseModel):
+    """Lo que hizo un refresco de tasas del BCE."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    mode: str
+    days_examined: int
+    latest_effective_date: datetime.date
+    ingested_at: datetime.datetime
+    stored: int
+    unchanged: int
+    republished: list[RepublicationOut]
+    omitted_currencies: list[str]
 
 
 def _to_out(analysis: EconomicAnalysisModel) -> EconomicAnalysisOut:
@@ -199,6 +241,13 @@ def create_exchange_rate(
     actor: Actor = Depends(authorize(ApiAction.EXCHANGE_RATE_WRITE)),
 ) -> ExchangeRateModel:
     source = payload.source or f"manual:{actor.audit_name}"
+    if is_ecb_source(source):
+        # El prefijo es de la ingesta del BCE: una tasa escrita a mano con él se
+        # leería como referencia del BCE, con su ventana y su precedencia.
+        raise ValidationError(
+            "the 'ecb:' source prefix is reserved for the ECB refresh; a declared rate "
+            "carries its own source"
+        )
     # Construir el objeto del dominio antes de guardarlo es lo que rechaza una
     # moneda fuera de catálogo, una tasa negativa, un par contra sí mismo y un
     # `third_party_verified` sin emisor. La validación vive en el dominio.
@@ -245,6 +294,42 @@ def create_exchange_rate(
     )
     db.commit()
     return row
+
+
+def _refresh(action: str, actor: Actor, db: Session) -> RefreshResult:
+    service = FxRefreshService(db)
+    try:
+        if action == "backfill":
+            return service.backfill_history(actor=actor.audit_name)
+        return service.refresh_daily(actor=actor.audit_name)
+    except FxSourceNotConfiguredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ApiBudgetExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except FeedUnavailableError as exc:
+        # 502: la fuente no contestó bien. No se guardó nada ni se borró nada.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/api/exchange-rates/refresh", response_model=RefreshOut)
+def refresh_exchange_rates(
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(authorize(ApiAction.EXCHANGE_RATE_WRITE)),
+) -> RefreshResult:
+    """Trae las referencias diarias del BCE y las guarda. Es una llamada externa:
+    pasa por la matriz de derechos y por el contador de coste. El análisis
+    económico no la hace nunca: lee lo que este endpoint dejó guardado."""
+    return _refresh("daily", actor, db)
+
+
+@router.post("/api/exchange-rates/backfill", response_model=RefreshOut)
+def backfill_exchange_rates(
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(authorize(ApiAction.EXCHANGE_RATE_WRITE)),
+) -> RefreshResult:
+    """Recuperación explícita con el histórico de 90 días del BCE. Solo la pide una
+    persona: no es el respaldo automático de un fallo del refresco diario."""
+    return _refresh("backfill", actor, db)
 
 
 class EconomicsTimeseriesPoint(BaseModel):

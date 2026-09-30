@@ -92,6 +92,15 @@ class ExchangeRate:
     provenance: SupplierFactProvenance = SupplierFactProvenance.DECLARED
     #: Obligatorio cuando la procedencia es `third_party_verified`.
     declared_by: str | None = None
+    #: Cuánto puede envejecer **esta** tasa antes de dejar de valer (Milestone 42,
+    #: ADR 0020). Una tasa declarada a mano conserva los 30 días del Milestone 40;
+    #: una referencia diaria del BCE trae una ventana propia y más corta, porque
+    #: 30 días es la ventana de una negociación y no la de un mercado que se
+    #: publica cada día laborable.
+    max_age_days: int = MAX_RATE_AGE_DAYS
+    #: Cuándo la trajimos. No es la fecha efectiva —esa es del día al que
+    #: pertenece la tasa— sino cuándo entró en nuestra base. `None` si no se sabe.
+    ingested_at: datetime.datetime | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.rate, Decimal):
@@ -102,6 +111,11 @@ class ExchangeRate:
         currency_for(self.quote_currency)
         object.__setattr__(self, "base_currency", self.base_currency.strip().upper())
         object.__setattr__(self, "quote_currency", self.quote_currency.strip().upper())
+        if not 1 <= self.max_age_days <= MAX_RATE_AGE_DAYS:
+            raise ValidationError(
+                f"the age window of a rate must be between 1 and {MAX_RATE_AGE_DAYS} days, "
+                f"got {self.max_age_days}"
+            )
         if self.base_currency == self.quote_currency:
             raise ValidationError(
                 "an exchange rate between a currency and itself is not a rate: "
@@ -127,6 +141,12 @@ class ExchangeRate:
     def age_in_days(self, on: datetime.date) -> int:
         return (on - self.effective_date).days
 
+    def is_acceptable_on(self, on: datetime.date) -> bool:
+        """Si esta tasa puede convertir en `on`: ni del futuro ni fuera de su
+        ventana. La **fecha efectiva no se toca**: una tasa del viernes usada un
+        lunes sigue siendo del viernes, y tiene tres días."""
+        return 0 <= self.age_in_days(on) <= self.max_age_days
+
 
 @dataclass(frozen=True)
 class Conversion:
@@ -148,6 +168,9 @@ class Conversion:
     effective_date: datetime.date
     source: str
     provenance: SupplierFactProvenance
+    #: Cuándo entró la tasa en nuestra base (Milestone 42). Opcional: una
+    #: conversión anterior no lo guardó.
+    ingested_at: datetime.datetime | None = None
 
     @property
     def converted(self) -> Money:
@@ -174,10 +197,10 @@ def convert(
         )
 
     age = rate.age_in_days(today)
-    if age > MAX_RATE_AGE_DAYS:
+    if age > rate.max_age_days:
         raise StaleRateError(
             f"the {rate.pair} rate of {rate.effective_date} is {age} days old, past the "
-            f"{MAX_RATE_AGE_DAYS}-day window: a rate this old looks like data and is not"
+            f"{rate.max_age_days}-day window: a rate this old looks like data and is not"
         )
     if age < 0:
         raise ValidationError(
@@ -209,6 +232,7 @@ def convert(
         effective_date=rate.effective_date,
         source=rate.source,
         provenance=rate.provenance,
+        ingested_at=rate.ingested_at,
     )
 
 

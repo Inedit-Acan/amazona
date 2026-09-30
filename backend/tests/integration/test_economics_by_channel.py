@@ -336,6 +336,9 @@ class _NoSimulatedProviders:
     una cotización en otra moneda se queda sin convertir (ADR 0008)."""
 
     allows_simulated_providers = False
+    #: Sin fuente real de tasas: solo lo declarado (Milestone 42).
+    exchange_rate_provider = "mock"
+    ecb_rate_max_age_days = 7
 
 
 def _no_simulated_providers() -> _NoSimulatedProviders:

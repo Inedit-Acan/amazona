@@ -14,6 +14,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ingestedOn, splitRates } from "@/lib/fx-source";
 
 const FIELD_CLASS =
   "w-full min-w-0 rounded-md border bg-background/60 px-2.5 py-1.5 text-sm outline-none focus-visible:border-ring";
@@ -37,6 +38,7 @@ export function ExchangeRateForm({ rates }: { rates: ExchangeRate[] }) {
   // Nunca `Date.now()` dentro del render.
   const today = new Date().toISOString().slice(0, 10);
   const found = problems(form, today);
+  const { declared, ecb } = splitRates(rates);
 
   function set<K extends keyof RateForm>(key: K, value: RateForm[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -67,13 +69,13 @@ export function ExchangeRateForm({ rates }: { rates: ExchangeRate[] }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-[13px]">
-        {rates.length === 0 ? (
+        {declared.length === 0 ? (
           <p className="text-muted-foreground">
             Ninguna declarada todavía.
           </p>
         ) : (
           <ul className="space-y-1">
-            {rates.slice(0, 5).map((rate) => (
+            {declared.slice(0, 5).map((rate) => (
               <li key={rate.id} className="flex justify-between gap-3 border-b py-1 last:border-b-0">
                 <span>
                   1 {rate.base_currency} = {rate.rate} {rate.quote_currency}
@@ -84,6 +86,19 @@ export function ExchangeRateForm({ rates }: { rates: ExchangeRate[] }) {
               </li>
             ))}
           </ul>
+        )}
+
+        {ecb && (
+          <div className="rounded-lg border bg-background/40 px-3 py-2">
+            <p className="font-medium">Referencia BCE</p>
+            <p className="text-muted-foreground">
+              {ecb.count} tasas guardadas · la más reciente vigente el {ecb.latestEffectiveDate}
+              {ingestedOn(ecb.latestIngestedAt) ? ` · ingerida el ${ingestedOn(ecb.latestIngestedAt)}` : ""}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {ecb.notice.warning} {ecb.notice.attribution}
+            </p>
+          </div>
         )}
 
         {!open ? (

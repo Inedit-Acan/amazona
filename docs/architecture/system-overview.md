@@ -243,6 +243,10 @@ separados, colas) — no se usa activamente hoy.
 | [0014](adr-0014-entity-resolution.md) | Dos nombres son el mismo producto por normalización determinista o por alias declarado, nunca por parecido; y cada fusión guarda su motivo |
 | [0015](adr-0015-multiple-real-sources-cost-and-usage-rights.md) | `real` con varias fuentes es un compuesto entre reales; medido ≠ estimado ≠ simulado; cada llamada externa se cuenta y lo que la licencia no autoriza no se usa |
 | [0016](adr-0016-signal-channel.md) | Una señal dice en qué canal se midió; sin canal es agnóstica y nunca «válida para todos»; la equivalencia entre idiomas la declara la fuente |
+| [0017](adr-0017-supplier-facts-and-risk.md) | Quién sostiene un hecho sobre un proveedor (`declared`, `supplier_claim`, `third_party_verified`…); `unknown` no se guarda; riesgo por dimensiones, nunca un score opaco |
+| [0018](adr-0018-money-conversion-and-not-evaluable.md) | El dinero lleva moneda y es `Decimal`; una conversión es un hecho con procedencia; sin tasa no hay 1:1, hay `NOT_EVALUABLE`, que nunca es un veto |
+| [0019](adr-0019-legal-requirements-and-source-anchoring.md) | Aplicabilidad, vigencia y evidencia de cumplimiento son tres cuestiones separadas; `PASS` nunca es «producto legal»; `UNKNOWN` nunca asciende a `PASS` |
+| [0020](adr-0020-ecb-reference-exchange-rates.md) | Referencias de tipos de cambio del BCE: observaciones con fecha efectiva propia y ventana propia, republicación conservada, precedencia manual > BCE > mock entre fuentes aceptables, y cero red dentro del análisis |
 
 ## 9. Índice de milestones
 
@@ -275,6 +279,10 @@ separados, colas) — no se usa activamente hoy.
 | [36](../milestones/milestone-36-demo.md) | Cuándo dos nombres son el mismo producto: identidad determinista o declarada, y sin duplicar filas por ejecución (§16.6) |
 | [37](../milestones/milestone-37-demo.md) | Varias fuentes reales, el libro de coste del §25, y qué permite la licencia de cada proveedor (§16.7, §17) |
 | [38](../milestones/milestone-38-demo.md) | El canal en el contrato de señales y el mismo producto medido en varios idiomas (§16.8) |
+| [39](../milestones/milestone-39-demo.md) | Quién sostiene un hecho sobre un proveedor y riesgo explicable (§17) |
+| [40](../milestones/milestone-40-demo.md) | Dinero con moneda, economía por canal y techo de CAC (§18) |
+| [41](../milestones/milestone-41-demo.md) | Legal con requisitos declarados y anclados en EUR-Lex (§22) |
+| [42](../milestones/milestone-42-demo.md) | Tipos de cambio de referencia del BCE: refresco explícito, fecha efectiva intacta y ventana propia (§23) |
 
 ## 10. Cómo verlo funcionar
 
@@ -976,12 +984,16 @@ en el milestone donde se descubrieron.
 |---|---|---|
 | **CAC real medido** | El Milestone 40 calcula **cuánto podríamos permitirnos pagar** por una adquisición, y sigue sin saber cuánto costará. Un techo de 12,50 € no dice nada sobre si el clic cuesta 0,40 € o 4 € | Exige plataformas de anuncios con gasto real. Es §17 del plan maestro, y no antes de que haya una web propia con tráfico |
 | **Rentabilidad objetivo (`target_cac`)** | El Milestone 40 calcula el techo de **equilibrio**: el CAC con el que el beneficio es cero. Operar en el equilibrio no es un negocio | Fijar un beneficio o margen mínimo por pedido. El contrato ya tiene el hueco (`target_margin_per_order`) y está vacío a propósito |
-| **Fuente automática de tipos de cambio** | Hoy la tasa la escribe una persona. Funciona para una negociación al mes y no para un catálogo | Un adaptador con fecha y fuente, bajo el libro de coste del §25. El BCE publica referencias diarias gratis y sin alta: pendiente de pasar por la matriz de derechos del Milestone 37 |
+| **~~Fuente automática de tipos de cambio~~** *(cerrada en el Milestone 42 para las 6 monedas que el catálogo admite y el BCE publica; queda lo de abajo)* | Hoy la tasa la escribe una persona. Funciona para una negociación al mes y no para un catálogo | Un adaptador con fecha y fuente, bajo el libro de coste del §25. El BCE publica referencias diarias gratis y sin alta: pendiente de pasar por la matriz de derechos del Milestone 37 |
 | **`Decimal` en el resto del repositorio** | El dominio monetario del Milestone 40 es exacto; `budgets` (que ya almacenaba `Numeric` y razonaba en `float`), `external_api_cost` y las columnas heredadas de `economic_analyses` no | Un milestone propio de migración, o irlo pagando cada vez que un dominio toque dinero |
-| **Fuente de tipos de cambio** | Desde el Milestone 39 una cotización lleva su moneda, y **no hay con qué convertirla**. Dos cotizaciones en monedas distintas no se comparan, el coste de aterrizaje del mock (en dólares) no se puede sumar a costes en euros, y el margen que Economics calcula sobre un coste en otra moneda lleva un aviso en vez de una conversión. Inventar un tipo de cambio metería un error del 5 % que nadie vería | Un adaptador de tipos de cambio con fecha y fuente, bajo el libro de coste del §25. Es requisito previo para que el margen del M40 sea real sobre cualquier proveedor que no cotice en euros |
+| **~~Fuente de tipos de cambio~~** *(cerrada en el Milestone 42 para USD, GBP, CNY, HKD, MXN y PLN)* | Desde el Milestone 39 una cotización lleva su moneda, y **no hay con qué convertirla**. Dos cotizaciones en monedas distintas no se comparan, el coste de aterrizaje del mock (en dólares) no se puede sumar a costes en euros, y el margen que Economics calcula sobre un coste en otra moneda lleva un aviso en vez de una conversión. Inventar un tipo de cambio metería un error del 5 % que nadie vería | Un adaptador de tipos de cambio con fecha y fuente, bajo el libro de coste del §25. Es requisito previo para que el margen del M40 sea real sobre cualquier proveedor que no cotice en euros |
 | **Catálogo de qué países forman cada mercado** | Sin él, un proveedor con país declarado (`ES`) y un destino expresado como mercado (`eu`) dan riesgo geopolítico **desconocido**: el sistema se niega a decir que cruza una frontera porque `es` no es la misma cadena que `eu`. Afecta a una de las ocho dimensiones del §11 | Una línea de catálogo por mercado, como los canales del Milestone 38. Ninguna migración |
 | **Certificaciones de proveedor** | El plan §10 las pide («certifications») y el Milestone 39 no las modela: siguen siendo dato de demostración en la pantalla. Una certificación necesita emisor, alcance y caducidad, que es una tabla propia. **El Milestone 41 modela la evidencia de cumplimiento de un *producto* frente a un requisito, no las certificaciones de un *proveedor*: esta sigue abierta** | Un milestone propio; puede reutilizar `compliance_evidence` y su regla de emisor obligatorio |
 | **Derecho nacional y otras fuentes de normativa** | El Milestone 41 solo ancla Derecho de la UE (EUR-Lex). Una directiva no puede dar `PASS` sin una transposición nacional **declarada**, y esa declaración no la verifica nadie. Safety Gate, BOE, ECHA y Access2Markets quedan fuera | Safety Gate como milestone complementario (señal de riesgo por producto); BOE para verificar transposiciones. Cada uno pasa antes por derechos y coste (ADR 0015) |
+| **Cruces de tipos de cambio** | El BCE solo publica pares contra el euro. `USD→GBP` no está publicado y calcularlo es otra cosa que leerlo: una tasa derivada por AMAZONA, que la licencia obliga a rotular como modificada. Hoy todo se convierte a EUR y no hace falta | Un milestone que implemente `CROSS_VIA_EUR` con los invariantes de la [ADR 0020](adr-0020-ecb-reference-exchange-rates.md) §7: dos patas de la misma fecha, un solo salto, sin mezclar fuentes |
+| **Diferencial bancario en el margen** | Una referencia del BCE es la tasa intermedia; un banco o un procesador aplica un diferencial. El margen calculado con ella es algo optimista. Modelar un diferencial sería inventarlo | Un coste declarable de conversión de divisa, con su procedencia, no un número por defecto |
+| **Planificador del refresco de tasas** | El refresco existe (endpoint y trabajo `fx.refresh`) pero nadie lo dispara solo: si nadie lo pide, las referencias caducan a los 7 días y el margen vuelve a ser no evaluable | Una capa de ejecución que encole el trabajo (§23 bis del plan maestro: aplazada). Hasta entonces, una persona |
+| **Monedas del BCE fuera del catálogo y monedas que el BCE no publica** | 23 de las 29 divisas del BCE no se guardan porque el catálogo no las admite; `VND` (que usa el mock) no la publica el BCE | Ampliar el catálogo cuando un proveedor real cotice en una de ellas (decisión aparte); `VND` sigue pidiendo tasa declarada |
 | **~~Coste de adquisición (CAC) en Economics~~** *(cerrada en el Milestone 40)* | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |
 
 ## 22. Requisitos legales declarados y anclados en una fuente (Milestone 41)
@@ -1031,3 +1043,45 @@ Escribir es `REGULATORY_WRITE` (solo OWNER y ADMIN); leer es `BUSINESS_READ`. La
 Legal enseña los tres bloques por separado y sigue rotulando como demostración el resto de
 su matriz. Detalle y límites, en
 [`milestone-41-demo.md`](../milestones/milestone-41-demo.md).
+
+## 23. Referencias de tipos de cambio del BCE (Milestone 42)
+
+Hasta el Milestone 41 la única fuente de tipos de cambio era una persona escribiendo el
+cambio que le aplicó el banco. El Milestone 42 añade el BCE, que publica gratis y sin alta
+cuántas unidades de cada divisa valen un euro. El razonamiento completo, en la
+[ADR 0020](adr-0020-ecb-reference-exchange-rates.md).
+
+**Lo que es y lo que no.** Es una **referencia informativa**: el BCE dice que no debe usarse
+para transacciones. Sirve para estimar un margen; no es la tasa que aplica un banco o un
+procesador de pagos, y no incluye su diferencial. «Procedencia `third_party_verified`» quiere
+decir que un emisor con nombre la sostiene, no que sea cotizable.
+
+**Dos lados.** El **refresco** (`POST /api/exchange-rates/refresh`, el trabajo `fx.refresh`,
+solo OWNER y ADMIN por la API) descarga el fichero diario y guarda observaciones en
+`exchange_rates`. El **análisis económico solo lee la base de datos**: no hace red jamás. Sin
+planificador todavía: alguien (o un trabajo futuro) tiene que pedir el refresco.
+
+**Cuatro fechas que no se confunden**: la *fecha efectiva* es la de la fuente y no se toca (la
+tasa del viernes usada el lunes sigue siendo del viernes); la *fecha de ingestión* es cuándo
+entró en nuestra base; la *antigüedad* se calcula y se guarda con cada conversión; la
+*aceptabilidad* es política nuestra y **es por tasa**: 30 días para lo declarado a mano (M40) y
+**7 días** para el BCE (`ECB_RATE_MAX_AGE_DAYS`).
+
+**Precedencia**: manual > BCE > mock, pero **solo entre fuentes aceptables**. Una tasa manual
+caducada ya no tapa una referencia válida (fallo latente del M40, corregido).
+
+**Observaciones, no valores**: identidad `(par, fecha efectiva, fuente, tasa)`. Repetir la
+misma observación no duplica; una tasa distinta para el mismo par y fecha (republicación) se
+guarda **al lado** de la anterior, la más reciente gana y se audita. Nada se borra.
+
+**Todo o nada**: cualquier fallo de red, formato o contenido inesperado no guarda nada, no
+borra nada y no declara «sin cambios». El histórico de 90 días es **recuperación explícita**
+(`POST /api/exchange-rates/backfill`), nunca respaldo automático del diario.
+
+**Cobertura**: solo pares `EUR/divisa`; solo las divisas que el catálogo ya admite (6 de las 29
+que publica el BCE: USD, GBP, CNY, HKD, MXN, PLN); el resto se lista como omitido en cada
+refresco. **Sin cruces** (`USD/GBP` no está publicado y calcularlo es otro milestone; sus
+invariantes están escritos en la ADR). `VND` no la publica el BCE.
+
+`EXCHANGE_RATE_PROVIDER=mock` (por defecto) es exactamente el sistema anterior, con las mismas
+cifras. Detalle y límites, en [`milestone-42-demo.md`](../milestones/milestone-42-demo.md).

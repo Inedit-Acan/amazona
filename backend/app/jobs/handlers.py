@@ -11,8 +11,10 @@ la API lo importan por ese efecto.
 from sqlalchemy.orm import Session
 
 from app.core.errors import PipelineDisabledError
+from app.costs.service import ApiBudgetExceededError
 from app.jobs.registry import register
 from app.jobs.schemas import JobBlockedError, JobContext, JobResult
+from app.money.fx_refresh import FxRefreshService, FxSourceNotConfiguredError
 from app.pipeline.service import PIPELINE_RUN_JOB, PipelineOrchestrator
 from app.research.service import ResearchService
 
@@ -21,6 +23,7 @@ from app.research.service import ResearchService
 RESEARCH_RUN = "research.run"
 PIPELINE_RUN = PIPELINE_RUN_JOB
 DIAGNOSTIC_ECHO = "diagnostic.echo"
+FX_REFRESH = "fx.refresh"
 
 
 @register(RESEARCH_RUN)
@@ -75,6 +78,29 @@ def run_pipeline(payload: dict, context: JobContext, db: Session) -> JobResult:
         reference=run.correlation_id,
         detail={"status": run.status, "product_id": run.product_id, "needs_review": run.needs_review},
     )
+
+
+@register(FX_REFRESH)
+def run_fx_refresh(payload: dict, context: JobContext, db: Session) -> JobResult:
+    """Trae las referencias diarias del BCE y las guarda (Milestone 42, ADR 0020).
+
+    Solo el fichero **diario**. El histórico de 90 días es recuperación explícita,
+    la pide una persona por su endpoint y este trabajo no la hace nunca, ni siquiera
+    como respaldo de un fallo: un fallo se reintenta con espera.
+
+    Sin fuente real configurada, o sin presupuesto, se bloquea en vez de gastar
+    intentos: esperar no lo arregla. Un fallo de red o de formato sí se reintenta.
+    """
+    mode = payload.get("mode", "daily")
+    if mode != "daily":
+        raise ValueError("fx.refresh only refreshes the daily file; backfill is an explicit request")
+    try:
+        result = FxRefreshService(db).refresh_daily(
+            actor="system:fx.refresh", correlation_id=context.correlation_id
+        )
+    except (FxSourceNotConfiguredError, ApiBudgetExceededError) as exc:
+        raise JobBlockedError(str(exc)) from exc
+    return JobResult(reference=context.correlation_id, detail=result.summary())
 
 
 @register(DIAGNOSTIC_ECHO)

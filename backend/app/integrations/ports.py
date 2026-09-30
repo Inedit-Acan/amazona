@@ -21,6 +21,7 @@ prohíbe: «nunca almacenar solo un número final sin procedencia».
 import datetime
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
@@ -516,6 +517,40 @@ class RegulatoryAnchorSource(Protocol):
     name: str
 
     def lookup(self, celex: str) -> SourceAnchor: ...
+
+
+@dataclass(frozen=True)
+class ReferenceRateSet:
+    """Las referencias que una fuente publicó **para un día** (Milestone 42, ADR 0020).
+
+    `rates` es lo que la fuente dijo, sin filtrar por lo que nosotros admitimos:
+    decidir qué monedas caben en el catálogo es cosa del servicio, y el adaptador no
+    debe esconder lo que la fuente publica. La convención es la del BCE —`1 base =
+    rate divisa`—, y `base` va explícita para que nadie tenga que adivinarla.
+    """
+
+    provider: str
+    #: La fecha efectiva **de la fuente**, tal cual. No se corrige ni se traslada.
+    published_on: datetime.date
+    base: str
+    rates: dict[str, Decimal]
+    retrieved_at: datetime.datetime
+    source_url: str
+
+
+class ExchangeRateFeed(Protocol):
+    """Una fuente que publica tipos de cambio de referencia.
+
+    Es el lado **escritura** del contrato FX: trae observaciones para guardarlas.
+    El lado lectura sigue siendo `ExchangeRateProvider` (`app/money/rates.py`), que
+    solo lee la base de datos. Un análisis económico nunca llama a esto.
+    """
+
+    name: str
+
+    def fetch_daily(self) -> ReferenceRateSet: ...
+
+    def fetch_history(self) -> list[ReferenceRateSet]: ...
 
 
 class AdPerformanceDirectory(Protocol):

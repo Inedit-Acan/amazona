@@ -122,6 +122,26 @@ _EUR_LEX_CELLAR = CostPolicy(
     source="https://eur-lex.europa.eu/content/help/data-reuse/reuse-contents-eurlex-details.html — SPARQL de Cellar",
 )
 
+#: Referencias de tipos de cambio del euro del BCE (Milestone 42). Fichero XML
+#: público, sin clave, sin alta y sin coste (verificado el 29-09-2026: descarga
+#: anónima del fichero diario y del de 90 días con HTTP 200). **No he encontrado una
+#: cuota publicada**, así que no se escribe ninguna: `quota_units_per_day` queda en
+#: `None` y eso significa «no sé», no «sin límite». Una petición por refresco; el
+#: tope por ejecución (dos: el diario y, si se pide, el histórico) es nuestro.
+_ECB_REFERENCE_RATES = CostPolicy(
+    provider="ecb-reference-rates",
+    pricing=Pricing.FREE,
+    unit="requests",
+    cost_per_unit=0.0,
+    currency="EUR",
+    quota_units_per_day=None,
+    max_units_per_run=2,
+    source=(
+        "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/"
+        "html/index.en.html — ficheros XML de descarga"
+    ),
+)
+
 #: Los fixtures no salen a ninguna parte. Existe la política para que el contador
 #: no tenga que tratarlos como un caso especial.
 _FIXTURES = CostPolicy(
@@ -139,6 +159,7 @@ POLICIES: dict[str, CostPolicy] = {
     _WIKIMEDIA_LANGLINKS.provider: _WIKIMEDIA_LANGLINKS,
     _EBAY_BROWSE.provider: _EBAY_BROWSE,
     _EUR_LEX_CELLAR.provider: _EUR_LEX_CELLAR,
+    _ECB_REFERENCE_RATES.provider: _ECB_REFERENCE_RATES,
     _FIXTURES.provider: _FIXTURES,
 }
 

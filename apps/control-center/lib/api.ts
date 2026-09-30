@@ -635,6 +635,8 @@ export interface FxConversionView {
   effective_date: string;
   source: string;
   provenance: SupplierProvenance;
+  /** Cuándo entró la tasa en nuestra base (Milestone 42). Ausente en conversiones anteriores. */
+  ingested_at?: string | null;
 }
 
 /** Identidad, fiabilidad comercial y procedencia de la cotización: tres hechos
@@ -700,6 +702,12 @@ export interface ExchangeRate {
   provenance: SupplierProvenance;
   declared_by: string | null;
   note: string | null;
+  /** Cuándo entró la tasa en nuestra base (Milestone 42). No es la fecha efectiva. */
+  ingested_at?: string;
+  /** Solo en referencias del BCE: la atribución que su licencia exige. */
+  attribution?: string | null;
+  /** Solo en referencias del BCE: lo que la tasa no es. */
+  notice?: string | null;
 }
 
 export interface EconomicsTimeseriesPoint {

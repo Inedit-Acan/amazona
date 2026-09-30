@@ -24,8 +24,64 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.db.models.exchange_rate import ExchangeRate as ExchangeRateRow
-from app.money.rates import ExchangeRate
+from app.money.rates import MAX_RATE_AGE_DAYS, ExchangeRate
 from app.sourcing.provenance import SupplierFactProvenance, rank
+
+#: Las filas cuyo `source` empieza así las escribe **solo** el refresco del BCE
+#: (Milestone 42, ADR 0020). El proveedor manual no las lee, y el alta manual no
+#: puede usar este prefijo: una tasa declarada por una persona y una referencia
+#: ingerida de una fuente son dos cosas con dos ventanas y dos precedencias.
+ECB_SOURCE_PREFIX = "ecb:"
+
+
+def best_stored_rate(
+    db: Session,
+    *,
+    base: str,
+    quote: str,
+    on: datetime.date,
+    from_ecb: bool,
+    max_age_days: int = MAX_RATE_AGE_DAYS,
+) -> ExchangeRate | None:
+    """La tasa almacenada más reciente que no sea posterior a `on`.
+
+    Dentro de una misma fecha efectiva gana la de procedencia más fuerte y, entre
+    iguales, **la ingerida más tarde**: una republicación posterior corrige sin
+    que la observación anterior se pierda.
+    """
+    ecb = ExchangeRateRow.source.like(f"{ECB_SOURCE_PREFIX}%")
+    rows = (
+        db.query(ExchangeRateRow)
+        .filter(
+            ExchangeRateRow.base_currency == base.strip().upper(),
+            ExchangeRateRow.quote_currency == quote.strip().upper(),
+            ExchangeRateRow.effective_date <= on,
+            ecb if from_ecb else ~ecb,
+        )
+        .all()
+    )
+    if not rows:
+        return None
+
+    def preference(row: ExchangeRateRow) -> tuple[datetime.date, int, datetime.datetime]:
+        return (
+            row.effective_date,
+            -rank(SupplierFactProvenance(row.provenance)),
+            row.created_at,
+        )
+
+    chosen = max(rows, key=preference)
+    return ExchangeRate(
+        base_currency=chosen.base_currency,
+        quote_currency=chosen.quote_currency,
+        rate=Decimal(str(chosen.rate)),
+        effective_date=chosen.effective_date,
+        source=chosen.source,
+        provenance=SupplierFactProvenance(chosen.provenance),
+        declared_by=chosen.declared_by,
+        max_age_days=max_age_days,
+        ingested_at=chosen.created_at,
+    )
 
 
 class ManualExchangeRateProvider:
@@ -51,32 +107,4 @@ class ManualExchangeRateProvider:
         return self._best(base=quote, quote=base, on=on)
 
     def _best(self, *, base: str, quote: str, on: datetime.date) -> ExchangeRate | None:
-        rows = (
-            self._db.query(ExchangeRateRow)
-            .filter(
-                ExchangeRateRow.base_currency == base.strip().upper(),
-                ExchangeRateRow.quote_currency == quote.strip().upper(),
-                ExchangeRateRow.effective_date <= on,
-            )
-            .all()
-        )
-        if not rows:
-            return None
-
-        def preference(row: ExchangeRateRow) -> tuple[datetime.date, int, datetime.datetime]:
-            return (
-                row.effective_date,
-                -rank(SupplierFactProvenance(row.provenance)),
-                row.created_at,
-            )
-
-        chosen = max(rows, key=preference)
-        return ExchangeRate(
-            base_currency=chosen.base_currency,
-            quote_currency=chosen.quote_currency,
-            rate=Decimal(str(chosen.rate)),
-            effective_date=chosen.effective_date,
-            source=chosen.source,
-            provenance=SupplierFactProvenance(chosen.provenance),
-            declared_by=chosen.declared_by,
-        )
+        return best_stored_rate(self._db, base=base, quote=quote, on=on, from_ecb=False)

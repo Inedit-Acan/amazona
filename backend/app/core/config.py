@@ -2,7 +2,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.costs.policy import SpendLimit
@@ -139,6 +139,14 @@ class Settings(BaseSettings):
     #: que Legal pida revisión hasta la siguiente comprobación, y no dice nada de
     #: si la norma sigue en vigor.
     legal_anchor_recheck_days: int = 30
+    #: De dónde salen los tipos de cambio además de los que declara una persona
+    #: (Milestone 42, ADR 0020). `mock` (por defecto) es exactamente el sistema de
+    #: antes: declaradas más fixture. `real` añade las referencias del BCE ya
+    #: guardadas —no llama a nadie— y habilita el refresco.
+    exchange_rate_provider: ProviderKind = ProviderKind.MOCK
+    #: Cuántos días puede tener una referencia del BCE. Las tasas declaradas a mano
+    #: conservan sus 30 días (Milestone 40). No puede superarlos.
+    ecb_rate_max_age_days: int = Field(default=7, ge=1, le=30)
     ads_provider: ProviderKind = ProviderKind.MOCK
     marketplaces_provider: ProviderKind = ProviderKind.MOCK
 

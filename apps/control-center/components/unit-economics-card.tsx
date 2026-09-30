@@ -1,4 +1,5 @@
 import type { CostConcept, EconomicAnalysis, MoneyAmount, SupplierProvenance } from "@/lib/api";
+import { fxNotices, fxSourceLabel, ingestedOn } from "@/lib/fx-source";
 import { PROVENANCE_LABEL } from "@/lib/sourcing-view";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -156,7 +157,13 @@ export function UnitEconomicsCard({ analysis }: { analysis: EconomicAnalysis }) 
                 {fx.source_amount} {fx.source_currency} → {fx.converted_amount} {fx.target_currency}{" "}
                 · par {fx.pair} a {fx.rate}
                 {fx.direction === "inverted" ? " (invertida)" : ""} · vigente el {fx.effective_date}{" "}
-                · {provenanceLabel(fx.provenance)} · {fx.source}
+                · {provenanceLabel(fx.provenance)} · {fxSourceLabel(fx.source)}
+                {ingestedOn(fx.ingested_at) ? ` · ingerida el ${ingestedOn(fx.ingested_at)}` : ""}
+              </p>
+            ))}
+            {fxNotices(analysis.fx_conversions.map((fx) => fx.source)).map((notice) => (
+              <p key={notice.label} className="text-[11px] text-muted-foreground">
+                {notice.warning} {notice.attribution}
               </p>
             ))}
           </div>

@@ -158,6 +158,16 @@ def test_timeseries_days_parameter_is_bounded(client: TestClient):
 # --- Milestone 40: canal, moneda y techo de CAC ------------------------------
 
 
+def _utc_today() -> datetime.date:
+    """El día UTC, que es contra el que la API valida las fechas de las tasas.
+
+    `datetime.date.today()` es el día **local** de la máquina: entre las 22:00 y las
+    24:00 UTC en una zona adelantada (CEST) es ya «mañana» para la API y la tasa
+    se rechazaba por estar en el futuro. Corrección de un test anterior al
+    Milestone 42, descubierta durante él; la regla de producción no cambia."""
+    return datetime.datetime.now(datetime.UTC).date()
+
+
 def _declare_rate(client: TestClient, rate: str = "0.92") -> None:
     response = client.post(
         "/api/exchange-rates",
@@ -165,7 +175,7 @@ def _declare_rate(client: TestClient, rate: str = "0.92") -> None:
             "base_currency": "USD",
             "quote_currency": "EUR",
             "rate": rate,
-            "effective_date": datetime.date.today().isoformat(),
+            "effective_date": _utc_today().isoformat(),
         },
     )
     assert response.status_code == 201, response.text
@@ -190,7 +200,7 @@ def test_a_rate_dated_in_the_future_is_a_422(client: TestClient):
             "base_currency": "USD",
             "quote_currency": "EUR",
             "rate": "0.92",
-            "effective_date": (datetime.date.today() + datetime.timedelta(days=1)).isoformat(),
+            "effective_date": (_utc_today() + datetime.timedelta(days=1)).isoformat(),
         },
     )
 
@@ -205,7 +215,7 @@ def test_a_rate_between_a_currency_and_itself_is_a_422(client: TestClient):
             "base_currency": "EUR",
             "quote_currency": "EUR",
             "rate": "1",
-            "effective_date": datetime.date.today().isoformat(),
+            "effective_date": _utc_today().isoformat(),
         },
     )
 

@@ -63,7 +63,7 @@ def conversion_to_json(conversion: Conversion | None) -> dict[str, Any] | None:
     análisis. Se guardan todos: el que falte es el que hará falta."""
     if conversion is None:
         return None
-    return {
+    stored: dict[str, Any] = {
         "source_currency": conversion.source_currency,
         "source_amount": str(conversion.source_amount),
         "target_currency": conversion.target_currency,
@@ -75,6 +75,11 @@ def conversion_to_json(conversion: Conversion | None) -> dict[str, Any] | None:
         "source": conversion.source,
         "provenance": conversion.provenance.value,
     }
+    # Aditivo (Milestone 42): cuándo entró la tasa en nuestra base. Solo aparece
+    # cuando se sabe, para que las conversiones guardadas antes no cambien de forma.
+    if conversion.ingested_at is not None:
+        stored["ingested_at"] = conversion.ingested_at.isoformat()
+    return stored
 
 
 def decimal_to_json(value: Decimal | None) -> str | None:

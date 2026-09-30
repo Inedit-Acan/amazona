@@ -335,6 +335,81 @@ _EBAY_BROWSE = ProviderRights(
 )
 
 
+#: Tipos de cambio de referencia del BCE (Milestone 42, ADR 0020). Leído el
+#: 29-09-2026 en el aviso legal del BCE
+#: (`ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html`, sección
+#: «Copyright») y en la página de las tasas
+#: (`…/euro_reference_exchange_rates/html/index.en.html`).
+#:
+#: **Lo que dice:** los usuarios «may make free use of the information obtained
+#: directly from» la web del BCE con cuatro condiciones: citar al BCE como fuente,
+#: avisar a quien compre un documento que lo incorpore de que es gratuito, decir
+#: explícitamente si la información se modifica, y no enmarcar la web. No exige alta
+#: ni credenciales.
+#:
+#: **Lo que NO dice:** nada sobre almacenar, conservar, puntuar, derivar métricas ni
+#: usos comerciales *por separado*. Los permisos de abajo se leen del uso libre
+#: general y de la ausencia de una restricción específica; **no** son una
+#: autorización expresa de cada uso, y eso queda dicho en las notas. Tampoco dice
+#: nada sobre ingestión por sistemas de IA: queda `UNKNOWN`, es decir denegado.
+#:
+#: **Advertencia que no es un permiso:** el BCE publica las referencias «for
+#: information purposes only» y desaconseja usarlas para transacciones. Aquí se usan
+#: para estimar un margen. Esa advertencia viaja con la tasa a la pantalla.
+_ECB_REFERENCE_RATES = ProviderRights(
+    provider="ecb-reference-rates",
+    source=(
+        "https://www.ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html "
+        "— «Copyright»; y la página de las tasas de referencia del euro"
+    ),
+    verified_on=datetime.date(2026, 9, 29),
+    rights={
+        UsageRight.STORAGE: RightStatus.ALLOWED,
+        UsageRight.RETENTION: RightStatus.ALLOWED,
+        UsageRight.TRANSFORMATION: RightStatus.ALLOWED,
+        UsageRight.DERIVED_METRICS: RightStatus.ALLOWED,
+        UsageRight.SCORING: RightStatus.ALLOWED,
+        UsageRight.AI_INGESTION: RightStatus.UNKNOWN,
+        UsageRight.REDISTRIBUTION: RightStatus.ALLOWED,
+        UsageRight.COMMERCIAL_USE: RightStatus.ALLOWED,
+    },
+    attribution=AttributionRequirement.REQUIRED,
+    notes={
+        UsageRight.STORAGE: (
+            "Uso libre general del contenido de la web del BCE; no hay una cláusula específica "
+            "sobre almacenamiento."
+        ),
+        UsageRight.RETENTION: (
+            "Igual que el almacenamiento: no hay plazo de conservación escrito. Las "
+            "observaciones no se borran, porque una decisión tiene que poder reconstruirse."
+        ),
+        UsageRight.TRANSFORMATION: (
+            "Invertir una tasa (USD→EUR) es una modificación: la condición 3 obliga a decirlo, y "
+            "cada conversión registra la dirección (`inverted`)."
+        ),
+        UsageRight.DERIVED_METRICS: (
+            "Un importe convertido es una cifra derivada, y como tal se marca como modificada."
+        ),
+        UsageRight.SCORING: (
+            "Sin restricción específica. No entra en `opportunity_score` ni en el Decision Engine: "
+            "convierte importes."
+        ),
+        UsageRight.AI_INGESTION: (
+            "Los términos no dicen nada. Sin resolver, y por tanto denegado. Coherente con el plan "
+            "maestro §26: no hay LLM en el camino de decisión."
+        ),
+        UsageRight.REDISTRIBUTION: (
+            "Permitido con las condiciones de atribución y de aviso de modificación. La tasa se "
+            "enseña en pantalla con su fuente y su advertencia."
+        ),
+        UsageRight.COMMERCIAL_USE: (
+            "El uso libre no distingue entre comercial y no comercial. La condición 2 solo se "
+            "refiere a documentos que se vendan: no aplica a estimar un margen interno."
+        ),
+    },
+)
+
+
 #: Registro por proveedor. Un proveedor que no esté aquí **no tiene permisos**,
 #: no porque se le presuma nada, sino porque nadie ha leído su licencia. Hay un
 #: test que falla si un adaptador real se registra sin su entrada.
@@ -344,6 +419,7 @@ USAGE_RIGHTS: dict[str, ProviderRights] = {
     _WIKIMEDIA_LANGLINKS.provider: _WIKIMEDIA_LANGLINKS,
     _EBAY_BROWSE.provider: _EBAY_BROWSE,
     _EUR_LEX_CELLAR.provider: _EUR_LEX_CELLAR,
+    _ECB_REFERENCE_RATES.provider: _ECB_REFERENCE_RATES,
 }
 
 

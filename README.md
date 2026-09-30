@@ -151,6 +151,10 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   EUR-Lex
   ([ADR 0019](docs/architecture/adr-0019-legal-requirements-and-source-anchoring.md))
   — ver abajo.
+- **Milestone 42:** tipos de cambio de referencia del BCE, con fecha efectiva intacta,
+  ventana propia y ninguna llamada de red dentro del análisis
+  ([ADR 0020](docs/architecture/adr-0020-ecb-reference-exchange-rates.md))
+  — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -594,6 +598,29 @@ encontrado un bloqueo — nunca «producto legal».** Lo que nadie declaró no s
 mirado, y `UNKNOWN` jamás asciende a `PASS`. Una directiva sola no basta: hace falta
 la transposición nacional. Solo cubre Derecho de la UE, y con el proveedor por
 defecto (`mock`) todo sigue exactamente como antes. Requiere `REGULATORY_PROVIDER=real`.
+
+### Tipos de cambio de referencia del BCE (Milestone 42)
+
+Convertir un coste en otra moneda exige un tipo de cambio con fuente. Además de los que
+declara una persona, el sistema puede traer las **referencias diarias del BCE**
+(gratuitas, sin alta). Lo que hay que saber:
+
+- Es una **referencia informativa**, no la tasa que aplica un banco: el BCE desaconseja
+  usarla para transacciones y el margen que sale de ella no incluye el diferencial. La
+  pantalla lo rotula «referencia BCE», con la fecha de la fuente, la de ingestión y la
+  atribución que exige la licencia.
+- **El análisis no llama a nadie**: lee lo que el refresco dejó guardado. El refresco
+  (`POST /api/exchange-rates/refresh`, o el trabajo `fx.refresh`) es una acción de OWNER y
+  ADMIN; todavía nada lo dispara solo.
+- **La fecha de la tasa no se toca**: en fin de semana o festivo se usa la última tasa
+  publicada con su fecha original. Una referencia del BCE vale **7 días**
+  (`ECB_RATE_MAX_AGE_DAYS`); una declarada a mano, 30. Pasado el plazo, el margen vuelve a ser
+  no evaluable.
+- Precedencia **manual > BCE > mock**, solo entre tasas aceptables por antigüedad.
+- Solo pares `EUR/divisa` y solo las monedas del catálogo (hoy USD, GBP, CNY, HKD, MXN y
+  PLN). Sin cruces. Un fallo de la fuente no guarda nada.
+- Requiere `EXCHANGE_RATE_PROVIDER=real`; con `mock` (por defecto) todo sigue exactamente
+  como antes.
 
 ## Notas
 

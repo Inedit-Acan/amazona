@@ -79,6 +79,11 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
         {"base_currency": "USD", "quote_currency": "EUR", "rate": "0.92", "effective_date": "2026-09-01"},
         ApiAction.EXCHANGE_RATE_WRITE,
     ),
+    # Milestone 42: refrescar las referencias del BCE llama a una fuente externa, y
+    # la recuperación con el histórico es aparte y solo la pide una persona. Mismo
+    # permiso que declarar una tasa: OWNER y ADMIN; `SYSTEM` solo por el trabajo.
+    ("POST", "/api/exchange-rates/refresh", {}, ApiAction.EXCHANGE_RATE_WRITE),
+    ("POST", "/api/exchange-rates/backfill", {}, ApiAction.EXCHANGE_RATE_WRITE),
     # Milestone 41: declarar que una norma se aplica a una clase de producto es un
     # juicio jurídico. Solo OWNER y ADMIN; REVIEWER lee y no escribe; SYSTEM no.
     (
@@ -265,6 +270,8 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/suppliers/{supplier_id}/quotes"),
         ("POST", "/api/suppliers/{supplier_id}/capabilities"),
         ("POST", "/api/exchange-rates"),
+        ("POST", "/api/exchange-rates/refresh"),
+        ("POST", "/api/exchange-rates/backfill"),
         ("POST", "/api/regulatory-requirements"),
         ("POST", "/api/regulatory-requirements/{requirement_id}/supersede"),
         ("POST", "/api/regulatory-requirements/{requirement_id}/withdraw"),
