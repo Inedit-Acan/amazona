@@ -248,6 +248,7 @@ separados, colas) — no se usa activamente hoy.
 | [0019](adr-0019-legal-requirements-and-source-anchoring.md) | Aplicabilidad, vigencia y evidencia de cumplimiento son tres cuestiones separadas; `PASS` nunca es «producto legal»; `UNKNOWN` nunca asciende a `PASS` |
 | [0020](adr-0020-ecb-reference-exchange-rates.md) | Referencias de tipos de cambio del BCE: observaciones con fecha efectiva propia y ventana propia, republicación conservada, precedencia manual > BCE > mock entre fuentes aceptables, y cero red dentro del análisis |
 | [0021](adr-0021-national-transposition-boe.md) | Transposición nacional declarada por una persona y anclada en el BOE: evidencia en capas, texto consolidado informativo con su aviso y atribución, y `PASS` que exige norma verificada, corroborada (`426`) y evidencia de cumplimiento |
+| [0022](adr-0022-idempotent-pipeline-run-creation.md) | `Idempotency-Key` en `POST /api/pipeline/runs`: misma clave y misma petición devuelven la ejecución original, otra petición con la misma clave es 409, la garantía es la clave única del trabajo (no una consulta previa) y la clave es obligatoria si algún proveedor puede salir del sistema |
 
 ## 9. Índice de milestones
 

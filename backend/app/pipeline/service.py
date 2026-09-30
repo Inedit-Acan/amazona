@@ -16,6 +16,8 @@ ADR 0006 §1). Sigue siendo pura secuenciación: ninguna lógica de agente vive 
 """
 
 import datetime
+import hashlib
+import json
 from collections.abc import Sequence
 from dataclasses import MISSING, dataclass, fields
 from typing import cast
@@ -26,8 +28,8 @@ from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
 from app.cfo.service import CFOService
-from app.core.errors import NotFoundError, PipelineDisabledError, PipelineRunStateError
-from app.core.ids import new_correlation_id
+from app.core.errors import IdempotencyConflictError, NotFoundError, PipelineDisabledError, PipelineRunStateError
+from app.core.ids import new_correlation_id, new_id
 from app.db.models.audit import AuditLog
 from app.db.models.job import Job
 from app.db.models.pipeline_review import PipelineReview
@@ -88,6 +90,14 @@ class PipelineRequest:
 
     def to_payload(self) -> dict:
         return {field.name: getattr(self, field.name) for field in fields(self)}
+
+    def payload_hash(self) -> str:
+        """Huella canónica de la petición **lógica**: los mismos parámetros, con los valores por
+        defecto ya aplicados, dan la misma huella aunque el cliente los envíe en otro orden o
+        omita los que valen lo de siempre. Es lo que permite decir, ante una `Idempotency-Key` ya
+        usada, si es la misma petición reintentada o una distinta."""
+        canonical = json.dumps(self.to_payload(), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     @classmethod
     def from_payload(cls, payload: dict) -> "PipelineRequest":
@@ -223,18 +233,76 @@ class PipelineOrchestrator:
         *,
         created_by: str | None = None,
         created_by_role: str | None = None,
+        idempotency_key: str | None = None,
     ) -> PipelineRun:
-        """Crea la ejecución, sus nueve pasos y el trabajo que la ejecutará.
-
-        No ejecuta nada: de eso se encarga un worker. El kill switch se consulta
-        aquí —igual que antes de tocar cualquier servicio (ADR 0006 §3)— para que
-        quien llama se entere en el acto en vez de que el trabajo muera después.
+        """Crea la ejecución, sus nueve pasos y el trabajo que la ejecutará (o, con una
+        `idempotency_key` ya usada por la misma petición, devuelve la que ya existía).
+        Ver `enqueue_or_replay`.
         """
+        run, _ = self.enqueue_or_replay(
+            request, created_by=created_by, created_by_role=created_by_role, idempotency_key=idempotency_key
+        )
+        return run
+
+    def enqueue_or_replay(
+        self,
+        request: PipelineRequest,
+        *,
+        created_by: str | None = None,
+        created_by_role: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> tuple[PipelineRun, bool]:
+        """Crea la ejecución o, si la petición ya se hizo, devuelve la original. El segundo
+        valor dice si fue una repetición.
+
+        No ejecuta nada: de eso se encarga un worker. El kill switch se consulta aquí
+        —igual que antes de tocar cualquier servicio (ADR 0006 §3)— para que quien llama
+        se entere en el acto en vez de que el trabajo muera después.
+
+        Con `idempotency_key` (ya con su espacio de nombres):
+
+        - misma clave y misma petición: la ejecución original, sin crear ni ejecutar nada;
+        - misma clave y otra petición: `IdempotencyConflictError`;
+        - dos peticiones a la vez: **las garantiza la base de datos**, no una consulta previa. La
+          clave es la `idempotency_key` única del trabajo, y el trabajo es lo primero que se
+          escribe: de dos inserts con la misma clave, solo uno existe, y el otro se queda con la
+          ejecución del ganador. Un repetido consulta antes el kill switch solo si no hay nada que
+          devolver: reintentar algo ya aceptado no se bloquea porque ahora esté apagado.
+        """
+        request_hash = request.payload_hash()
+        if idempotency_key:
+            original = self._replay(idempotency_key, request_hash)
+            if original is not None:
+                return original, True
+
         if not self._kill_switch.is_enabled():
             raise PipelineDisabledError("pipeline runs are currently disabled by an operator")
 
+        run_id = new_id()
         correlation_id = new_correlation_id()
+        payload: dict = {"pipeline_run_id": run_id}
+        if idempotency_key:
+            payload["request_hash"] = request_hash
+        job = JobQueue(self._db).enqueue(
+            job_type=PIPELINE_RUN_JOB,
+            payload=payload,
+            correlation_id=correlation_id,
+            # Una ejecución tiene un trabajo y solo uno, para siempre: reanudar reencola ese mismo
+            # trabajo, así que toda su historia queda junta. Sin clave del cliente, la clave se
+            # deriva de la propia ejecución (nunca puede repetirse).
+            idempotency_key=idempotency_key or f"pipeline-run:{run_id}",
+            created_by=created_by,
+            commit=False,
+        )
+        if (job.payload or {}).get("pipeline_run_id") != run_id:
+            # Perdimos la carrera: esa clave ya era de otra petición. No se ha escrito nada más.
+            original = self._replay(idempotency_key or "", request_hash)
+            if original is None:
+                raise PipelineRunStateError(f"idempotency key is taken by job {job.id}, which has no pipeline run")
+            return original, True
+
         run = PipelineRun(
+            id=run_id,
             product_id=None,
             category=request.category,
             market=request.market,
@@ -244,6 +312,7 @@ class PipelineOrchestrator:
             correlation_id=correlation_id,
             request=request.to_payload(),
             requested_by_role=created_by_role,
+            job_id=job.id,
         )
         self._db.add(run)
         self._db.flush()
@@ -258,16 +327,6 @@ class PipelineOrchestrator:
                 )
             )
 
-        job = JobQueue(self._db).enqueue(
-            job_type=PIPELINE_RUN_JOB,
-            payload={"pipeline_run_id": run.id},
-            correlation_id=correlation_id,
-            # Una ejecución tiene un trabajo y solo uno, para siempre: reanudar
-            # reencola ese mismo trabajo, así que toda su historia queda junta.
-            idempotency_key=f"pipeline-run:{run.id}",
-            created_by=created_by,
-        )
-        run.job_id = job.id
         self._audit(
             "pipeline.enqueue",
             run,
@@ -276,7 +335,21 @@ class PipelineOrchestrator:
         )
         self._db.commit()
         self._db.refresh(run)
-        return run
+        return run, False
+
+    def _replay(self, idempotency_key: str, request_hash: str) -> PipelineRun | None:
+        """La ejecución que ya creó esa clave, si existe. Si la clave ya se usó con otra
+        petición, es un conflicto: no se devuelve nada ajeno ni se crea otra cosa."""
+        job = self._db.query(Job).filter_by(idempotency_key=idempotency_key).one_or_none()
+        if job is None:
+            return None
+        stored = (job.payload or {}).get("request_hash")
+        if stored != request_hash:
+            raise IdempotencyConflictError(
+                "this Idempotency-Key was already used with a different request; "
+                "send the same request to retry it, or a new key for a new one"
+            )
+        return self._db.query(PipelineRun).filter_by(job_id=job.id).one_or_none()
 
     # --- Ejecutar ----------------------------------------------------------
 

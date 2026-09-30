@@ -200,6 +200,26 @@ class Settings(BaseSettings):
         }
 
     @property
+    def all_providers_simulated(self) -> bool:
+        """True solo si **todos** los proveedores efectivos son `MOCK`: nada de lo que
+        se ejecute puede salir del sistema. `SANDBOX`, `REAL` y `COMPOSITE` hablan con
+        un servicio de verdad (o pueden hacerlo), así que no cuentan como simulados."""
+        kinds = [*self.provider_kinds.values(), self.exchange_rate_provider, self.national_law_provider]
+        return all(kind is ProviderKind.MOCK for kind in kinds)
+
+    @property
+    def idempotency_key_required(self) -> bool:
+        """Si crear una ejecución exige `Idempotency-Key`.
+
+        La regla no es «estamos en producción»: es **si la operación puede tener un
+        efecto fuera del sistema**. Con algún proveedor que no sea `MOCK`, sí, en
+        cualquier entorno. En `staging` y `production` siempre, porque ahí no se admite
+        suponer que todo es simulado. Solo un entorno de desarrollo, pruebas o demo
+        con todos los proveedores `MOCK` puede omitirla: crear un duplicado simulado no
+        le hace nada a nadie."""
+        return self.environment in _ENFORCING or not self.all_providers_simulated
+
+    @property
     def spend_limits(self) -> dict[str, SpendLimit]:
         """Los límites autorizados, en la forma que entiende la función pura."""
         return {

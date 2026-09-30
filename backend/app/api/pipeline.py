@@ -1,7 +1,9 @@
 import datetime
+import hashlib
+import re
 from typing import cast
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import update
 from sqlalchemy.engine import CursorResult
@@ -10,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.auth.actor import Actor
 from app.auth.dependencies import actor_name, authorize
 from app.core.config import Settings, get_settings
-from app.core.errors import NotFoundError, PipelineReviewNotPendingError
+from app.core.errors import IdempotencyKeyRequiredError, NotFoundError, PipelineReviewNotPendingError, ValidationError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.pipeline_review import PipelineReview as PipelineReviewModel
@@ -146,20 +148,60 @@ def _view(record: PipelineRunModel, db: Session) -> PipelineRunOut:
     return PipelineRunOut(**_run_fields(record), steps=steps_view(steps))
 
 
+IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:\-]{1,128}")
+
+
+def _idempotency_key(client_key: str | None, identity: Actor, settings: Settings) -> str | None:
+    """La clave con la que se guarda la petición, o `None` si no hay.
+
+    Lleva un espacio de nombres (`pipeline-run:` y una huella de quien pide): la clave que envía
+    el cliente es solo suya y de esta operación, no puede chocar con la de otra persona ni con la
+    de otro tipo de trabajo. Obligatoria cuando la operación puede tener un efecto fuera del
+    sistema (`Settings.idempotency_key_required`)."""
+    if client_key is None or client_key.strip() == "":
+        if settings.idempotency_key_required:
+            raise IdempotencyKeyRequiredError(
+                "this operation can have an effect outside the system: send an Idempotency-Key header "
+                "so that retrying it after a timeout cannot run it twice"
+            )
+        return None
+    if not IDEMPOTENCY_KEY_PATTERN.fullmatch(client_key):
+        raise ValidationError("Idempotency-Key must be 1-128 characters of letters, digits, '.', '_', ':' or '-'")
+    scope = hashlib.sha256(identity.subject.encode("utf-8")).hexdigest()[:16]
+    return f"pipeline-run:{scope}:{client_key}"
+
+
 @router.post("/api/pipeline/runs", response_model=PipelineRunOut, status_code=202)
 def create_pipeline_run(
     payload: PipelineRunCreate,
+    response: Response,
     db: Session = Depends(get_db),
     identity: Actor = Depends(authorize(ApiAction.PIPELINE_RUN)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="Identifica esta petición: repetirla con la misma clave y el mismo cuerpo devuelve la "
+        "ejecución original; con otro cuerpo, 409. Obligatoria si la operación puede tener un efecto "
+        "fuera del sistema (428 si falta).",
+    ),
 ) -> PipelineRunOut:
     """Encola una ejecución del pipeline. **No la ejecuta**: de eso se encarga un
     worker (Milestone 32, ADR 0010), así que responde 202 con la ejecución en
     QUEUED y sus nueve pasos en PENDING. El resultado se sigue por
-    `GET /api/pipeline/runs/{correlation_id}`."""
+    `GET /api/pipeline/runs/{correlation_id}`.
+
+    Con `Idempotency-Key`, un reintento (un timeout, un doble clic) devuelve **la misma
+    ejecución** con la cabecera `Idempotency-Replayed: true`, sin crear ni ejecutar otra.
+    Sin clave, y solo si todos los proveedores son simulados, cada petición es una ejecución
+    nueva."""
+    key = _idempotency_key(idempotency_key, identity, settings)
     request = PipelineRequest(**payload.model_dump())
-    run = PipelineOrchestrator(db).enqueue_run(
-        request, created_by=identity.audit_name, created_by_role=identity.role
+    run, replayed = PipelineOrchestrator(db).enqueue_or_replay(
+        request, created_by=identity.audit_name, created_by_role=identity.role, idempotency_key=key
     )
+    if replayed:
+        response.headers["Idempotency-Replayed"] = "true"
     return _view(run, db)
 
 

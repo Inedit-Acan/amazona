@@ -52,10 +52,16 @@ class JobQueue:
         max_attempts: int = 3,
         available_at: datetime.datetime | None = None,
         created_by: str | None = None,
+        commit: bool = True,
     ) -> Job:
         """Encola un trabajo. Con `idempotency_key`, encolar dos veces lo mismo
         devuelve el trabajo que ya existía en vez de duplicarlo: es lo que hace
-        seguro reintentar una petición HTTP cuyo resultado no se conoce."""
+        seguro reintentar una petición HTTP cuyo resultado no se conoce.
+
+        Con `commit=False` no confirma: el trabajo queda en la transacción de quien
+        llama, para que se cree atómicamente con lo que lo rodea (una ejecución y su
+        trabajo). Quien lo use puede saber si el trabajo ya existía mirando su
+        `payload`: si no es el que pasó, es el de una petición anterior."""
         if idempotency_key:
             existing = self._db.query(Job).filter_by(idempotency_key=idempotency_key).one_or_none()
             if existing is not None:
@@ -72,13 +78,26 @@ class JobQueue:
             available_at=when,
             created_by=created_by,
         )
+        # En PostgreSQL, el insert va dentro de un SAVEPOINT: si pierde la carrera por la
+        # clave única, se deshace **solo el insert del trabajo**, no la transacción
+        # entera de quien llama (que puede llevar ya una ejecución, sus pasos...). Con
+        # SQLite (los tests) no se usa: su driver no maneja bien los SAVEPOINT, y allí
+        # no hay carreras entre procesos. El SAVEPOINT se abre **antes** de añadir el
+        # trabajo: `begin_nested()` vuelca lo pendiente, y el insert que puede chocar no
+        # debe ejecutarse ahí, fuera del `try`.
+        nested = self._db.begin_nested() if self._supports_savepoints() else None
         self._db.add(job)
         try:
             self._db.flush()
+            if nested is not None:
+                nested.commit()
         except IntegrityError:
             # Carrera con otro proceso que encoló la misma clave entre nuestra
             # consulta y este flush. El que perdió se queda con el que ganó.
-            self._db.rollback()
+            if nested is not None:
+                nested.rollback()
+            else:
+                self._db.rollback()
             if idempotency_key:
                 found = self._db.query(Job).filter_by(idempotency_key=idempotency_key).one_or_none()
                 if found is not None:
@@ -86,9 +105,16 @@ class JobQueue:
             raise
 
         self._record(job, JobEventKind.ENQUEUED, {"type": job_type, "available_at": when.isoformat()})
-        self._db.commit()
-        self._db.refresh(job)
+        if commit:
+            self._db.commit()
+            self._db.refresh(job)
+        else:
+            self._db.flush()
         return job
+
+    def _supports_savepoints(self) -> bool:
+        bind = self._db.get_bind()
+        return bind is not None and bind.dialect.name == "postgresql"
 
     # --- Leer de la cola ---------------------------------------------------
 

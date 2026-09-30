@@ -33,6 +33,8 @@ from app.approvals.service import ApprovalNotPendingError
 from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
 from app.core.errors import (
+    IdempotencyConflictError,
+    IdempotencyKeyRequiredError,
     IncidentNotOpenError,
     NotFoundError,
     PipelineDisabledError,
@@ -110,6 +112,18 @@ async def pipeline_run_state_handler(request: Request, exc: PipelineRunStateErro
 @app.exception_handler(PipelineDisabledError)
 async def pipeline_disabled_handler(request: Request, exc: PipelineDisabledError) -> JSONResponse:
     return JSONResponse(status_code=423, content={"detail": str(exc)})
+
+
+@app.exception_handler(IdempotencyKeyRequiredError)
+async def idempotency_key_required_handler(request: Request, exc: IdempotencyKeyRequiredError) -> JSONResponse:
+    # 428 Precondition Required: la petición es válida, pero sin clave un reintento
+    # tras un timeout no se distinguiría de una segunda petición.
+    return JSONResponse(status_code=428, content={"detail": str(exc)})
+
+
+@app.exception_handler(IdempotencyConflictError)
+async def idempotency_conflict_handler(request: Request, exc: IdempotencyConflictError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 @app.exception_handler(IncidentNotOpenError)

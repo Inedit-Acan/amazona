@@ -42,3 +42,14 @@ class PipelineReviewNotPendingError(AmazonaError):
 
 class IncidentNotOpenError(AmazonaError):
     """Raised when resolving an incident that isn't OPEN."""
+
+
+class IdempotencyKeyRequiredError(AmazonaError):
+    """Raised when an operation that can have an external effect is requested
+    without an `Idempotency-Key`: a retry after a timeout could not be told
+    apart from a second request."""
+
+
+class IdempotencyConflictError(AmazonaError):
+    """Raised when an `Idempotency-Key` that was already used comes with a
+    different payload: it is a different request hiding behind the same key."""
