@@ -167,3 +167,49 @@ Cada evaluación con nombre y apellidos queda en la auditoría
   recurso, motivos y `correlation_id`; una tabla paralela sería un segundo
   registro de lo mismo. Si algún día hacen falta preguntas analíticas sobre las
   denegaciones (plan maestro §27), se reabre.
+
+## Enmienda (hardening pre-M44): una autorización se usa una sola vez
+
+La decisión 4 decía que una autorización «vale para el paso que la pidió y para nada
+más». Faltaba decir **cuántas veces**: `resume_run(from_step=...)`, el reintento de un
+worker que cayó y `_reset_step` volvían a ejecutar el paso con la misma revisión
+`APPROVED`. Medido: una aprobación y dos `resume_run(from_step="ecommerce")` dejaban tres
+tiendas creadas con una sola revisión.
+
+### Máquina de estados de la revisión del gate
+
+```
+PENDING -> APPROVED -> CONSUMED
+PENDING -> REJECTED
+```
+
+- `APPROVED`: la autorización humana existe y **todavía no se ha usado**.
+- `CONSUMED`: ya la usó el paso para el que se emitió. No vale para reanudar, rehacer el
+  paso con `from_step`, reintentarlo ni para el reintento de un worker que cayó.
+- `PipelineReview.status` es un `String(16)` sin restricción en la base de datos: no hay
+  migración. Las revisiones `POST_HOC` no se consumen.
+
+### La frontera transaccional
+
+Al empezar un paso que se apoya en una autorización, `APPROVED -> CONSUMED` (un
+compare-and-set: `UPDATE ... WHERE id = :id AND status = 'APPROVED'`, una fila) ocurre en
+**la misma transacción** que el arranque del paso (`RUNNING`, su intento y la fila de
+auditoría `pipeline_review.consume`). O queda consumida y el paso en marcha, o ninguna de
+las dos cosas: no existe «consumida pero sin empezar». De dos ejecutores a la vez, solo
+uno la consume; el otro falla con `PipelineRunStateError` y no ejecuta.
+
+| Si el proceso cae… | Estado que queda | Qué ocurre después |
+|---|---|---|
+| antes del commit de arranque | `APPROVED`, paso sin empezar | el reintento la consume y ejecuta |
+| después del commit, durante el paso | `CONSUMED`, paso `RUNNING`, intento sin terminar | el reintento **no ejecuta**: abre una pregunta nueva y dice que el intento anterior no terminó, así que su resultado es desconocido |
+| el paso falla tras consumirla | `CONSUMED`, paso `FAILED` | pide una autorización nueva: se ignora qué llegó a hacer |
+| un veto (kill switch, `NO_GO`…) impide que el paso se ejecute | `APPROVED` | no se gasta; se usa, una vez, cuando el paso se ejecute |
+
+«Resultado desconocido» no es un estado nuevo de paso: es un paso `RUNNING` con el
+intento sin terminar y una autorización `CONSUMED`. Un adaptador futuro que no sepa si su
+acción remota llegó a hacerse (un timeout tras enviarla) lo señala fallando; el paso no se
+reintenta solo con la autorización anterior.
+
+Sigue pendiente, antes del primer adaptador que ejecute acciones reales: una clave
+idempotente **hacia el proveedor**, estable entre reintentos, para que una acción remota
+no pueda duplicarse aunque se autorice dos veces.

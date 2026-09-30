@@ -18,7 +18,10 @@ ADR 0006 §1). Sigue siendo pura secuenciación: ninguna lógica de agente vive 
 import datetime
 from collections.abc import Sequence
 from dataclasses import MISSING, dataclass, fields
+from typing import cast
 
+from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
@@ -313,7 +316,7 @@ class PipelineOrchestrator:
                 self._reconcile_lost(run)
                 raise
 
-            gate_decision = self._gate_step(run, step, request)
+            gate_decision, authorisation = self._gate_step(run, step, request)
             if gate_decision is not None and gate_decision.outcome is GateOutcome.DENY:
                 # Denegado, pero la cadena sigue: los pasos de análisis que
                 # vengan después no le hacen nada a nadie (plan maestro §7).
@@ -322,7 +325,7 @@ class PipelineOrchestrator:
             if gate_decision is not None and gate_decision.outcome is GateOutcome.REQUIRE_APPROVAL:
                 return self._await_approval(run, step, gate_decision, context)
 
-            self._start_step(step, context)
+            self._start_step(step, context, authorisation=authorisation)
             try:
                 outcome = self._dispatch(step.name, run, request)
             except JobCancelledError:
@@ -612,23 +615,33 @@ class PipelineOrchestrator:
 
     def _gate_step(
         self, run: PipelineRun, step: PipelineStep, request: PipelineRequest
-    ) -> GateDecision | None:
-        """¿Puede ejecutarse este paso? `None` cuando es análisis puro y no hay
-        nada que preguntar: investigar o calcular márgenes no le hace nada a
-        nadie fuera del sistema (plan maestro §7)."""
+    ) -> tuple[GateDecision | None, PipelineReview | None]:
+        """¿Puede ejecutarse este paso? La decisión es `None` cuando es análisis
+        puro y no hay nada que preguntar: investigar o calcular márgenes no le hace
+        nada a nadie fuera del sistema (plan maestro §7).
+
+        Devuelve también la autorización humana en la que se apoya un `ALLOW`, si
+        la hay: quien ejecute el paso tiene que **consumirla** al empezar, en la
+        misma transacción que el arranque (`_start_step`). Una autorización es de
+        un solo uso."""
         action = STEP_SIDE_EFFECTS.get(step.name)
         if action is None:
-            return None
+            return None, None
 
         view = steps_view(self._steps(run))
+        review = self._latest_review(run, step)
         decision = self._gate.evaluate(
             action,
             legal_recommendation=view.get("legal", {}).get("recommendation"),
             economics_recommendation=view.get("economics", {}).get("recommendation"),
             amount=request.daily_budget if action is SideEffectAction.ACTIVATE_ADS else None,
-            human_approval=self._human_approval(run, step),
+            human_approval=self._human_approval(review),
             actor_role=run.requested_by_role,
         )
+        if decision.outcome is GateOutcome.REQUIRE_APPROVAL and self._authorisation_was_spent(run, step, review):
+            decision = GateDecision(
+                outcome=decision.outcome, reasons=[*decision.reasons, self._spent_authorisation_reason(step)]
+            )
         self._gate.audit(
             decision,
             action=action,
@@ -636,19 +649,43 @@ class PipelineOrchestrator:
             correlation_id=run.correlation_id,
         )
         self._db.commit()
-        return decision
+        authorisation = review if review is not None and review.status == "APPROVED" else None
+        return decision, authorisation if decision.outcome is GateOutcome.ALLOW else None
 
-    def _human_approval(self, run: PipelineRun, step: PipelineStep) -> HumanApproval:
-        """Qué ha decidido una persona sobre **este** paso. Una autorización
-        vale para el paso que la pidió y para nada más — igual que `Approval` en
-        el grafo del CEO, que autoriza una acción concreta y no un permiso
-        general."""
-        review = (
+    def _authorisation_was_spent(
+        self, run: PipelineRun, step: PipelineStep, latest: PipelineReview | None
+    ) -> bool:
+        """¿Este paso ya gastó una autorización y no tiene otra vigente? Cuenta tanto
+        que la última revisión esté `CONSUMED` como que ya haya una pregunta abierta
+        (`PENDING`) precisamente porque la anterior se consumió: si no, la nota se
+        perdería al reescribir los motivos de la pregunta pendiente."""
+        if latest is None or latest.status not in ("CONSUMED", "PENDING"):
+            return False
+        return (
+            self._db.query(PipelineReview)
+            .filter_by(pipeline_run_id=run.id, kind=REVIEW_KIND_ACTION_GATE, step=step.name, status="CONSUMED")
+            .first()
+            is not None
+        )
+
+    def _latest_review(self, run: PipelineRun, step: PipelineStep) -> PipelineReview | None:
+        return (
             self._db.query(PipelineReview)
             .filter_by(pipeline_run_id=run.id, kind=REVIEW_KIND_ACTION_GATE, step=step.name)
             .order_by(PipelineReview.created_at.desc())
             .first()
         )
+
+    def _human_approval(self, review: PipelineReview | None) -> HumanApproval:
+        """Qué ha decidido una persona sobre **este** paso. Una autorización
+        vale para el paso que la pidió, **una sola vez**, y para nada más — igual
+        que `Approval` en el grafo del CEO, que autoriza una acción concreta y no
+        un permiso general.
+
+        `APPROVED` es una autorización que existe y no se ha usado. `CONSUMED` es
+        una que ya se usó al empezar el paso: no vale para reanudar, ni para
+        rehacerlo con `from_step`, ni para el reintento de un worker que cayó; el
+        paso vuelve a preguntar."""
         if review is None:
             return HumanApproval.NONE
         if review.status == "APPROVED":
@@ -656,6 +693,23 @@ class PipelineOrchestrator:
         if review.status == "REJECTED":
             return HumanApproval.REJECTED
         return HumanApproval.NONE
+
+    def _spent_authorisation_reason(self, step: PipelineStep) -> str:
+        """Por qué hay que volver a pedir: la autorización anterior ya se usó. Si
+        el intento que la usó no terminó, además no se sabe qué llegó a hacer, y
+        quien vuelva a autorizar tiene que mirarlo antes."""
+        last = (
+            self._db.query(PipelineStepAttempt)
+            .filter_by(pipeline_step_id=step.id)
+            .order_by(PipelineStepAttempt.number.desc())
+            .first()
+        )
+        if last is not None and last.status == PipelineStepStatus.RUNNING:
+            return (
+                "the previous authorization for this step was used by an attempt that did not finish: "
+                "its outcome is unknown, so check what it did before authorizing again"
+            )
+        return "the previous authorization for this step was already used: a new one is needed"
 
     def _deny_step(self, step: PipelineStep, decision: GateDecision) -> None:
         """El paso no se ejecuta. No es un fallo —no hay nada que reintentar—:
@@ -738,7 +792,19 @@ class PipelineOrchestrator:
             .all()
         )
 
-    def _start_step(self, step: PipelineStep, context: JobContext | None) -> None:
+    def _start_step(
+        self, step: PipelineStep, context: JobContext | None, *, authorisation: PipelineReview | None = None
+    ) -> None:
+        """Empieza el paso. Si se apoya en una autorización humana, **la consume en
+        esta misma transacción**: o queda consumida y el paso en marcha, o ninguna
+        de las dos cosas. No existe un estado «consumida pero sin empezar».
+
+        Si el proceso cae después del commit, la autorización ya está gastada y el
+        paso queda `RUNNING` con su intento sin terminar: el reintento vuelve a
+        preguntar (y le dice a quien decide que el intento anterior no terminó). Si
+        cae antes, no se ha consumido nada y el reintento la usa."""
+        if authorisation is not None:
+            self._consume(authorisation, step, context)
         step.status = PipelineStepStatus.RUNNING
         step.attempt += 1
         step.started_at = _utcnow()
@@ -754,6 +820,42 @@ class PipelineOrchestrator:
             )
         )
         self._db.commit()
+
+    def _consume(self, review: PipelineReview, step: PipelineStep, context: JobContext | None) -> None:
+        """`APPROVED` -> `CONSUMED`, en una sola sentencia (compare-and-set): de dos
+        ejecutores que lleguen a la vez con la misma autorización, solo uno la gasta;
+        el otro no ejecuta el paso."""
+        claimed = cast(
+            CursorResult,
+            self._db.execute(
+                update(PipelineReview)
+                .where(PipelineReview.id == review.id, PipelineReview.status == "APPROVED")
+                .values(status="CONSUMED")
+                .execution_options(synchronize_session=False)
+            ),
+        )
+        if claimed.rowcount != 1:
+            self._db.rollback()
+            raise PipelineRunStateError(
+                f"the authorization for step {step.name} was already used by another executor"
+            )
+        self._db.expire(review)
+        self._db.add(
+            AuditLog(
+                actor=PIPELINE_ACTOR,
+                action="pipeline_review.consume",
+                resource=f"pipeline_review:{review.id}",
+                before={"status": "APPROVED"},
+                after={
+                    "status": "CONSUMED",
+                    "step": step.name,
+                    "attempt": step.attempt + 1,
+                    "job_id": context.job_id if context else None,
+                },
+                correlation_id=review.correlation_id,
+            )
+        )
+        step.detail = {"authorised_by_review": review.id}
 
     def _finish_step(
         self,
