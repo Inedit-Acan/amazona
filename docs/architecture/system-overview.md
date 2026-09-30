@@ -249,6 +249,7 @@ separados, colas) — no se usa activamente hoy.
 | [0020](adr-0020-ecb-reference-exchange-rates.md) | Referencias de tipos de cambio del BCE: observaciones con fecha efectiva propia y ventana propia, republicación conservada, precedencia manual > BCE > mock entre fuentes aceptables, y cero red dentro del análisis |
 | [0021](adr-0021-national-transposition-boe.md) | Transposición nacional declarada por una persona y anclada en el BOE: evidencia en capas, texto consolidado informativo con su aviso y atribución, y `PASS` que exige norma verificada, corroborada (`426`) y evidencia de cumplimiento |
 | [0022](adr-0022-idempotent-pipeline-run-creation.md) | `Idempotency-Key` en `POST /api/pipeline/runs`: misma clave y misma petición devuelven la ejecución original, otra petición con la misma clave es 409, la garantía es la clave única del trabajo (no una consulta previa) y la clave es obligatoria si algún proveedor puede salir del sistema |
+| [0023](adr-0023-single-budget-source-and-absence-is-not-permission.md) | Una sola verdad presupuestaria: el libro de la base de datos es la fuente del CEO, del ActionGate y del pipeline; el presupuesto lo autoriza el propietario y no se crea solo; sin presupuesto, sin importe o sin identidad un gasto real se deniega (la ausencia de información no es un permiso); reservar comprueba el límite en la misma sentencia que escribe |
 
 ## 9. Índice de milestones
 

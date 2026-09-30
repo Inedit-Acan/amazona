@@ -208,16 +208,23 @@ class Settings(BaseSettings):
         return all(kind is ProviderKind.MOCK for kind in kinds)
 
     @property
-    def idempotency_key_required(self) -> bool:
-        """Si crear una ejecución exige `Idempotency-Key`.
+    def operating_in_simulation(self) -> bool:
+        """True si **nada de lo que se ejecute puede mover dinero ni tocar algo fuera del
+        sistema**: todos los proveedores son `MOCK` y el entorno no es `staging` ni
+        `production` (donde no se admite suponer que todo es simulado).
 
-        La regla no es «estamos en producción»: es **si la operación puede tener un
-        efecto fuera del sistema**. Con algún proveedor que no sea `MOCK`, sí, en
-        cualquier entorno. En `staging` y `production` siempre, porque ahí no se admite
-        suponer que todo es simulado. Solo un entorno de desarrollo, pruebas o demo
-        con todos los proveedores `MOCK` puede omitirla: crear un duplicado simulado no
-        le hace nada a nadie."""
-        return self.environment in _ENFORCING or not self.all_providers_simulated
+        Es el único sitio que responde a «¿esto es una simulación?». De él dependen la clave de
+        idempotencia obligatoria, que la ausencia de un presupuesto autorizado pueda dejar pasar
+        un gasto simulado, y que la ausencia de identidad pueda saltarse la consulta de
+        permisos. Fuera de la simulación, la ausencia de información **nunca** es un permiso."""
+        return self.environment not in _ENFORCING and self.all_providers_simulated
+
+    @property
+    def idempotency_key_required(self) -> bool:
+        """Si crear una ejecución exige `Idempotency-Key`: siempre que la operación pueda tener
+        un efecto fuera del sistema, es decir, siempre que no sea una simulación. La regla no
+        es «estamos en producción»: es si algo puede salir de aquí."""
+        return not self.operating_in_simulation
 
     @property
     def spend_limits(self) -> dict[str, SpendLimit]:

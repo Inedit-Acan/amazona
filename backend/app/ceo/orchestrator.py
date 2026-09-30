@@ -6,14 +6,14 @@ from app.agents.manager import AgentManager
 from app.agents.registry import build_default_agent_manager
 from app.approvals.service import ApprovalService
 from app.audit.service import AuditService
-from app.budgets.engine import BudgetEngine, BudgetState
-from app.budgets.service import DEFAULT_BUDGET_HARD_LIMIT, BudgetLedgerService
+from app.budgets.service import BudgetLedgerService
 from app.ceo.decision_engine import DecisionInput, evaluate_decision
 from app.ceo.planner import plan_product_validation
 from app.ceo.schemas import DecisionStatus
 from app.ceo.schemas import Objective as ObjectiveSchema
+from app.core.config import Settings, get_settings
 from app.core.errors import NotFoundError
-from app.core.ids import new_correlation_id
+from app.core.ids import new_correlation_id, new_id
 from app.db.models.agent_execution_log import AgentExecutionLog as AgentExecutionLogModel
 from app.db.models.approval import Approval as ApprovalModel
 from app.db.models.audit import AuditLog as AuditLogModel
@@ -58,9 +58,8 @@ class CEOOrchestrator:
         audit_service: AuditService | None = None,
         approval_service: ApprovalService | None = None,
         permission_engine: PermissionEngine | None = None,
-        budget_engine: BudgetEngine | None = None,
-        budget_state: BudgetState | None = None,
         budget_ledger: BudgetLedgerService | None = None,
+        settings: Settings | None = None,
         max_task_retries: int = DEFAULT_MAX_TASK_RETRIES,
     ) -> None:
         self._db = db
@@ -72,9 +71,11 @@ class CEOOrchestrator:
         self.audit_service = audit_service or AuditService()
         self.approval_service = approval_service or ApprovalService()
         self._permissions = permission_engine or PermissionEngine()
-        self._budget_engine = budget_engine or BudgetEngine()
-        self._budget_state = budget_state or BudgetState(hard_limit=DEFAULT_BUDGET_HARD_LIMIT)
-        self._budget_ledger = budget_ledger or BudgetLedgerService(db, hard_limit=DEFAULT_BUDGET_HARD_LIMIT)
+        # El presupuesto es el de la base de datos, el mismo que consulta el ActionGate: el
+        # orquestador ya no lleva un saldo propio en memoria (nuevo en cada petición, con un
+        # límite escrito en el código), que aprobaba cada petición contra el techo entero.
+        self._budget_ledger = budget_ledger or BudgetLedgerService(db)
+        self._settings = settings or get_settings()
         self._memory = MemoryService(db)
 
     def run_objective(self, objective_id: str) -> DecisionModel:
@@ -322,25 +323,36 @@ class CEOOrchestrator:
         if DecisionStatus(decision.status) != DecisionStatus.HUMAN_APPROVAL:
             return
 
-        spend_amount = float(context.get("spend_amount", 0.0))
-        budget_decision = self._budget_engine.authorize(amount=spend_amount, state=self._budget_state)
+        # Sin importe no se sabe cuánto se pide, y eso no es cero: se deniega.
+        raw_amount = context.get("spend_amount")
+        spend_amount = float(raw_amount) if raw_amount is not None else None
+        simulated = self._settings.operating_in_simulation
+        assessment = self._budget_ledger.assess(spend_amount, simulated=simulated)
 
-        if not budget_decision.approved:
+        approval_id = new_id()
+        denial = None if assessment.approved else assessment.reason
+        if denial is None and spend_amount and self._budget_ledger.find_budget() is not None:
+            # La misma comprobación del límite que el ActionGate, pero **en la sentencia que
+            # reserva**: con dos peticiones a la vez, solo caben las que caben juntas.
+            reserved = self._budget_ledger.reserve(amount=spend_amount, reference=f"approval:{approval_id}")
+            if not reserved:
+                denial = "the budget was used up by a concurrent request"
+
+        if denial is not None:
             decision.status = DecisionStatus.NO_GO.value
-            decision.rationale = f"{decision.rationale}; budget denied: {budget_decision.reason}"
+            decision.rationale = f"{decision.rationale}; budget denied: {denial}"
             self._audit(
                 actor="ceo",
                 action="decision.budget_denied",
                 resource=f"decision:{decision.id}",
                 before={"status": DecisionStatus.HUMAN_APPROVAL.value},
-                after={"status": decision.status},
+                after={"status": decision.status, "budget": assessment.status.value},
                 correlation_id=correlation_id,
             )
             return
 
-        self._budget_engine.reserve(self._budget_state, spend_amount)
-
         approval = ApprovalModel(
+            id=approval_id,
             decision_id=decision.id,
             action=context.get("spend_action", "simulated_external_spend"),
             amount=spend_amount,
@@ -351,14 +363,12 @@ class CEOOrchestrator:
         self._db.add(approval)
         self._db.flush()
 
-        self._budget_ledger.record_reserve(amount=spend_amount, reference=f"approval:{approval.id}")
-
         self._audit(
             actor="ceo",
             action="approval.requested",
             resource=f"approval:{approval.id}",
             before=None,
-            after={"action": approval.action, "amount": approval.amount},
+            after={"action": approval.action, "amount": approval.amount, "budget": assessment.status.value},
             correlation_id=correlation_id,
         )
         self._event_bus.publish(

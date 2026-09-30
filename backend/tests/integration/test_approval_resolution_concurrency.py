@@ -57,7 +57,10 @@ def seed_approval(engine, *, amount: float = 100.0) -> str:
         )
         db.add(approval)
         db.flush()
-        BudgetLedgerService(db).record_reserve(amount=amount, reference=f"approval:{approval.id}")
+        ledger = BudgetLedgerService(db)
+        if ledger.find_budget() is None:
+            ledger.authorise_budget(hard_limit=1_000_000.0, actor="owner@amazona.local")
+        assert ledger.reserve(amount=amount, reference=f"approval:{approval.id}")
         db.commit()
         return approval.id
 
@@ -176,7 +179,9 @@ def test_a_ledger_write_waits_for_a_concurrent_one_instead_of_overwriting_it():
     bloqueo de la fila y suma sobre lo que A dejó."""
     with ephemeral_postgres() as engine:
         with Session(engine) as seed:
-            BudgetLedgerService(seed).record_reserve(amount=1000.0, reference="seed")
+            ledger = BudgetLedgerService(seed)
+            ledger.authorise_budget(hard_limit=1_000_000.0, actor="owner@amazona.local")
+            assert ledger.reserve(amount=1000.0, reference="seed")
             seed.commit()
 
         a = Session(engine)

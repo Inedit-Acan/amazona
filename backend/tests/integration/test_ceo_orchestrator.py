@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.budgets.service import BudgetLedgerService
 from app.ceo.orchestrator import CEOOrchestrator
 from app.ceo.schemas import DecisionStatus
 from app.core.ids import new_id
@@ -58,6 +59,8 @@ def create_objective(db_session: Session, context: dict) -> Objective:
 
 def test_run_objective_produces_a_full_audited_workflow_requiring_human_approval(db_session: Session):
     objective = create_objective(db_session, ATTRACTIVE_PRODUCT_CONTEXT)
+    # El presupuesto que el CEO consulta es el de la base de datos, y solo existe si se autoriza.
+    BudgetLedgerService(db_session).authorise_budget(hard_limit=100_000.0, actor="owner@amazona.local")
     orchestrator = CEOOrchestrator(db_session)
 
     decision = orchestrator.run_objective(objective.id)

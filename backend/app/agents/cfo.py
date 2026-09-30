@@ -97,8 +97,9 @@ class CFOAgent(Agent):
                 "aggregate reporting only — this agent never emits invoices; real billing must go "
                 "through a certified Verifactu-compliant third-party system",
                 "budget reservation totals reflect budget_allocations/financial_events rows written by "
-                "BudgetLedgerService as the orchestrator reserves and the approvals API commits/releases "
-                "spend — not the orchestrator's in-memory BudgetState, which authorizes but never persists",
+                "BudgetLedgerService as the orchestrator and the pipeline reserve and the approvals API "
+                "commits/releases spend — the one budget the ActionGate and the orchestrator both consult; "
+                "with no authorised budget there is nothing to report and the totals stay at zero",
             ],
             data={
                 "financial_health_status": financial_health_status,

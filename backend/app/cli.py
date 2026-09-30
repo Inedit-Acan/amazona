@@ -7,6 +7,12 @@ ADR 0007).
 
     AMAZONA_BOOTSTRAP=1 python -m app.cli grant-role --email you@example.com --role OWNER
 
+The budget the system may spend is authorised the same way: it is never created by
+the system itself (hardening pre-M44, ADR 0023).
+
+    AMAZONA_BOOTSTRAP=1 python -m app.cli authorise-budget --hard-limit 500 [--soft-limit 400]
+    python -m app.cli show-budget
+
 Requires AMAZONA_BOOTSTRAP=1 in the environment so the command cannot be run by
 accident, and writes an audit entry for every grant.
 """
@@ -18,8 +24,11 @@ import sys
 from sqlalchemy.orm import Session
 
 from app.auth.actor import ActorSource, RoleName
+from app.budgets.service import BudgetLedgerService
+from app.core.errors import ValidationError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
+from app.db.models.budget import Budget
 from app.db.models.role import Role
 from app.db.models.user import User
 from app.db.session import get_session_factory
@@ -31,11 +40,27 @@ class BootstrapError(RuntimeError):
     """The command refused to run. Never a stack trace for the operator."""
 
 
-def _require_bootstrap_flag() -> None:
+def _require_bootstrap_flag(what: str = "roles") -> None:
     if os.environ.get(BOOTSTRAP_ENV) != "1":
         raise BootstrapError(
-            f"refusing to change roles without {BOOTSTRAP_ENV}=1 in the environment"
+            f"refusing to change {what} without {BOOTSTRAP_ENV}=1 in the environment"
         )
+
+
+def cli_actor() -> str:
+    return f"cli:{os.environ.get('USERNAME') or os.environ.get('USER') or 'unknown'}"
+
+
+def authorise_budget(db: Session, *, hard_limit: float, soft_limit: float | None = None) -> Budget:
+    """Autoriza (o cambia) el presupuesto con el que el sistema puede gastar. Es un acto del
+    propietario y queda en la auditoría con el antes y el después: el sistema no crea ni
+    inventa un presupuesto por su cuenta, y sin uno un gasto real se deniega."""
+    try:
+        return BudgetLedgerService(db).authorise_budget(
+            hard_limit=hard_limit, soft_limit=soft_limit, actor=cli_actor()
+        )
+    except ValidationError as exc:
+        raise BootstrapError(str(exc)) from exc
 
 
 def grant_role(db: Session, *, email: str, role_name: str, force: bool = False) -> User:
@@ -103,6 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
     grant.add_argument("--force", action="store_true", help="allow a second OWNER")
 
     commands.add_parser("list-users", help="show every user and its role")
+
+    budget = commands.add_parser(
+        "authorise-budget", help="authorise (or change) the budget the system may spend; audited"
+    )
+    budget.add_argument("--hard-limit", required=True, type=float, help="the most that can be reserved and spent")
+    budget.add_argument("--soft-limit", type=float, help="a warning threshold below the hard limit")
+    commands.add_parser("show-budget", help="show the authorised budget and what has been used")
     return parser
 
 
@@ -114,6 +146,19 @@ def main(argv: list[str] | None = None) -> int:
             _require_bootstrap_flag()
             user = grant_role(db, email=args.email, role_name=args.role, force=args.force)
             print(f"{user.email} is now {args.role.upper()}")
+        elif args.command == "authorise-budget":
+            _require_bootstrap_flag("the budget")
+            budget = authorise_budget(db, hard_limit=args.hard_limit, soft_limit=args.soft_limit)
+            print(f"budget authorised: hard limit {float(budget.hard_limit):.2f}")
+        elif args.command == "show-budget":
+            snapshot = BudgetLedgerService(db).snapshot()
+            if snapshot is None:
+                print("no budget authorised: real spending is denied until the owner authorises one")
+            else:
+                print(
+                    f"hard limit {snapshot.hard_limit:.2f} | reserved {snapshot.reserved:.2f} | "
+                    f"committed {snapshot.committed:.2f} | spent {snapshot.spent:.2f}"
+                )
         elif args.command == "list-users":
             users = db.query(User).order_by(User.email).all()
             if not users:

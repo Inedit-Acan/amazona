@@ -11,11 +11,12 @@ el sitio equivocado.
 
 from sqlalchemy.orm import Session
 
-from app.budgets.engine import BudgetEngine, BudgetState
+from app.budgets.engine import BudgetStatus
+from app.budgets.service import BudgetLedgerService
 from app.core.config import Settings, get_settings
 from app.db.models.audit import AuditLog
-from app.db.models.budget import Budget, BudgetAllocation
 from app.gates.action_gate import (
+    SPENDING_ACTIONS,
     BudgetSignal,
     GateDecision,
     GateInput,
@@ -61,14 +62,15 @@ class ActionGateService:
         human_approval: HumanApproval = HumanApproval.NONE,
         actor_role: str | None = None,
     ) -> GateDecision:
+        simulated = self._settings.operating_in_simulation
         gate_input = GateInput(
             action=action,
             legal_recommendation=legal_recommendation,
             economics_recommendation=economics_recommendation,
             kill_switch_enabled=self._kill_switch.is_enabled(),
-            budget=self._budget_signal(amount),
+            budget=self._budget_signal(action, amount, simulated=simulated),
             human_approval=human_approval,
-            permission=self._permission(actor_role),
+            permission=self._permission(actor_role, simulated=simulated),
             environment=self._settings.environment,
         )
         return evaluate_action(gate_input)
@@ -97,35 +99,24 @@ class ActionGateService:
 
     # --- Entradas ----------------------------------------------------------
 
-    def _permission(self, actor_role: str | None) -> PermissionResult | None:
-        """Lo que la política dice del rol que pidió esto. Sin rol no hay nada
-        que consultar: en desarrollo una ejecución puede no llevar identidad, y
-        eso no es lo mismo que un rol sin permiso."""
+    def _permission(self, actor_role: str | None, *, simulated: bool) -> PermissionResult | None:
+        """Lo que la política dice del rol que pidió esto.
+
+        Sin rol no hay nada que consultar, y eso significa cosas distintas según el
+        despliegue: en una **simulación** (desarrollo, todos los proveedores `MOCK`) una
+        ejecución puede no llevar identidad y se sigue como siempre; fuera de ella, no saber
+        quién pide no es un permiso, y el motor de permisos ya responde `DENIED` a un rol
+        ausente: aquí no se le pregunta con una respuesta distinta solo porque el
+        solicitante no se identificó."""
         if actor_role is None:
-            return None
+            return None if simulated else PermissionResult.DENIED
         return PermissionEngine().check(actor_role=actor_role, action=ActionType.EXTERNAL_SPEND)
 
-    def _budget_signal(self, amount: float | None) -> BudgetSignal:
-        """El presupuesto real, con la misma matemática que ya usa el
-        orquestador (`BudgetEngine`): no se reimplementa aquí."""
-        if amount is None:
-            return BudgetSignal()
-
-        budget = self._db.query(Budget).order_by(Budget.created_at).first()
-        if budget is None:
-            # Nadie ha fijado presupuesto todavía. No es lo mismo que un
-            # presupuesto a cero: no hay límite que oponer.
-            return BudgetSignal()
-
-        allocation = self._db.query(BudgetAllocation).filter_by(budget_id=budget.id).first()
-        # `budgets` no tiene límite por acción: `BudgetState` lo deja en None y
-        # `BudgetEngine` solo comprueba el techo duro y el aviso del blando.
-        state = BudgetState(
-            hard_limit=float(budget.hard_limit),
-            soft_limit=float(budget.soft_limit) if budget.soft_limit is not None else None,
-            reserved=float(allocation.reserved) if allocation else 0.0,
-            committed=float(allocation.committed) if allocation else 0.0,
-            spent=float(allocation.spent) if allocation else 0.0,
-        )
-        decision = BudgetEngine().authorize(amount=float(amount), state=state)
-        return BudgetSignal(approved=decision.approved, reason=decision.reason)
+    def _budget_signal(self, action: SideEffectAction, amount: float | None, *, simulated: bool) -> BudgetSignal:
+        """Lo que el presupuesto **real** —el de la base de datos, el mismo que consulta el
+        CEO— dice de esta acción. Una acción que no gasta no le pregunta nada; una que gasta
+        recibe su estado (`AVAILABLE`, `EXHAUSTED`, `NO_BUDGET_RECORD`, `UNKNOWN_COST`...): la
+        ausencia de presupuesto o de importe no es un permiso."""
+        if action not in SPENDING_ACTIONS:
+            return BudgetSignal(approved=True, status=BudgetStatus.NOT_APPLICABLE)
+        return BudgetLedgerService(self._db).assess(amount, simulated=simulated)

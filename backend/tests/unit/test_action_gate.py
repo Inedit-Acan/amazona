@@ -9,6 +9,7 @@ que una firma humana levante un veto.
 
 import pytest
 
+from app.budgets.engine import BudgetStatus
 from app.core.config import Environment
 from app.gates.action_gate import (
     SPENDING_ACTIONS,
@@ -33,7 +34,7 @@ def gate(**overrides) -> GateInput:
         "legal_recommendation": "GO",
         "economics_recommendation": "GO",
         "kill_switch_enabled": True,
-        "budget": BudgetSignal(),
+        "budget": BudgetSignal(approved=True, status=BudgetStatus.AVAILABLE),
         "human_approval": HumanApproval.NONE,
         "permission": None,
         "environment": Environment.DEVELOPMENT,
@@ -62,6 +63,47 @@ def test_spending_is_allowed_in_development_when_nothing_objects():
 def test_a_step_without_analysis_yet_is_not_treated_as_a_veto():
     """Ningún paso de análisis ejecutado todavía no es lo mismo que un NO_GO."""
     decision = evaluate_action(gate(legal_recommendation=None, economics_recommendation=None))
+
+    assert decision.outcome is GateOutcome.ALLOW
+
+
+# --- Una señal de presupuesto que nadie evaluó no es un permiso ---------------
+
+
+def test_a_spend_whose_budget_was_never_evaluated_is_denied():
+    """La señal por defecto está cerrada: que nadie haya mirado el presupuesto no lo aprueba."""
+    base = gate(action=ADS)
+    decision = evaluate_action(GateInput(**{**base.__dict__, "budget": GateInput(action=ADS).budget}))
+
+    assert decision.outcome is GateOutcome.DENY
+    assert any("not evaluated" in reason for reason in decision.reasons)
+
+
+def test_an_action_that_does_not_spend_does_not_need_a_budget_signal():
+    decision = evaluate_action(GateInput(action=PUBLISH, legal_recommendation="GO", economics_recommendation="GO"))
+
+    assert decision.outcome is GateOutcome.ALLOW
+
+
+@pytest.mark.parametrize(
+    "status",
+    [BudgetStatus.EXHAUSTED, BudgetStatus.NO_BUDGET_RECORD, BudgetStatus.UNKNOWN_COST],
+)
+def test_every_budget_state_that_does_not_approve_denies_a_spend(status):
+    decision = evaluate_action(
+        gate(action=ADS, budget=BudgetSignal(approved=False, status=status, reason=status.value))
+    )
+
+    assert decision.outcome is GateOutcome.DENY
+    assert status.value in decision.reasons
+
+
+@pytest.mark.parametrize(
+    "status",
+    [BudgetStatus.AVAILABLE, BudgetStatus.ZERO_COST, BudgetStatus.SIMULATED_NO_BUDGET],
+)
+def test_every_budget_state_that_approves_lets_the_rest_of_the_rule_decide(status):
+    decision = evaluate_action(gate(action=ADS, budget=BudgetSignal(approved=True, status=status)))
 
     assert decision.outcome is GateOutcome.ALLOW
 
@@ -104,9 +146,7 @@ def test_a_budget_that_does_not_cover_it_denies_the_spend():
 
 
 def test_a_budget_limit_does_not_block_something_that_does_not_spend():
-    decision = evaluate_action(
-        gate(action=PUBLISH, budget=BudgetSignal(approved=False, reason="no budget left"))
-    )
+    decision = evaluate_action(gate(action=PUBLISH, budget=BudgetSignal(approved=False, reason="no budget left")))
 
     assert decision.outcome is GateOutcome.ALLOW
 

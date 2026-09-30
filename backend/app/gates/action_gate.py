@@ -21,6 +21,7 @@ cambie el veto, no que lo firme.
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from app.budgets.engine import BudgetAssessment, BudgetStatus
 from app.core.config import Environment
 from app.permissions.policies import PermissionResult
 
@@ -77,16 +78,19 @@ class HumanApproval(StrEnum):
 _ENFORCING: frozenset[Environment] = frozenset({Environment.STAGING, Environment.PRODUCTION})
 
 
-@dataclass(frozen=True)
-class BudgetSignal:
-    """Lo que el presupuesto responde sobre el importe de esta acción.
+#: Lo que el presupuesto responde sobre el importe de esta acción. Es la evaluación del
+#: libro (`BudgetLedgerService.assess` → `BudgetAssessment`): llega aquí como resultado, no
+#: como números sueltos, porque el gate decide y no calcula. Con sus estados (`AVAILABLE`,
+#: `EXHAUSTED`, `NO_BUDGET_RECORD`, `UNKNOWN_COST`...) y **cerrada por defecto**: una señal
+#: que nadie evaluó (`NOT_EVALUATED`) no aprueba, porque la ausencia de información no es un
+#: permiso.
+BudgetSignal = BudgetAssessment
 
-    Lo evalúa `BudgetEngine` —que ya existe y ya sabe esta matemática— y llega
-    aquí como resultado, no como números sueltos: el gate decide, no calcula.
-    """
 
-    approved: bool = True
-    reason: str | None = None
+def _unevaluated_budget() -> BudgetAssessment:
+    return BudgetAssessment(
+        approved=False, status=BudgetStatus.NOT_EVALUATED, reason="the budget of this action was not evaluated"
+    )
 
 
 @dataclass(frozen=True)
@@ -101,7 +105,7 @@ class GateInput:
     economics_recommendation: str | None = None
     #: El kill switch operativo de la ADR 0006. Apagado, no se ejecuta nada.
     kill_switch_enabled: bool = True
-    budget: BudgetSignal = field(default_factory=BudgetSignal)
+    budget: BudgetSignal = field(default_factory=_unevaluated_budget)
     human_approval: HumanApproval = HumanApproval.NONE
     #: Lo que `PermissionEngine` responde para el rol de quien lo pidió. None
     #: cuando no hay rol que consultar (una ejecución encolada sin identidad en

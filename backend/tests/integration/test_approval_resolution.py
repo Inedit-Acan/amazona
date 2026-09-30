@@ -75,7 +75,10 @@ def pending_approval(db: Session, *, amount: float = 100.0, expired: bool = Fals
     )
     db.add(approval)
     db.flush()
-    BudgetLedgerService(db).record_reserve(amount=amount, reference=f"approval:{approval.id}")
+    ledger = BudgetLedgerService(db)
+    if ledger.find_budget() is None:
+        ledger.authorise_budget(hard_limit=1_000_000.0, actor="owner@amazona.local")
+    assert ledger.reserve(amount=amount, reference=f"approval:{approval.id}")
     db.commit()
     return approval
 
@@ -184,8 +187,9 @@ def test_the_ledger_writes_relative_arithmetic_never_a_total_computed_in_python(
 
 def test_the_ledger_arithmetic_is_unchanged(db: Session):
     ledger = BudgetLedgerService(db)
-    ledger.record_reserve(amount=150.0, reference="a:1")
-    ledger.record_reserve(amount=50.0, reference="a:2")
+    ledger.authorise_budget(hard_limit=1000.0, actor="owner@amazona.local")
+    ledger.reserve(amount=150.0, reference="a:1")
+    ledger.reserve(amount=50.0, reference="a:2")
     ledger.record_commit(amount=150.0, reference="a:1")
     ledger.record_release(amount=500.0, reference="a:2")  # más de lo reservado: nunca negativo
     db.commit()

@@ -358,7 +358,9 @@ def test_not_evaluable_is_a_doubt_and_never_a_veto(db_session, product, monkeypa
 
     assert analysis.recommendation == "REVIEW"
 
+    from app.budgets.engine import BudgetStatus
     from app.gates.action_gate import (
+        BudgetSignal,
         GateInput,
         GateOutcome,
         SideEffectAction,
@@ -370,6 +372,8 @@ def test_not_evaluable_is_a_doubt_and_never_a_veto(db_session, product, monkeypa
             # Una acción que gasta dinero: es donde un `NO_GO` sería un veto.
             action=SideEffectAction.SPEND_MONEY,
             kill_switch_enabled=True,
+            # El presupuesto cabe: aquí solo se prueba que "no evaluable" no es un veto económico.
+            budget=BudgetSignal(approved=True, status=BudgetStatus.AVAILABLE),
             economics_recommendation=analysis.recommendation,
         )
     )

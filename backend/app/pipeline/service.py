@@ -27,8 +27,15 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
+from app.budgets.service import BudgetLedgerService
 from app.cfo.service import CFOService
-from app.core.errors import IdempotencyConflictError, NotFoundError, PipelineDisabledError, PipelineRunStateError
+from app.core.errors import (
+    BudgetExhaustedError,
+    IdempotencyConflictError,
+    NotFoundError,
+    PipelineDisabledError,
+    PipelineRunStateError,
+)
 from app.core.ids import new_correlation_id, new_id
 from app.db.models.audit import AuditLog
 from app.db.models.job import Job
@@ -40,7 +47,7 @@ from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.supplier_quote import SupplierQuote
 from app.ecommerce.service import EcommerceStorefrontService
 from app.economics.service import EconomicAnalysisService
-from app.gates.action_gate import GateDecision, GateOutcome, HumanApproval, SideEffectAction
+from app.gates.action_gate import SPENDING_ACTIONS, GateDecision, GateOutcome, HumanApproval, SideEffectAction
 from app.gates.service import ActionGateService
 from app.jobs.queue import JobQueue
 from app.jobs.schemas import JobAwaitingApprovalError, JobCancelledError, JobContext, JobStatus
@@ -224,6 +231,7 @@ class PipelineOrchestrator:
         # El gate comparte el mismo kill switch: una sola verdad sobre si el
         # sistema está autorizado a actuar (Milestone 33, ADR 0011).
         self._gate = gate or ActionGateService(db, kill_switch=self._kill_switch)
+        self._ledger = BudgetLedgerService(db)
 
     # --- Encolar -----------------------------------------------------------
 
@@ -398,7 +406,14 @@ class PipelineOrchestrator:
             if gate_decision is not None and gate_decision.outcome is GateOutcome.REQUIRE_APPROVAL:
                 return self._await_approval(run, step, gate_decision, context)
 
-            self._start_step(step, context, authorisation=authorisation)
+            reservation = self._spend_reservation(run, step, request)
+            try:
+                self._start_step(step, context, authorisation=authorisation, reservation=reservation)
+            except BudgetExhaustedError as exc:
+                # Otra petición se llevó el presupuesto entre la evaluación y la reserva. No se
+                # ha consumido ni reservado nada (todo iba en la misma transacción).
+                self._deny_step(step, GateDecision(outcome=GateOutcome.DENY, reasons=[str(exc)]))
+                continue
             try:
                 outcome = self._dispatch(step.name, run, request)
             except JobCancelledError:
@@ -413,6 +428,10 @@ class PipelineOrchestrator:
                 raise
 
             if outcome.halted:
+                # No se ejecutó nada que gaste: lo reservado se libera. (Si el paso falla por una
+                # excepción se queda reservado: no se sabe qué llegó a hacer, y un fallo no se
+                # convierte en un cero.)
+                self._settle_reservation(reservation, committed=False)
                 self._finish_step(
                     step,
                     PipelineStepStatus.FAILED,
@@ -423,6 +442,7 @@ class PipelineOrchestrator:
                 self._skip_remaining(run, after=step.ordinal)
                 return self._settle(run, PipelineRunStatus.PARTIAL, failed_step=step.name)
 
+            self._settle_reservation(reservation, committed=True)
             self._finish_step(
                 step,
                 PipelineStepStatus.COMPLETED,
@@ -707,7 +727,7 @@ class PipelineOrchestrator:
             action,
             legal_recommendation=view.get("legal", {}).get("recommendation"),
             economics_recommendation=view.get("economics", {}).get("recommendation"),
-            amount=request.daily_budget if action is SideEffectAction.ACTIVATE_ADS else None,
+            amount=self._amount_to_assess(run, step, request, action),
             human_approval=self._human_approval(review),
             actor_role=run.requested_by_role,
         )
@@ -866,7 +886,12 @@ class PipelineOrchestrator:
         )
 
     def _start_step(
-        self, step: PipelineStep, context: JobContext | None, *, authorisation: PipelineReview | None = None
+        self,
+        step: PipelineStep,
+        context: JobContext | None,
+        *,
+        authorisation: PipelineReview | None = None,
+        reservation: tuple[float, str] | None = None,
     ) -> None:
         """Empieza el paso. Si se apoya en una autorización humana, **la consume en
         esta misma transacción**: o queda consumida y el paso en marcha, o ninguna
@@ -878,6 +903,16 @@ class PipelineOrchestrator:
         cae antes, no se ha consumido nada y el reintento la usa."""
         if authorisation is not None:
             self._consume(authorisation, step, context)
+        if reservation is not None:
+            amount, reference = reservation
+            # El gasto se reserva en la misma transacción que consume la autorización y arranca el
+            # paso, comprobando el límite en la sentencia que reserva. Un reintento no reserva dos
+            # veces el mismo gasto (`idempotent`).
+            if not self._ledger.reserve(amount=amount, reference=reference, idempotent=True):
+                self._db.rollback()
+                raise BudgetExhaustedError(
+                    "the budget was used up by another request before this step could reserve its spend"
+                )
         step.status = PipelineStepStatus.RUNNING
         step.attempt += 1
         step.started_at = _utcnow()
@@ -893,6 +928,48 @@ class PipelineOrchestrator:
             )
         )
         self._db.commit()
+
+    def _step_spend(self, step: PipelineStep, request: PipelineRequest) -> tuple[SideEffectAction, float | None] | None:
+        """La acción de gasto de este paso y su importe (`None`: no se sabe), o `None` si el paso
+        no gasta."""
+        action = STEP_SIDE_EFFECTS.get(step.name)
+        if action is None or action not in SPENDING_ACTIONS:
+            return None
+        return action, (request.daily_budget if action is SideEffectAction.ACTIVATE_ADS else None)
+
+    def _amount_to_assess(
+        self, run: PipelineRun, step: PipelineStep, request: PipelineRequest, action: SideEffectAction
+    ) -> float | None:
+        """El importe que se le pregunta al presupuesto. Si este mismo paso ya tiene una reserva viva
+        (un reintento tras una caída), esa parte no cuenta contra sí misma: ya está reservada.
+        """
+        spend = self._step_spend(step, request)
+        if spend is None or spend[1] is None:
+            return None
+        reference = f"pipeline_step:{run.correlation_id}:{step.name}"
+        return max(0.0, spend[1] - float(self._ledger.outstanding(reference)))
+
+    def _spend_reservation(
+        self, run: PipelineRun, step: PipelineStep, request: PipelineRequest
+    ) -> tuple[float, str] | None:
+        """Lo que este paso tiene que reservar al arrancar: su importe, con la referencia de este
+        paso en esta ejecución. `None` si el paso no gasta, el importe es cero o no hay un presupuesto
+        autorizado que reservar (una simulación declarada: no hay libro que mover).
+        """
+        spend = self._step_spend(step, request)
+        if spend is None or not spend[1] or spend[1] <= 0 or self._ledger.find_budget() is None:
+            return None
+        return spend[1], f"pipeline_step:{run.correlation_id}:{step.name}"
+
+    def _settle_reservation(self, reservation: tuple[float, str] | None, *, committed: bool) -> None:
+        """El paso terminó bien (la reserva pasa a gastada) o no hizo nada (se libera)."""
+        if reservation is None:
+            return
+        amount, reference = reservation
+        if committed:
+            self._ledger.record_commit(amount=amount, reference=reference)
+        else:
+            self._ledger.record_release(amount=amount, reference=reference)
 
     def _consume(self, review: PipelineReview, step: PipelineStep, context: JobContext | None) -> None:
         """`APPROVED` -> `CONSUMED`, en una sola sentencia (compare-and-set): de dos

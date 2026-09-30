@@ -53,3 +53,8 @@ class IdempotencyKeyRequiredError(AmazonaError):
 class IdempotencyConflictError(AmazonaError):
     """Raised when an `Idempotency-Key` that was already used comes with a
     different payload: it is a different request hiding behind the same key."""
+
+
+class BudgetExhaustedError(AmazonaError):
+    """Raised when a spend that fitted when it was assessed no longer fits when it is reserved:
+    another request took the budget in between."""

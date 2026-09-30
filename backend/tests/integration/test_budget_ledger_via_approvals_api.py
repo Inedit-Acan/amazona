@@ -1,6 +1,7 @@
 """Verifies IVA-59: approving/rejecting an approval through the public API
 reconciles the durable budget_allocations/financial_events ledger, not just
-the orchestrator's in-memory BudgetState."""
+the authorised budget's ledger (the same one the ActionGate reads: there is no separate
+in-memory balance)."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.budgets.service import BudgetLedgerService
 from app.db.base import Base
 from app.db.models.budget import BudgetAllocation, FinancialEvent
 from app.db.session import get_db
@@ -36,6 +38,9 @@ def app_fixture():
     )
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with session_factory() as seed:
+        # El presupuesto solo existe si el propietario lo autoriza: el sistema no lo inventa.
+        BudgetLedgerService(seed).authorise_budget(hard_limit=100_000.0, actor="owner@amazona.local")
 
     def override_get_db():
         session = session_factory()
