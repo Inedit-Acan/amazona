@@ -16,6 +16,8 @@ from app.db.models.legal_analysis import LegalAnalysis
 from app.db.models.marketing_campaign import MarketingCampaign
 from app.db.models.marketplace_listing import MarketplaceListing
 from app.db.models.memory_record import MemoryRecord
+from app.db.models.national_anchor import NationalAnchor
+from app.db.models.national_transposition import NationalTransposition
 from app.db.models.objective import Objective
 from app.db.models.operations_record import OperationsRecord
 from app.db.models.pipeline_kill_switch import PipelineKillSwitch
@@ -51,6 +53,8 @@ __all__ = [
     "FinancialEvent",
     "CFOReport",
     "ComplianceEvidence",
+    "NationalAnchor",
+    "NationalTransposition",
     "RegulatoryAnchor",
     "RegulatoryRequirement",
     "Decision",

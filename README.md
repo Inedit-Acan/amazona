@@ -155,6 +155,10 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   ventana propia y ninguna llamada de red dentro del análisis
   ([ADR 0020](docs/architecture/adr-0020-ecb-reference-exchange-rates.md))
   — ver abajo.
+- **Milestone 43:** transposición nacional de directivas, declarada por una persona y
+  anclada en el BOE, con el texto consolidado siempre marcado como informativo
+  ([ADR 0021](docs/architecture/adr-0021-national-transposition-boe.md))
+  — ver abajo.
 
 ## Qué es real y qué está simulado
 
@@ -596,7 +600,8 @@ El resultado son **cuatro estados**: `PASS`, `REVIEW_REQUIRED`, `BLOCKED` y `UNK
 **`PASS` solo significa que, dentro de lo declarado y comprobado, Legal no ha
 encontrado un bloqueo — nunca «producto legal».** Lo que nadie declaró no se ha
 mirado, y `UNKNOWN` jamás asciende a `PASS`. Una directiva sola no basta: hace falta
-la transposición nacional. Solo cubre Derecho de la UE, y con el proveedor por
+la transposición nacional (Milestone 43: declarada y anclada en el BOE). Solo cubre Derecho de la UE y
+esa transposición, y con el proveedor por
 defecto (`mock`) todo sigue exactamente como antes. Requiere `REGULATORY_PROVIDER=real`.
 
 ### Tipos de cambio de referencia del BCE (Milestone 42)
@@ -621,6 +626,26 @@ declara una persona, el sistema puede traer las **referencias diarias del BCE**
   PLN). Sin cruces. Un fallo de la fuente no guarda nada.
 - Requiere `EXCHANGE_RATE_PROVIDER=real`; con `mock` (por defecto) todo sigue exactamente
   como antes.
+
+### Transposición nacional anclada en el BOE (Milestone 43)
+
+Una directiva de la UE la traspone una ley nacional, y hasta el Milestone 42 esa ley solo
+podía escribirse a mano en texto libre. Ahora **una persona declara** qué norma española
+traspone la directiva —el sistema no la busca ni la propone— y el **BOE la verifica y la
+ancla**: ¿existe consolidada?, ¿está en vigor según la fuente?, ¿su propio análisis dice que
+traspone esa directiva (`426 TRANSPONE`)? Lo que hay que saber:
+
+- **La legislación consolidada y su análisis son meramente informativos**, no oficiales: solo
+  el diario del BOE es auténtico. La pantalla y la API lo dicen siempre, junto a la atribución
+  que exige la licencia («Basado en datos de la Agencia Estatal Boletín Oficial del Estado»),
+  el enlace oficial y el ELI. Las fechas de la fuente se muestran tal cual, sin interpretarlas.
+- **`PASS` de una directiva exige más que antes:** norma nacional declarada, verificada,
+  corroborada de forma determinista (año y número de la directiva sin ambigüedad, nunca por
+  parecido) **y** evidencia de cumplimiento. El texto libre de M41 se conserva pero ya no basta.
+- **Un `404` no significa «no existe»** (no consolidada o inexistente), y un fallo de la
+  fuente nunca es una conclusión negativa: sale como revisión, con su motivo.
+- Confianza de lo que descansa en el BOE: techo 0,7 (regla interna no calibrada).
+- Requiere `NATIONAL_LAW_PROVIDER=real`; con `mock` (por defecto) no se llama a nadie.
 
 ## Notas
 

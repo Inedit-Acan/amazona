@@ -50,6 +50,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from app.core.errors import ValidationError
+from app.legal.national import INFORMATIONAL_CONFIDENCE_CEILING, TranspositionAssessment
 from app.sourcing.provenance import MissingVerifierError, SupplierFactProvenance
 
 #: Quién puede sostener un hecho legal. `SIMULATED` es del mock y no pasa por
@@ -258,6 +259,18 @@ def compliance_of(
     return Compliance.DECLARED, SupplierFactProvenance.DECLARED
 
 
+def confidence_ceiling(
+    weakest: SupplierFactProvenance, *, uses_informational: bool = False
+) -> float:
+    """El techo de confianza de un resultado. Lo que descansa en datos informativos
+    del BOE (consolidación y análisis) no supera `INFORMATIONAL_CONFIDENCE_CEILING`.
+    **Regla interna, no calibrada.**"""
+    ceiling = LEGAL_CONFIDENCE_CEILING[weakest]
+    if uses_informational:
+        ceiling = min(ceiling, INFORMATIONAL_CONFIDENCE_CEILING)
+    return ceiling
+
+
 @dataclass(frozen=True)
 class RequirementAssessment:
     """Un requisito evaluado, con las tres cuestiones **separadas**."""
@@ -271,9 +284,11 @@ class RequirementAssessment:
     confidence: float
     #: De qué eslabón sale el techo, para poder explicarlo.
     weakest_link: SupplierFactProvenance
+    #: Las transposiciones nacionales estructuradas que se evaluaron (Milestone 43).
+    national: tuple[TranspositionAssessment, ...] = ()
 
     def __post_init__(self) -> None:
-        ceiling = LEGAL_CONFIDENCE_CEILING[self.weakest_link]
+        ceiling = confidence_ceiling(self.weakest_link, uses_informational=bool(self.national))
         if self.confidence > ceiling:
             raise ValidationError(
                 f"confidence {self.confidence} exceeds the ceiling {ceiling} for a result whose "
@@ -321,11 +336,13 @@ def assess_requirement(
     evidence: list[ComplianceEvidenceItem],
     *,
     now: datetime.datetime,
+    transpositions: list[TranspositionAssessment] | None = None,
 ) -> RequirementAssessment:
     existence = existence_of(anchor, now)
     compliance, compliance_provenance = compliance_of(evidence, now.date())
     weakest = _weakest_link(requirement, existence, compliance_provenance)
-    ceiling = LEGAL_CONFIDENCE_CEILING[weakest]
+    national = tuple(transpositions or ())
+    ceiling = confidence_ceiling(weakest, uses_informational=bool(national))
     reasons: list[str] = []
 
     def result(status: LegalStatus) -> RequirementAssessment:
@@ -338,6 +355,7 @@ def assess_requirement(
             anchor=anchor,
             confidence=ceiling,
             weakest_link=weakest,
+            national=national,
         )
 
     if existence is not Existence.VERIFIED_IN_FORCE:
@@ -345,14 +363,37 @@ def assess_requirement(
         return result(LegalStatus.REVIEW_REQUIRED)
 
     # Solo un acto directamente aplicable liga por sí mismo. Una directiva
-    # verifica el acto de la UE, no la ley nacional que la traspone.
+    # verifica el acto de la UE, no la ley nacional que la traspone (Milestone 43,
+    # ADR 0021): hace falta una transposición **estructurada**, declarada por una
+    # persona, verificada contra el BOE y corroborada por su análisis. El texto libre
+    # de M41 es una declaración humana: se conserva y se muestra, y no basta.
     assert anchor is not None
-    if anchor.act_type is ActType.DIRECTIVE and not requirement.transposition_reference:
-        reasons.append(
-            "the act is a directive and no national transposition is declared: what binds is "
-            "the national law, which this source does not cover, so PASS cannot be concluded"
-        )
-        return result(LegalStatus.REVIEW_REQUIRED)
+    if anchor.act_type is ActType.DIRECTIVE:
+        if not national:
+            free_text = (
+                " A free-text transposition reference is a human declaration only and is not "
+                "enough."
+                if requirement.transposition_reference
+                else ""
+            )
+            reasons.append(
+                "the act is a directive and no national transposition is declared and verified: "
+                "what binds is the national law, so PASS cannot be concluded." + free_text
+            )
+            return result(LegalStatus.REVIEW_REQUIRED)
+        blocking = [t for t in national if not t.ok]
+        if blocking:
+            for item in blocking:
+                if item.state.value != "verified_in_force":
+                    reasons.extend(f"{item.national_id}: {reason}" for reason in item.reasons)
+                else:
+                    detail = item.corroboration_reason or item.corroboration.value
+                    reasons.append(
+                        f"{item.national_id}: declared and in force according to the source, but "
+                        f"not corroborated as a transposition of {requirement.celex} "
+                        f"({item.corroboration.value}): {detail}"
+                    )
+            return result(LegalStatus.REVIEW_REQUIRED)
     if anchor.act_type in (ActType.OTHER, ActType.UNKNOWN):
         reasons.append(
             "the source does not establish this act as directly applicable: a person must "

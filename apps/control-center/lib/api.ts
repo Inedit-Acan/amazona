@@ -783,6 +783,77 @@ export interface RegulatoryAnchor {
   source_url: string;
 }
 
+/** Lo que el BOE dijo de una norma nacional, tal como lo entregó (Milestone 43, ADR 0021).
+ * **Informativo**: la consolidación y el análisis no tienen valor oficial. */
+export interface NationalAnchor {
+  national_id: string;
+  provider: string;
+  provenance: string;
+  verified_at: string;
+  recheck_after: string;
+  consolidated: boolean;
+  informational: boolean;
+  notice: string;
+  attribution: string;
+  /** Metadatos verbatim: fechas como cadena `AAAAMMDD`, banderas `S`/`N`. */
+  source_metadata: Record<string, unknown> | null;
+  source_updated_at: string | null;
+  relations: { previous?: NationalRelation[]; next?: NationalRelation[] } | null;
+  publication_state: PublicationState;
+  publication_detail: string | null;
+  publication_url: string | null;
+  source_urls: string[] | null;
+}
+
+export interface NationalRelation {
+  id_norma: string;
+  relation_code: number | null;
+  relation: string;
+  text: string;
+}
+
+/** `absent_from_summary` es la única respuesta negativa; `check_failed` no es una conclusión. */
+export type PublicationState = "confirmed" | "absent_from_summary" | "check_failed" | "not_checked";
+
+export type NationalState =
+  | "verified_in_force"
+  | "not_in_force"
+  | "not_consolidated"
+  | "outdated_consolidation"
+  | "unverified"
+  | "relation_flagged"
+  | "publication_inconsistent"
+  | "stale"
+  | "never_checked";
+
+export type Corroboration = "corroborated" | "partial" | "uncorroborated" | "not_assessable";
+
+export interface NationalAssessment {
+  state: NationalState;
+  corroboration: Corroboration;
+  corroboration_reason: string;
+  ok: boolean;
+  reasons: string[];
+  matching_relations: NationalRelation[];
+  flagged_relations: NationalRelation[];
+}
+
+/** Una norma nacional que una persona declara como transposición. El sistema no la propone. */
+export interface NationalTransposition {
+  id: string;
+  requirement_id: string;
+  national_id: string;
+  provenance: SupplierProvenance;
+  declared_by: string;
+  note: string | null;
+  created_at: string;
+  official_url: string;
+  notice: string;
+  attribution: string;
+  anchor: NationalAnchor | null;
+  assessment: NationalAssessment | null;
+}
+
 export interface RegulatoryRequirement {
   id: string;
   product_scope: string;
@@ -802,6 +873,7 @@ export interface RegulatoryRequirement {
   created_at: string;
   anchor: RegulatoryAnchor | null;
   existence: ExistenceState;
+  national_transpositions: NationalTransposition[];
 }
 
 export interface ComplianceEvidence {
@@ -1297,6 +1369,17 @@ export const api = {
   /** Pregunta a la fuente por la norma de un requisito: es una llamada externa. */
   verifyRegulatoryRequirement: (id: string) =>
     request<RegulatoryAnchor>(`/api/regulatory-requirements/${id}/verify`, { method: "POST" }),
+  /** Una persona declara qué norma española traspone la directiva del requisito (Milestone 43). */
+  declareNationalTransposition: (requirementId: string, payload: { national_id: string; note?: string | null }) =>
+    request<NationalTransposition>(`/api/regulatory-requirements/${requirementId}/national-transpositions`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  /** Pregunta al BOE por la norma declarada: es una llamada externa. */
+  verifyNationalTransposition: (id: string) =>
+    request<NationalTransposition>(`/api/national-transpositions/${id}/verify`, { method: "POST" }),
+  withdrawNationalTransposition: (id: string) =>
+    request<NationalTransposition>(`/api/national-transpositions/${id}/withdraw`, { method: "POST" }),
   listComplianceEvidence: (productId: string) =>
     request<ComplianceEvidence[]>(`/api/products/${productId}/compliance-evidence`),
   declareComplianceEvidence: (

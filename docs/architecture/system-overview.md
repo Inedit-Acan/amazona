@@ -247,6 +247,7 @@ separados, colas) — no se usa activamente hoy.
 | [0018](adr-0018-money-conversion-and-not-evaluable.md) | El dinero lleva moneda y es `Decimal`; una conversión es un hecho con procedencia; sin tasa no hay 1:1, hay `NOT_EVALUABLE`, que nunca es un veto |
 | [0019](adr-0019-legal-requirements-and-source-anchoring.md) | Aplicabilidad, vigencia y evidencia de cumplimiento son tres cuestiones separadas; `PASS` nunca es «producto legal»; `UNKNOWN` nunca asciende a `PASS` |
 | [0020](adr-0020-ecb-reference-exchange-rates.md) | Referencias de tipos de cambio del BCE: observaciones con fecha efectiva propia y ventana propia, republicación conservada, precedencia manual > BCE > mock entre fuentes aceptables, y cero red dentro del análisis |
+| [0021](adr-0021-national-transposition-boe.md) | Transposición nacional declarada por una persona y anclada en el BOE: evidencia en capas, texto consolidado informativo con su aviso y atribución, y `PASS` que exige norma verificada, corroborada (`426`) y evidencia de cumplimiento |
 
 ## 9. Índice de milestones
 
@@ -283,6 +284,7 @@ separados, colas) — no se usa activamente hoy.
 | [40](../milestones/milestone-40-demo.md) | Dinero con moneda, economía por canal y techo de CAC (§18) |
 | [41](../milestones/milestone-41-demo.md) | Legal con requisitos declarados y anclados en EUR-Lex (§22) |
 | [42](../milestones/milestone-42-demo.md) | Tipos de cambio de referencia del BCE: refresco explícito, fecha efectiva intacta y ventana propia (§23) |
+| [43](../milestones/milestone-43-demo.md) | Transposición nacional de directivas anclada en el BOE: declarada por una persona, verificada, corroborada de forma determinista y siempre marcada como informativa (§24) |
 
 ## 10. Cómo verlo funcionar
 
@@ -989,11 +991,15 @@ en el milestone donde se descubrieron.
 | **~~Fuente de tipos de cambio~~** *(cerrada en el Milestone 42 para USD, GBP, CNY, HKD, MXN y PLN)* | Desde el Milestone 39 una cotización lleva su moneda, y **no hay con qué convertirla**. Dos cotizaciones en monedas distintas no se comparan, el coste de aterrizaje del mock (en dólares) no se puede sumar a costes en euros, y el margen que Economics calcula sobre un coste en otra moneda lleva un aviso en vez de una conversión. Inventar un tipo de cambio metería un error del 5 % que nadie vería | Un adaptador de tipos de cambio con fecha y fuente, bajo el libro de coste del §25. Es requisito previo para que el margen del M40 sea real sobre cualquier proveedor que no cotice en euros |
 | **Catálogo de qué países forman cada mercado** | Sin él, un proveedor con país declarado (`ES`) y un destino expresado como mercado (`eu`) dan riesgo geopolítico **desconocido**: el sistema se niega a decir que cruza una frontera porque `es` no es la misma cadena que `eu`. Afecta a una de las ocho dimensiones del §11 | Una línea de catálogo por mercado, como los canales del Milestone 38. Ninguna migración |
 | **Certificaciones de proveedor** | El plan §10 las pide («certifications») y el Milestone 39 no las modela: siguen siendo dato de demostración en la pantalla. Una certificación necesita emisor, alcance y caducidad, que es una tabla propia. **El Milestone 41 modela la evidencia de cumplimiento de un *producto* frente a un requisito, no las certificaciones de un *proveedor*: esta sigue abierta** | Un milestone propio; puede reutilizar `compliance_evidence` y su regla de emisor obligatorio |
-| **Derecho nacional y otras fuentes de normativa** | El Milestone 41 solo ancla Derecho de la UE (EUR-Lex). Una directiva no puede dar `PASS` sin una transposición nacional **declarada**, y esa declaración no la verifica nadie. Safety Gate, BOE, ECHA y Access2Markets quedan fuera | Safety Gate como milestone complementario (señal de riesgo por producto); BOE para verificar transposiciones. Cada uno pasa antes por derechos y coste (ADR 0015) |
+| **Derecho nacional y otras fuentes de normativa** *(parcialmente cerrada en el Milestone 43: una transposición nacional declarada ya se verifica y se ancla en el BOE; queda lo demás)* | El Milestone 41 solo ancla Derecho de la UE (EUR-Lex). Una directiva no puede dar `PASS` sin una transposición nacional **declarada**, y esa declaración no la verifica nadie. Safety Gate, BOE, ECHA y Access2Markets quedan fuera | Safety Gate como milestone complementario (señal de riesgo por producto); BOE para verificar transposiciones. Cada uno pasa antes por derechos y coste (ADR 0015) |
 | **Cruces de tipos de cambio** | El BCE solo publica pares contra el euro. `USD→GBP` no está publicado y calcularlo es otra cosa que leerlo: una tasa derivada por AMAZONA, que la licencia obliga a rotular como modificada. Hoy todo se convierte a EUR y no hace falta | Un milestone que implemente `CROSS_VIA_EUR` con los invariantes de la [ADR 0020](adr-0020-ecb-reference-exchange-rates.md) §7: dos patas de la misma fecha, un solo salto, sin mezclar fuentes |
 | **Diferencial bancario en el margen** | Una referencia del BCE es la tasa intermedia; un banco o un procesador aplica un diferencial. El margen calculado con ella es algo optimista. Modelar un diferencial sería inventarlo | Un coste declarable de conversión de divisa, con su procedencia, no un número por defecto |
 | **Planificador del refresco de tasas** | El refresco existe (endpoint y trabajo `fx.refresh`) pero nadie lo dispara solo: si nadie lo pide, las referencias caducan a los 7 días y el margen vuelve a ser no evaluable | Una capa de ejecución que encole el trabajo (§23 bis del plan maestro: aplazada). Hasta entonces, una persona |
 | **Monedas del BCE fuera del catálogo y monedas que el BCE no publica** | 23 de las 29 divisas del BCE no se guardan porque el catálogo no las admite; `VND` (que usa el mock) no la publica el BCE | Ampliar el catálogo cuando un proveedor real cotice en una de ellas (decisión aparte); `VND` sigue pidiendo tasa declarada |
+| **Derecho nacional genérico** | El Milestone 43 solo ancla la transposición de una directiva ya declarada. Una norma española que se aplica a un producto **sin** directiva detrás (jurisdicción `es`, sin CELEX) sigue sin poder declararse ni verificarse | Un milestone propio: modelo de requisito sin CELEX, con la misma regla (una persona declara, el BOE verifica). Sin búsqueda ni inferencia |
+| **Cobertura de la legislación consolidada** | La AEBOE consolida principalmente normas con rango de ley: un real decreto u orden no consolidado da `404` y el requisito queda en revisión. Verificar su publicación por el sumario exigiría pedir a una persona la fecha de publicación | Decidir con las normas reales que se declaren; el sumario ya está integrado como comprobación auxiliar |
+| **Derogaciones parciales de una norma nacional** | Las banderas del BOE son de la norma entera. Una derogación parcial solo aparece como relación posterior, y el sistema solo eleva a revisión las de anulación o suspensión (`220`, `221`, `230`, `231`) sin interpretar su efecto | Que una persona las lea; el sistema no decide su efecto jurídico |
+| **Ancla nacional para otros países y fuentes** | El BOE es el único adaptador de Derecho nacional. Otros países, Safety Gate y ECHA quedan fuera | Un adaptador por fuente tras `NationalNormSource`, cada uno con sus derechos y coste (ADR 0015) |
 | **~~Coste de adquisición (CAC) en Economics~~** *(cerrada en el Milestone 40)* | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |
 
 ## 22. Requisitos legales declarados y anclados en una fuente (Milestone 41)
@@ -1085,3 +1091,48 @@ invariantes están escritos en la ADR). `VND` no la publica el BCE.
 
 `EXCHANGE_RATE_PROVIDER=mock` (por defecto) es exactamente el sistema anterior, con las mismas
 cifras. Detalle y límites, en [`milestone-42-demo.md`](../milestones/milestone-42-demo.md).
+
+## 24. Transposición nacional anclada en el BOE (Milestone 43)
+
+La ADR 0019 dejó dicho que una directiva verifica el acto de la UE y no la ley nacional que
+lo traspone, y permitía `PASS` con una transposición escrita en texto libre. El Milestone 43
+añade el BOE como fuente de Derecho nacional **solo para eso**: verificar y anclar una norma
+española que **una persona ha declarado** como transposición de una directiva. El
+razonamiento completo, en la [ADR 0021](adr-0021-national-transposition-boe.md).
+
+**La regla que lo gobierna:** el sistema no infiere qué norma española traspone una directiva
+ni qué norma se aplica a un producto. No hay búsqueda, no hay propuesta, no hay LLM.
+
+**Seis capas que no se rellenan una con otra:** la norma *declarada* (una persona), la
+*publicación oficial* (sumario del diario, comprobación auxiliar), el *texto consolidado,
+análisis y metadatos* (AEBOE, **meramente informativos**), la *vigencia y estado* (banderas de
+la fuente), la *relación con la norma UE* (relación `426 TRANSPONE` de su análisis) y la
+*evidencia de cumplimiento* del producto (M41).
+
+**Corroboración determinista:** año y número de la directiva del texto de la relación se
+comparan con el CELEX declarado solo si se leen sin ambigüedad; si no, `not_assessable`. Una
+relación `427` (parcial) no basta. Nada de similitud textual.
+
+**`PASS` de una directiva** exige a la vez: norma nacional declarada, verificada (comprobación
+vigente), en vigor según las banderas, sin relaciones de anulación o suspensión, corroborada
+(`426`) **y** evidencia de cumplimiento. Todo lo demás es `REVIEW_REQUIRED`, nunca `BLOCKED`.
+Un `404` no es «no existe»: es «no consolidada o inexistente». Un fallo de red o de lectura
+del sumario **no** es una conclusión negativa: solo un sumario leído bien que no lista la
+norma lo es. **Se endurece M41:** el texto libre ya no basta (se conserva como declaración
+humana). Confianza de lo que descansa en datos informativos del BOE: techo **0,7**, regla
+interna no calibrada.
+
+**Lo informativo viaja con el dato:** cada comprobación guarda `informational = true`, el
+aviso «Texto consolidado de carácter meramente informativo…» y la atribución «Basado en datos de
+la Agencia Estatal Boletín Oficial del Estado»; la API y la pantalla los muestran siempre, con
+el enlace oficial y el ELI. Las fechas de la fuente se muestran tal cual y **no se comparan con
+hoy**. El texto de las normas no se guarda.
+
+**Todo o nada:** metadatos y análisis o nada; el sumario es auxiliar (`confirmed`,
+`absent_from_summary`, `check_failed`, `not_checked`).
+
+**Fuente:** la API de datos abiertos de la AEBOE, sin alta ni credenciales y sin cuota
+publicada. `User-Agent` neutro del proyecto, sin ningún dato personal. Derechos y coste
+escritos antes de la primera llamada; `AI_INGESTION` denegado. `NATIONAL_LAW_PROVIDER=mock`
+(por defecto) no llama a nadie. Escribir es `REGULATORY_WRITE`. Detalle y límites, en
+[`milestone-43-demo.md`](../milestones/milestone-43-demo.md).

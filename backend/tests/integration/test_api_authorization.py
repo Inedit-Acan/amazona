@@ -84,6 +84,17 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     # permiso que declarar una tasa: OWNER y ADMIN; `SYSTEM` solo por el trabajo.
     ("POST", "/api/exchange-rates/refresh", {}, ApiAction.EXCHANGE_RATE_WRITE),
     ("POST", "/api/exchange-rates/backfill", {}, ApiAction.EXCHANGE_RATE_WRITE),
+    # Milestone 43: declarar qué norma nacional traspone una directiva es un juicio
+    # jurídico, y preguntar al BOE es una llamada externa. Mismo permiso que el resto
+    # de Legal real: OWNER y ADMIN; REVIEWER lee; `SYSTEM` no.
+    (
+        "POST",
+        "/api/regulatory-requirements/req-1/national-transpositions",
+        {"national_id": "BOE-A-2011-14252"},
+        ApiAction.REGULATORY_WRITE,
+    ),
+    ("POST", "/api/national-transpositions/nt-1/verify", {}, ApiAction.REGULATORY_WRITE),
+    ("POST", "/api/national-transpositions/nt-1/withdraw", {}, ApiAction.REGULATORY_WRITE),
     # Milestone 41: declarar que una norma se aplica a una clase de producto es un
     # juicio jurídico. Solo OWNER y ADMIN; REVIEWER lee y no escribe; SYSTEM no.
     (
@@ -272,6 +283,9 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/exchange-rates"),
         ("POST", "/api/exchange-rates/refresh"),
         ("POST", "/api/exchange-rates/backfill"),
+        ("POST", "/api/regulatory-requirements/{requirement_id}/national-transpositions"),
+        ("POST", "/api/national-transpositions/{transposition_id}/verify"),
+        ("POST", "/api/national-transpositions/{transposition_id}/withdraw"),
         ("POST", "/api/regulatory-requirements"),
         ("POST", "/api/regulatory-requirements/{requirement_id}/supersede"),
         ("POST", "/api/regulatory-requirements/{requirement_id}/withdraw"),

@@ -1,0 +1,42 @@
+{
+ "data": {
+  "sumario": {
+   "diario": [
+    {
+     "numero": "209",
+     "seccion": [
+      {
+       "codigo": "1",
+       "nombre": "I. Disposiciones generales",
+       "departamento": [
+        {
+         "codigo": "7710",
+         "nombre": "MINISTERIO DE LA PRESIDENCIA",
+         "epigrafe": [
+          {
+           "nombre": "Juguetes. Normas de seguridad",
+           "item": {
+            "identificador": "BOE-A-2011-14252",
+            "control": "2011/14099",
+            "titulo": "Real Decreto 1205/2011, de 26 de agosto, sobre la seguridad de los juguetes.",
+            "url_pdf": {
+             "szBytes": "673378",
+             "szKBytes": "658",
+             "pagina_inicial": "94877",
+             "pagina_final": "94911",
+             "texto": "https://www.boe.es/boe/dias/2011/08/31/pdfs/BOE-A-2011-14252.pdf"
+            },
+            "url_html": "https://www.boe.es/diario_boe/txt.php?id=BOE-A-2011-14252",
+            "url_xml": "https://www.boe.es/diario_boe/xml.php?id=BOE-A-2011-14252"
+           }
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

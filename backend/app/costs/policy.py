@@ -142,6 +142,24 @@ _ECB_REFERENCE_RATES = CostPolicy(
     ),
 )
 
+#: API de datos abiertos del BOE (Milestone 43). Sin clave, sin alta y sin coste
+#: (verificado el 29-09-2026: peticiones anónimas a `metadatos`, `analisis` y
+#: `sumario` devolvieron HTTP 200). **Ni el aviso legal, ni la documentación técnica ni
+#: las FAQ publican una cuota o un límite de frecuencia**, así que no se escribe
+#: ninguna: `quota_units_per_day` queda en `None` y eso significa «no sé», no «sin
+#: límite». Una verificación son tres peticiones; el tope por ejecución (doce: cuatro
+#: normas) es nuestro y no una condición de la fuente.
+_BOE_OPEN_DATA = CostPolicy(
+    provider="boe-open-data",
+    pricing=Pricing.FREE,
+    unit="requests",
+    cost_per_unit=0.0,
+    currency="EUR",
+    quota_units_per_day=None,
+    max_units_per_run=12,
+    source="https://www.boe.es/datosabiertos/ — API de datos abiertos; sin cuota publicada",
+)
+
 #: Los fixtures no salen a ninguna parte. Existe la política para que el contador
 #: no tenga que tratarlos como un caso especial.
 _FIXTURES = CostPolicy(
@@ -160,6 +178,7 @@ POLICIES: dict[str, CostPolicy] = {
     _EBAY_BROWSE.provider: _EBAY_BROWSE,
     _EUR_LEX_CELLAR.provider: _EUR_LEX_CELLAR,
     _ECB_REFERENCE_RATES.provider: _ECB_REFERENCE_RATES,
+    _BOE_OPEN_DATA.provider: _BOE_OPEN_DATA,
     _FIXTURES.provider: _FIXTURES,
 }
 

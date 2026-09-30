@@ -22,13 +22,35 @@ from app.core.text import fold
 from app.costs.service import ApiBudgetExceededError, CostMeter
 from app.db.models.audit import AuditLog
 from app.db.models.compliance_evidence import ComplianceEvidence
+from app.db.models.national_anchor import NationalAnchor
+from app.db.models.national_transposition import NationalTransposition
 from app.db.models.product import Product
 from app.db.models.regulatory_anchor import RegulatoryAnchor
 from app.db.models.regulatory_requirement import RegulatoryRequirement
-from app.integrations.ports import IntegrationDomain, ProviderKind, RegulatoryAnchorSource, SourceAnchor
+from app.integrations.ports import (
+    IntegrationDomain,
+    NationalNormRecord,
+    NationalNormSource,
+    ProviderKind,
+    RegulatoryAnchorSource,
+    SourceAnchor,
+)
 from app.integrations.registry import ProviderRegistry
+from app.integrations.regulatory.boe import BoeConsolidatedSource, NationalSourceUnavailableError
 from app.integrations.regulatory.eur_lex import AnchorUnavailableError, validate_celex
 from app.integrations.usage_rights import UsageRight, permits
+from app.legal.national import (
+    ATTRIBUTION,
+    NOTICE,
+    NationalAnchorState,
+    TranspositionAssessment,
+    assess_transposition,
+    directive_key,
+    validate_national_id,
+)
+from app.legal.national import (
+    PROVIDER_NAME as NATIONAL_PROVIDER,
+)
 from app.legal.requirements import (
     SUPPORTED_JURISDICTION,
     ActType,
@@ -81,6 +103,23 @@ def _aware(value: datetime.datetime) -> datetime.datetime:
     return value if value.tzinfo else value.replace(tzinfo=datetime.UTC)
 
 
+def national_anchor_state_of(row: NationalAnchor) -> NationalAnchorState:
+    return NationalAnchorState(
+        national_id=row.national_id,
+        verified_at=_aware(row.verified_at),
+        recheck_after=_aware(row.recheck_after),
+        consolidated=row.consolidated,
+        metadata=dict(row.source_metadata or {}),
+        relations={
+            "previous": list((row.relations or {}).get("previous", [])),
+            "next": list((row.relations or {}).get("next", [])),
+        },
+        publication_state=row.publication_state,
+        provider=row.provider,
+        source_urls=tuple(row.source_urls or ()),
+    )
+
+
 def requirement_of(row: RegulatoryRequirement) -> DeclaredRequirement:
     return DeclaredRequirement(
         id=row.id,
@@ -120,11 +159,13 @@ class RegulatoryService:
         db: Session,
         *,
         source: RegulatoryAnchorSource | None = None,
+        national_source: NationalNormSource | None = None,
         settings: Settings | None = None,
         now: datetime.datetime | None = None,
     ) -> None:
         self._db = db
         self._source = source
+        self._national_source = national_source
         self._settings = settings or get_settings()
         self._now = now
 
@@ -443,6 +484,201 @@ class RegulatoryService:
             .filter_by(product_id=product_id, requirement_id=requirement_id)
             .order_by(ComplianceEvidence.created_at)
             .all()
+        )
+
+    # --- Derecho nacional (Milestone 43, ADR 0021) ---------------------------
+    #
+    # Una persona declara qué norma española traspone la directiva de un requisito;
+    # el sistema solo pregunta al BOE por esa norma. No busca, no propone, no infiere.
+
+    def declare_transposition(
+        self, *, actor: str, requirement_id: str, national_id: str, note: str | None = None
+    ) -> NationalTransposition:
+        requirement = self._get_active(requirement_id)
+        if directive_key(requirement.celex) is None:
+            raise ValidationError(
+                f"{requirement.celex} is not a directive: only a directive is transposed by "
+                "national law, and this milestone anchors nothing else"
+            )
+        national_id = validate_national_id(national_id)
+        if any(t.national_id == national_id for t in self.active_transpositions(requirement_id)):
+            raise ValidationError(
+                f"{national_id} is already declared as a transposition of this requirement"
+            )
+        row = NationalTransposition(
+            requirement_id=requirement_id,
+            national_id=national_id,
+            provenance=SupplierFactProvenance.DECLARED.value,
+            declared_by=actor,
+            note=_clean(note),
+        )
+        self._db.add(row)
+        self._db.flush()
+        self._audit_transposition(actor, "national_transposition.declare", row)
+        self._db.commit()
+        return row
+
+    def withdraw_transposition(self, transposition_id: str, *, actor: str) -> NationalTransposition:
+        row = self._db.get(NationalTransposition, transposition_id)
+        if row is None:
+            raise NotFoundError(f"national transposition {transposition_id} not found")
+        if row.withdrawn_at is not None:
+            raise ValidationError(f"national transposition {transposition_id} is already withdrawn")
+        row.withdrawn_at = self._clock()
+        self._audit_transposition(actor, "national_transposition.withdraw", row)
+        self._db.commit()
+        return row
+
+    def get_transposition(self, transposition_id: str) -> NationalTransposition:
+        row = self._db.get(NationalTransposition, transposition_id)
+        if row is None:
+            raise NotFoundError(f"national transposition {transposition_id} not found")
+        return row
+
+    def active_transpositions(self, requirement_id: str) -> list[NationalTransposition]:
+        return (
+            self._db.query(NationalTransposition)
+            .filter(
+                NationalTransposition.requirement_id == requirement_id,
+                NationalTransposition.withdrawn_at.is_(None),
+            )
+            .order_by(NationalTransposition.created_at)
+            .all()
+        )
+
+    def latest_national_anchor(self, national_id: str) -> NationalAnchor | None:
+        return (
+            self._db.query(NationalAnchor)
+            .filter_by(national_id=national_id)
+            .order_by(NationalAnchor.verified_at.desc())
+            .first()
+        )
+
+    def assess_transposition_row(
+        self, row: NationalTransposition, celex: str, anchor: NationalAnchor | None = None
+    ) -> TranspositionAssessment:
+        anchor = anchor if anchor is not None else self.latest_national_anchor(row.national_id)
+        return assess_transposition(
+            row.national_id,
+            national_anchor_state_of(anchor) if anchor else None,
+            celex,
+            self._clock(),
+        )
+
+    def _resolve_national_source(self, correlation_id: str) -> NationalNormSource:
+        if self._national_source is not None:
+            return self._national_source
+        if self._settings.national_law_provider is not ProviderKind.REAL:
+            raise SourceNotConfiguredError(
+                "no real national-law source is configured (NATIONAL_LAW_PROVIDER is not 'real'): "
+                "nothing is asked of the BOE, and nothing is assumed"
+            )
+        meter = CostMeter(
+            self._db, correlation_id=correlation_id, limits=self._settings.spend_limits
+        )
+        return BoeConsolidatedSource(meter=meter)
+
+    def verify_national(
+        self, national_id: str, *, correlation_id: str | None = None
+    ) -> NationalAnchor:
+        """Pregunta al BOE por una norma **ya declarada** y guarda lo que dijo.
+
+        Todo o nada: metadatos y análisis son el núcleo, y si cualquiera falla no se
+        guarda nada —un fallo no puede leerse después como «la fuente dijo que no»—.
+        La publicación oficial es auxiliar: su fallo se guarda como `check_failed`.
+
+        Lanza `NationalSourceUnavailableError`, `ApiBudgetExceededError` o
+        `SourceNotConfiguredError`."""
+        national_id = validate_national_id(national_id)
+        correlation_id = correlation_id or new_correlation_id()
+        source = self._resolve_national_source(correlation_id)
+        provider = getattr(source, "name", NATIONAL_PROVIDER)
+        # «Tener el dato no es tener permiso» (ADR 0015): sin derecho a guardarlo
+        # no se guarda ni se pregunta.
+        if not permits(provider, UsageRight.STORAGE):
+            raise SourceNotConfiguredError(
+                f"the usage rights of {provider} do not allow storing what it returns"
+            )
+        record = source.lookup(national_id)
+        row = self._store_national(record)
+        self._db.add(
+            AuditLog(
+                actor=f"system:{provider}",
+                action="national_anchor.verify",
+                resource=f"national_anchor:{national_id}",
+                before=None,
+                after={
+                    "consolidated": row.consolidated,
+                    "publication_state": row.publication_state,
+                    "verified_at": row.verified_at.isoformat(),
+                },
+                correlation_id=correlation_id,
+            )
+        )
+        self._db.commit()
+        return row
+
+    def _store_national(self, record: NationalNormRecord) -> NationalAnchor:
+        verified_at = record.retrieved_at
+        updated = record.metadata.get("fecha_actualizacion")
+        row = NationalAnchor(
+            national_id=record.national_id,
+            provider=record.provider,
+            provenance=SupplierFactProvenance.THIRD_PARTY_VERIFIED.value,
+            verified_at=verified_at,
+            recheck_after=verified_at
+            + datetime.timedelta(days=self._settings.legal_anchor_recheck_days),
+            consolidated=record.consolidated,
+            informational=True,
+            notice=NOTICE,
+            attribution=ATTRIBUTION,
+            source_metadata=dict(record.metadata) or None,
+            source_updated_at=str(updated) if updated else None,
+            relations=record.relations or None,
+            publication_state=record.publication.state,
+            publication_detail=record.publication.detail,
+            publication_url=record.publication.url,
+            source_urls=list(record.source_urls) or None,
+        )
+        self._db.add(row)
+        self._db.flush()
+        return row
+
+    def ensure_fresh_national(
+        self, national_id: str, *, correlation_id: str
+    ) -> tuple[NationalAnchor | None, str | None]:
+        """La comprobación vigente de una norma nacional, repitiéndola si venció la
+        política. Devuelve `(ancla, motivo_del_fallo)`. Si no se puede preguntar, se
+        conserva la anterior —que seguirá marcada como vencida— y se devuelve el
+        motivo: el análisis pedirá revisión, no concluirá nada."""
+        current = self.latest_national_anchor(national_id)
+        now = self._clock()
+        if current is not None and now <= _aware(current.recheck_after):
+            return current, None
+        try:
+            return self.verify_national(national_id, correlation_id=correlation_id), None
+        except (
+            NationalSourceUnavailableError,
+            ApiBudgetExceededError,
+            SourceNotConfiguredError,
+        ) as exc:
+            logger.warning("could not check %s: %s", national_id, exc)
+            return current, str(exc)
+
+    def _audit_transposition(self, actor: str, action: str, row: NationalTransposition) -> None:
+        self._db.add(
+            AuditLog(
+                actor=actor,
+                action=action,
+                resource=f"national_transposition:{row.id}",
+                before=None,
+                after={
+                    "requirement_id": row.requirement_id,
+                    "national_id": row.national_id,
+                    "provenance": row.provenance,
+                },
+                correlation_id=new_correlation_id(),
+            )
         )
 
     def _audit(self, actor: str, action: str, row: RegulatoryRequirement, *, before: dict | None) -> None:

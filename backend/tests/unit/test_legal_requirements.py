@@ -260,7 +260,11 @@ def test_a_restriction_under_a_directive_without_transposition_is_not_blocked():
     assert result.status is LegalStatus.REVIEW_REQUIRED
 
 
-def test_a_directive_with_a_declared_transposition_and_evidence_passes():
+def test_a_directive_with_only_a_free_text_transposition_no_longer_passes():
+    """Milestone 43 (ADR 0021) endurece el Milestone 41: el texto libre es una
+    declaración humana, se conserva y se muestra, pero ya no basta. `PASS` exige una
+    transposición estructurada verificada y corroborada
+    (`test_national_transposition.py`)."""
     req = requirement(
         transposition_reference="Real Decreto 187/2016",
         transposition_provenance=DECLARED,
@@ -268,7 +272,8 @@ def test_a_directive_with_a_declared_transposition_and_evidence_passes():
 
     result = assess(req, state=anchor(act_type=ActType.DIRECTIVE))
 
-    assert result.status is LegalStatus.PASS
+    assert result.status is LegalStatus.REVIEW_REQUIRED
+    assert "human declaration only" in result.reasons[0]
 
 
 @pytest.mark.parametrize("act_type", [ActType.OTHER, ActType.UNKNOWN])

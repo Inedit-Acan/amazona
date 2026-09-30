@@ -410,6 +410,79 @@ _ECB_REFERENCE_RATES = ProviderRights(
 )
 
 
+#: Legislación consolidada y sumarios de la API de datos abiertos del BOE
+#: (Milestone 43, ADR 0021). Leído el 29-09-2026 en el aviso legal de la AEBOE
+#: (`boe.es/informacion/aviso_legal/`, «Condiciones de reutilización», licencia tipo
+#: de la Resolución de 27-06-2024, vigente desde el 28-06-2024) y en las FAQ de la API
+#: consolidada.
+#:
+#: **Lo que dice:** la reutilización está autorizada «para fines comerciales y no
+#: comerciales», incluida «la modificación, adaptación, extracción, reordenación y
+#: combinación» para crear productos de valor añadido. Condiciones: citar la fuente
+#: («Basado en datos de la Agencia Estatal Boletín Oficial del Estado» cuando hay
+#: obra derivada, con enlace a boe.es); en legislación consolidada, indicar
+#: **expresamente** que es un texto consolidado de carácter meramente informativo;
+#: mencionar la fecha de última actualización y conservar los metadatos de fecha;
+#: identificar toda modificación; no desnaturalizar la información ni sugerir que es
+#: oficial o que la AEBOE la respalda.
+#:
+#: **Lo que NO dice:** nada sobre ingestión por sistemas de IA: queda `UNKNOWN`,
+#: denegado. Los demás permisos se leen de la autorización general y de la ausencia
+#: de una restricción específica; **no** son una autorización expresa de cada uso.
+#:
+#: **Lo que se guarda:** metadatos, banderas de estado y relaciones del análisis,
+#: verbatim. **No** el texto de las normas. Y la propia fuente advierte de que la
+#: consolidación y el análisis son informativos: solo los diarios oficiales son
+#: auténticos. Esa limitación viaja con el dato hasta la pantalla.
+_BOE_OPEN_DATA = ProviderRights(
+    provider="boe-open-data",
+    source=(
+        "https://www.boe.es/informacion/aviso_legal/index.php#reutilizacion — condiciones de "
+        "reutilización; y https://www.boe.es/datosabiertos/faq/consolidada.php"
+    ),
+    verified_on=datetime.date(2026, 9, 29),
+    rights={
+        UsageRight.STORAGE: RightStatus.ALLOWED,
+        UsageRight.RETENTION: RightStatus.ALLOWED,
+        UsageRight.TRANSFORMATION: RightStatus.ALLOWED,
+        UsageRight.DERIVED_METRICS: RightStatus.ALLOWED,
+        UsageRight.SCORING: RightStatus.ALLOWED,
+        UsageRight.AI_INGESTION: RightStatus.UNKNOWN,
+        UsageRight.REDISTRIBUTION: RightStatus.ALLOWED,
+        UsageRight.COMMERCIAL_USE: RightStatus.ALLOWED,
+    },
+    attribution=AttributionRequirement.REQUIRED,
+    notes={
+        UsageRight.STORAGE: (
+            "Metadatos, banderas y relaciones. El texto de las normas no se guarda."
+        ),
+        UsageRight.RETENTION: (
+            "Sin plazo escrito. Las comprobaciones no se borran: una decisión legal tiene que "
+            "poder reconstruirse."
+        ),
+        UsageRight.TRANSFORMATION: (
+            "La normalización de forma (banderas S/N, códigos) es una adaptación: la cita de obra "
+            "derivada aplica y los datos de fecha se conservan sin alterar."
+        ),
+        UsageRight.DERIVED_METRICS: (
+            "La corroboración de una transposición es una cifra derivada: se identifica como tal."
+        ),
+        UsageRight.SCORING: "Sin restricción específica. No entra en `opportunity_score`.",
+        UsageRight.AI_INGESTION: (
+            "Los términos no dicen nada. Sin resolver, y por tanto denegado. Coherente con el plan "
+            "maestro §26: no hay LLM en el camino de decisión legal."
+        ),
+        UsageRight.REDISTRIBUTION: (
+            "Permitido con cita, fecha de actualización y el aviso de que el texto consolidado es "
+            "meramente informativo."
+        ),
+        UsageRight.COMMERCIAL_USE: (
+            "La licencia autoriza expresamente fines comerciales y no comerciales."
+        ),
+    },
+)
+
+
 #: Registro por proveedor. Un proveedor que no esté aquí **no tiene permisos**,
 #: no porque se le presuma nada, sino porque nadie ha leído su licencia. Hay un
 #: test que falla si un adaptador real se registra sin su entrada.
@@ -420,6 +493,7 @@ USAGE_RIGHTS: dict[str, ProviderRights] = {
     _EBAY_BROWSE.provider: _EBAY_BROWSE,
     _EUR_LEX_CELLAR.provider: _EUR_LEX_CELLAR,
     _ECB_REFERENCE_RATES.provider: _ECB_REFERENCE_RATES,
+    _BOE_OPEN_DATA.provider: _BOE_OPEN_DATA,
 }
 
 

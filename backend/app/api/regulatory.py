@@ -17,11 +17,15 @@ from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
 from app.costs.service import ApiBudgetExceededError
 from app.db.models.compliance_evidence import ComplianceEvidence
+from app.db.models.national_anchor import NationalAnchor
+from app.db.models.national_transposition import NationalTransposition
 from app.db.models.product import Product
 from app.db.models.regulatory_anchor import RegulatoryAnchor
 from app.db.models.regulatory_requirement import RegulatoryRequirement
 from app.db.session import get_db
+from app.integrations.regulatory.boe import NationalSourceUnavailableError
 from app.integrations.regulatory.eur_lex import AnchorUnavailableError
+from app.legal.national import ATTRIBUTION, NOTICE, TranspositionAssessment, official_url
 from app.legal.regulatory import RegulatoryService, SourceNotConfiguredError, anchor_state_of
 from app.legal.requirements import existence_of
 from app.permissions.policies import ApiAction
@@ -66,6 +70,70 @@ class AnchorOut(BaseModel):
     source_url: str
 
 
+class TranspositionIn(BaseModel):
+    """Una persona declara qué norma española traspone la directiva del requisito.
+    El sistema no la propone ni la busca."""
+
+    national_id: str = Field(min_length=1, max_length=32)
+    note: str | None = None
+
+
+class NationalAnchorOut(BaseModel):
+    """Lo que el BOE dijo, tal como lo entregó. **Informativo**: la consolidación y
+    el análisis no tienen valor oficial."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    national_id: str
+    provider: str
+    provenance: str
+    verified_at: datetime.datetime
+    recheck_after: datetime.datetime
+    consolidated: bool
+    informational: bool
+    notice: str
+    attribution: str
+    source_metadata: dict | None
+    source_updated_at: str | None
+    relations: dict | None
+    publication_state: str
+    publication_detail: str | None
+    publication_url: str | None
+    source_urls: list | None
+
+
+class AssessmentOut(BaseModel):
+    """La evaluación **ahora**. Cada capa por separado."""
+
+    state: str
+    corroboration: str
+    corroboration_reason: str
+    ok: bool
+    reasons: list[str]
+    matching_relations: list[dict]
+    flagged_relations: list[dict]
+
+
+class TranspositionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    requirement_id: str
+    national_id: str
+    #: Siempre `declared`: la relación la sostiene quien la declara.
+    provenance: str
+    declared_by: str
+    note: str | None
+    created_at: datetime.datetime
+    #: Enlace oficial estable a la disposición, construido del identificador.
+    official_url: str = ""
+    #: Lo que la fuente exige mostrar junto a sus datos.
+    notice: str = NOTICE
+    attribution: str = ATTRIBUTION
+    anchor: NationalAnchorOut | None = None
+    assessment: AssessmentOut | None = None
+
+
 class RequirementOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -90,6 +158,9 @@ class RequirementOut(BaseModel):
     #: La situación de la comprobación **ahora**: `never_checked`, `stale`,
     #: `verified_in_force`… Es independiente de la aplicabilidad.
     existence: str = "never_checked"
+    #: Las transposiciones nacionales estructuradas (Milestone 43). El texto libre
+    #: `transposition_reference` de arriba sigue siendo la declaración humana.
+    national_transpositions: list[TranspositionOut] = []
 
 
 class EvidenceIn(BaseModel):
@@ -116,9 +187,36 @@ class EvidenceOut(BaseModel):
     created_at: datetime.datetime
 
 
+def _assessment_out(item: TranspositionAssessment) -> AssessmentOut:
+    return AssessmentOut(
+        state=item.state.value,
+        corroboration=item.corroboration.value,
+        corroboration_reason=item.corroboration_reason,
+        ok=item.ok,
+        reasons=list(item.reasons),
+        matching_relations=[dict(r) for r in item.matching_relations],
+        flagged_relations=[dict(r) for r in item.flagged_relations],
+    )
+
+
+def _transposition_out(
+    row: NationalTransposition, celex: str, service: RegulatoryService
+) -> TranspositionOut:
+    anchor: NationalAnchor | None = service.latest_national_anchor(row.national_id)
+    out = TranspositionOut.model_validate(row)
+    out.official_url = official_url(row.national_id)
+    if anchor is not None:
+        out.anchor = NationalAnchorOut.model_validate(anchor)
+    out.assessment = _assessment_out(service.assess_transposition_row(row, celex, anchor))
+    return out
+
+
 def _out(row: RegulatoryRequirement, service: RegulatoryService) -> RequirementOut:
     anchor = service.latest_anchor(row.celex)
     out = RequirementOut.model_validate(row)
+    out.national_transpositions = [
+        _transposition_out(t, row.celex, service) for t in service.active_transpositions(row.id)
+    ]
     if anchor is not None:
         out.anchor = AnchorOut.model_validate(anchor)
         out.existence = existence_of(
@@ -197,6 +295,66 @@ def verify_requirement(
         # 502: la fuente no contestó bien. No se guarda nada: un fallo no puede
         # leerse después como «la fuente dijo que no existe».
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post(
+    "/api/regulatory-requirements/{requirement_id}/national-transpositions",
+    response_model=TranspositionOut,
+    status_code=201,
+)
+def declare_transposition(
+    requirement_id: str,
+    payload: TranspositionIn,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(authorize(ApiAction.REGULATORY_WRITE)),
+) -> TranspositionOut:
+    """Una persona declara qué norma española traspone la directiva del requisito
+    (Milestone 43, ADR 0021). El sistema no la propone: la verificará contra el BOE."""
+    service = RegulatoryService(db)
+    row = service.declare_transposition(
+        actor=actor.audit_name, requirement_id=requirement_id, **payload.model_dump()
+    )
+    requirement = db.get(RegulatoryRequirement, requirement_id)
+    assert requirement is not None
+    return _transposition_out(row, requirement.celex, service)
+
+
+@router.post("/api/national-transpositions/{transposition_id}/verify", response_model=TranspositionOut)
+def verify_transposition(
+    transposition_id: str,
+    db: Session = Depends(get_db),
+    _actor: Actor = Depends(authorize(ApiAction.REGULATORY_WRITE)),
+) -> TranspositionOut:
+    """Pregunta al BOE por la norma declarada. Es una llamada externa: pasa por el
+    contador de coste y por la matriz de derechos. Un fallo no guarda nada."""
+    service = RegulatoryService(db)
+    row = service.get_transposition(transposition_id)
+    requirement = db.get(RegulatoryRequirement, row.requirement_id)
+    assert requirement is not None
+    try:
+        service.verify_national(row.national_id)
+    except SourceNotConfiguredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ApiBudgetExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except NationalSourceUnavailableError as exc:
+        # 502: la fuente no contestó bien. No se guarda nada: un fallo no puede
+        # leerse después como «la fuente dice que no».
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _transposition_out(row, requirement.celex, service)
+
+
+@router.post("/api/national-transpositions/{transposition_id}/withdraw", response_model=TranspositionOut)
+def withdraw_transposition(
+    transposition_id: str,
+    db: Session = Depends(get_db),
+    actor: Actor = Depends(authorize(ApiAction.REGULATORY_WRITE)),
+) -> TranspositionOut:
+    service = RegulatoryService(db)
+    row = service.withdraw_transposition(transposition_id, actor=actor.audit_name)
+    requirement = db.get(RegulatoryRequirement, row.requirement_id)
+    assert requirement is not None
+    return _transposition_out(row, requirement.celex, service)
 
 
 @router.get("/api/products/{product_id}/compliance-evidence", response_model=list[EvidenceOut])

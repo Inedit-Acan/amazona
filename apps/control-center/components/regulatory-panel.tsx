@@ -26,6 +26,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { NationalTranspositions } from "@/components/national-transpositions";
+import { isDirectiveCelex } from "@/lib/national-transposition";
 import { cn } from "@/lib/utils";
 
 const FIELD_CLASS =
@@ -178,12 +180,7 @@ export function RegulatoryPanel({
                       ) : null}
                     </p>
                   ) : null}
-                  {r.anchor?.act_type === "directive" && !r.transposition_reference ? (
-                    <p className="text-xs text-warning">
-                      Es una directiva y no hay transposición nacional declarada: mientras falte, no se puede concluir
-                      PASS.
-                    </p>
-                  ) : null}
+                  {isDirectiveCelex(r.celex) ? <NationalTranspositions requirement={r} /> : null}
                   {result && result.reasons.length > 0 ? (
                     <ul className="list-disc space-y-0.5 pl-4 text-xs text-warning">
                       {result.reasons.map((reason) => (

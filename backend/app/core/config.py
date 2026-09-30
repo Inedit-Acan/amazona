@@ -147,6 +147,12 @@ class Settings(BaseSettings):
     #: Cuántos días puede tener una referencia del BCE. Las tasas declaradas a mano
     #: conservan sus 30 días (Milestone 40). No puede superarlos.
     ecb_rate_max_age_days: int = Field(default=7, ge=1, le=30)
+    #: De dónde sale el Derecho nacional (Milestone 43, ADR 0021). `mock` (por
+    #: defecto) no llama a nadie: las transposiciones declaradas quedan sin
+    #: comprobar. `real` habilita la comprobación contra el BOE. Independiente de
+    #: `REGULATORY_PROVIDER` (EUR-Lex) para poder activar una sin la otra y, algún
+    #: día, otro país.
+    national_law_provider: ProviderKind = ProviderKind.MOCK
     ads_provider: ProviderKind = ProviderKind.MOCK
     marketplaces_provider: ProviderKind = ProviderKind.MOCK
 

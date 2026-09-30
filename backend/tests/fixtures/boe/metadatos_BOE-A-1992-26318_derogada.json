@@ -1,0 +1,41 @@
+{
+    "status": {
+        "code": "200",
+        "text": "ok"
+    },
+    "data": [
+        {
+            "fecha_actualizacion": "20260929T113003Z",
+            "identificador": "BOE-A-1992-26318",
+            "ambito": {
+                "codigo": "1",
+                "texto": "Estatal"
+            },
+            "departamento": {
+                "codigo": "7723",
+                "texto": "Jefatura del Estado"
+            },
+            "rango": {
+                "codigo": "1300",
+                "texto": "Ley"
+            },
+            "fecha_disposicion": "19921126",
+            "numero_oficial": "30\/1992",
+            "titulo": "Ley 30\/1992, de 26 de noviembre, de R\u00e9gimen Jur\u00eddico de las Administraciones P\u00fablicas y del Procedimiento Administrativo Com\u00fan.",
+            "diario": "Bolet\u00edn Oficial del Estado",
+            "fecha_publicacion": "19921127",
+            "diario_numero": "285",
+            "fecha_vigencia": "19930227",
+            "estatus_derogacion": "S",
+            "fecha_derogacion": "20210402",
+            "estatus_anulacion": "N",
+            "vigencia_agotada": "S",
+            "estado_consolidacion": {
+                "codigo": "3",
+                "texto": "Finalizado"
+            },
+            "url_eli": "https:\/\/www.boe.es\/eli\/es\/l\/1992\/11\/26\/30",
+            "url_html_consolidada": "https:\/\/www.boe.es\/buscar\/act.php?id=BOE-A-1992-26318"
+        }
+    ]
+}

@@ -1,0 +1,144 @@
+{
+    "status": {
+        "code": "200",
+        "text": "ok"
+    },
+    "data": [
+        {
+            "materias": [
+                {
+                    "materia": {
+                        "codigo": "6497",
+                        "texto": "Seguridad industrial"
+                    }
+                }
+            ],
+            "referencias": {
+                "anteriores": [
+                    {
+                        "anterior": [
+                            {
+                                "id_norma": "BOE-A-1990-16514",
+                                "relacion": {
+                                    "codigo": "210",
+                                    "texto": "DEROGA"
+                                },
+                                "texto": ", excepto el art. 2.1 y el anexo II.II.3, el Real Decreto 880\/1990, de 29 de junio"
+                            },
+                            {
+                                "id_norma": "DOUE-L-2009-81173",
+                                "relacion": {
+                                    "codigo": "426",
+                                    "texto": "TRANSPONE"
+                                },
+                                "texto": "la Directiva 2009\/48\/CE, de 18 de junio de 2009"
+                            },
+                            {
+                                "id_norma": "DOUE-L-2008-81672",
+                                "relacion": {
+                                    "codigo": "440",
+                                    "texto": "DE CONFORMIDAD con"
+                                },
+                                "texto": "la Decisi\u00f3n 768\/2008\/CE, de 9 de julio"
+                            },
+                            {
+                                "id_norma": "DOUE-L-2008-81669",
+                                "relacion": {
+                                    "codigo": "330",
+                                    "texto": "CITA"
+                                },
+                                "texto": "Reglamento 765\/2008, de 9 de julio"
+                            }
+                        ]
+                    }
+                ],
+                "posteriores": [
+                    {
+                        "posterior": [
+                            {
+                                "id_norma": "BOE-A-2026-18261",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": "el anexo II, por Orden PJC\/903\/2026, de 26 de agosto"
+                            },
+                            {
+                                "id_norma": "BOE-A-2022-18041",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": ", con efectos desde el 4 de diciembre de 2022, el anexo II, por Orden PCM\/1048\/2022, de 1 de noviembre"
+                            },
+                            {
+                                "id_norma": "BOE-A-2022-9984",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": ", con efectos desde el 5 de julio, el anexo II, por Orden PCM\/544\/2022, de 15 de junio"
+                            },
+                            {
+                                "id_norma": "BOE-A-2020-13799",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": ", con los efectos indicados, el anexo II.III.13 y ap\u00e9ndice C, por Orden PCM\/1042\/2020, de 6 de noviembre"
+                            },
+                            {
+                                "id_norma": "BOE-A-2019-10810",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": "el anexo II, por Orden PCI\/791\/2019, de 18 de julio"
+                            },
+                            {
+                                "id_norma": "BOE-A-2018-6896",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": "el anexo II, por Orden PRA\/516\/2018, de 22 de mayo"
+                            },
+                            {
+                                "id_norma": "BOE-A-2016-12221",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": "el ap\u00e9ndice C del anexo II, por Orden PRA\/1942\/2016, de 22 de diciembre"
+                            },
+                            {
+                                "id_norma": "BOE-A-2015-8570",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": "el anexo II, ap\u00e9ndices A y, con efectos desde el 21 de diciembre de 2015, el C, por Orden PRE\/1567\/2015, de 28 de julio"
+                            },
+                            {
+                                "id_norma": "BOE-A-2013-1555",
+                                "relacion": {
+                                    "codigo": "270",
+                                    "texto": "SE MODIFICA"
+                                },
+                                "texto": ", con efectos de 20 de julio de 2013, el anexo II.III, por Orden PRE\/193\/2013, de 7 de febrero"
+                            },
+                            {
+                                "id_norma": "BOE-A-2011-14344",
+                                "relacion": {
+                                    "codigo": "201",
+                                    "texto": "CORRECCI\u00d3N de errores"
+                                },
+                                "texto": "en BOE n\u00fam. 212 de 3 de septiembre de 2011"
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}

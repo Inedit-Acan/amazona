@@ -553,6 +553,70 @@ class ExchangeRateFeed(Protocol):
     def fetch_history(self) -> list[ReferenceRateSet]: ...
 
 
+@dataclass(frozen=True)
+class PublicationCheck:
+    """Lo que se pudo comprobar de la **publicación oficial** de una norma nacional
+    (Milestone 43, ADR 0021). Es una comprobación **auxiliar**.
+
+    Cuatro estados, y ninguno de «falló» se lee como «no existe»:
+
+    - `confirmed`: el sumario del diario oficial de ese día lista el identificador.
+    - `absent_from_summary`: el sumario se leyó bien y **no** lo lista. Es la
+      única respuesta negativa, y solo existe si la lectura fue correcta.
+    - `check_failed`: no se pudo preguntar o no se pudo leer (red, formato,
+      presupuesto). **No es una conclusión.**
+    - `not_checked`: no había con qué preguntar (sin fecha de publicación) o no
+      aplica (antes de 2009 solo es oficial la edición en papel).
+    """
+
+    state: str
+    detail: str | None = None
+    #: Enlace oficial estable a la disposición, cuando se puede construir.
+    url: str | None = None
+
+
+@dataclass(frozen=True)
+class NationalNormRecord:
+    """Lo que una fuente de Derecho nacional dijo de **una norma que alguien
+    nombró** (Milestone 43, ADR 0021).
+
+    No dice a qué producto se aplica ni qué directiva traspone «por sí misma»: da
+    los metadatos de la norma y las relaciones que su análisis documenta, **tal
+    como la fuente los entrega**. Ni la consolidación ni el análisis son texto
+    oficial: son informativos.
+    """
+
+    provider: str
+    national_id: str
+    retrieved_at: datetime.datetime
+    #: `False` cuando la fuente respondió que no tiene esa norma **consolidada**.
+    #: No dice que la norma no exista: puede no estar en la colección.
+    consolidated: bool
+    #: Los metadatos, verbatim (fechas como cadena `AAAAMMDD`, banderas `S`/`N`).
+    metadata: dict[str, object] = field(default_factory=dict)
+    #: Las relaciones del análisis, normalizadas en forma pero **no en contenido**:
+    #: `{"previous": [...], "next": [...]}` con `id_norma`, código, texto de la
+    #: relación y texto de detalle.
+    relations: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    publication: PublicationCheck = field(default_factory=lambda: PublicationCheck("not_checked"))
+    source_urls: tuple[str, ...] = ()
+
+
+class NationalNormSource(Protocol):
+    """Una fuente que ancla una norma nacional **ya declarada**.
+
+    Puerto hermano de `RegulatoryAnchorSource`, no una generalización suya: aquel
+    devuelve existencia y vigencia de un acto de la UE; este devuelve metadatos,
+    banderas de estado y relaciones de una norma nacional cuyo texto consolidado
+    es meramente informativo. Forzar los dos en un solo contrato dejaría campos
+    vacíos en cada uno y mezclaría lo oficial con lo informativo.
+    """
+
+    name: str
+
+    def lookup(self, national_id: str) -> NationalNormRecord: ...
+
+
 class AdPerformanceDirectory(Protocol):
     """Expected advertising performance for a category on a platform."""
 

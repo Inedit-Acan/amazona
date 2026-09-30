@@ -12,6 +12,7 @@ from app.db.models.supplier import Supplier
 from app.db.models.supplier_quote import SupplierQuote
 from app.integrations.ports import IntegrationDomain, ProviderKind
 from app.integrations.registry import ProviderRegistry
+from app.legal.national import ATTRIBUTION, NOTICE, official_url
 from app.legal.regulatory import (
     RegulatoryService,
     anchor_state_of,
@@ -172,6 +173,7 @@ class LegalComplianceService:
         assessments: list[RequirementAssessment] = []
         source_errors: dict[str, str] = {}
         source_down = False
+        national_down = False
         for row in regulatory.active_for(scope=product.category, jurisdiction=market):
             if source_down:
                 # Una vez que la fuente ha fallado en este análisis no se insiste
@@ -188,12 +190,34 @@ class LegalComplianceService:
                     source_errors[row.celex] = failure
                     source_down = True
             evidence = [evidence_item_of(e) for e in regulatory.evidence_for(product.id, row.id)]
+
+            # Transposiciones nacionales declaradas (Milestone 43): igual que con
+            # EUR-Lex, si el BOE falla una vez no se insiste con cada norma.
+            transpositions = []
+            for transposition in regulatory.active_transpositions(row.id):
+                if national_down:
+                    national_row = regulatory.latest_national_anchor(transposition.national_id)
+                    source_errors[transposition.national_id] = (
+                        "not asked: the source already failed in this analysis"
+                    )
+                else:
+                    national_row, failure = regulatory.ensure_fresh_national(
+                        transposition.national_id, correlation_id=correlation_id
+                    )
+                    if failure:
+                        source_errors[transposition.national_id] = failure
+                        national_down = True
+                transpositions.append(
+                    regulatory.assess_transposition_row(transposition, row.celex, national_row)
+                )
+
             assessments.append(
                 assess_requirement(
                     requirement_of(row),
                     anchor_state_of(anchor_row) if anchor_row else None,
                     evidence,
                     now=now,
+                    transpositions=transpositions,
                 )
             )
 
@@ -289,8 +313,54 @@ def _requirement_data(a: RequirementAssessment) -> dict:
         },
         # 3. Evidencia de cumplimiento del producto.
         "compliance": {"state": a.compliance.value},
+        # Lo que una persona escribió en texto libre (M41): declaración humana y pista
+        # de auditoría. No basta para `PASS`.
         "transposition": {
             "reference": r.transposition_reference,
             "provenance": r.transposition_provenance.value if r.transposition_provenance else None,
         },
+        # Transposiciones nacionales estructuradas (M43). Cada una separa las capas:
+        # norma declarada, estado según la fuente, publicación oficial, relación con
+        # la norma UE. **Consolidación y análisis son meramente informativos.**
+        "national": [_national_data(t) for t in a.national],
+    }
+
+
+def _national_data(t) -> dict:  # type: ignore[no-untyped-def]
+    anchor = t.anchor
+    metadata = anchor.metadata if anchor else {}
+    return {
+        "national_id": t.national_id,
+        "state": t.state.value,
+        "ok": t.ok,
+        "reasons": list(t.reasons),
+        "declared": {"provenance": "declared"},
+        "source_status": {
+            "consolidated": anchor.consolidated if anchor else None,
+            "title": metadata.get("titulo"),
+            "fecha_publicacion": metadata.get("fecha_publicacion"),
+            "fecha_vigencia": metadata.get("fecha_vigencia"),
+            "estatus_derogacion": metadata.get("estatus_derogacion"),
+            "fecha_derogacion": metadata.get("fecha_derogacion"),
+            "estatus_anulacion": metadata.get("estatus_anulacion"),
+            "vigencia_agotada": metadata.get("vigencia_agotada"),
+            "estado_consolidacion": metadata.get("estado_consolidacion"),
+            "fecha_actualizacion": metadata.get("fecha_actualizacion"),
+            "url_eli": metadata.get("url_eli"),
+            "verified_at": anchor.verified_at.isoformat() if anchor else None,
+            "recheck_after": anchor.recheck_after.isoformat() if anchor else None,
+        },
+        "publication": {
+            "state": anchor.publication_state if anchor else None,
+            "official_url": official_url(t.national_id),
+        },
+        "eu_relation": {
+            "corroboration": t.corroboration.value,
+            "reason": t.corroboration_reason,
+            "matching_relations": list(t.matching_relations),
+            "flagged_relations": list(t.flagged_relations),
+        },
+        "informational": True,
+        "notice": NOTICE,
+        "attribution": ATTRIBUTION,
     }
