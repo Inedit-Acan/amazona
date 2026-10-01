@@ -90,6 +90,17 @@ class ExternalActionAdapter(Protocol):
         ...
 
 
+@runtime_checkable
+class LookupCapableAdapter(ExternalActionAdapter, Protocol):
+    """Un adaptador que además sabe **consultar** si ejecutó una operación, por su clave.
+
+    Es la única forma en que el sistema puede afirmar «no hubo efecto» tras un timeout sin que lo haga una
+    persona: `lookup` devuelve la respuesta de la operación si existe y `None` si el proveedor asegura que no
+    existe. No es lo mismo que no poder alcanzar al proveedor: eso es un `ProviderError`, no un `None`."""
+
+    def lookup(self, idempotency_key: str) -> ActionResponse | None: ...
+
+
 def derive_idempotency_key(reference: str, sequence: int) -> str:
     """La clave hacia el proveedor: de `(sitio, operación)`, nada más.
 

@@ -130,6 +130,25 @@ RLS desde su propia migración (ADR 0003), sin `FORCE`.
 prueba de que su ejecutor ya no está. Tras `resolve-action`, la ejecución se reanuda con `resume`: si el efecto
 ocurrió, el paso solo lo registra; si no, abre una operación nueva.
 
+## Contrato de un adaptador con efecto (lo que M44 tendrá que cumplir)
+
+Un adaptador que **escribe** en un proveedor implementa `ExternalActionAdapter` y pasa la batería de conformidad
+(`tests/integration/adapter_contract.py`) con su transporte falso **antes** de que el pipeline lo use:
+
+1. **Declara** su `name` y `supports_idempotency`; las capacidades no se infieren.
+2. Si declara `True`, repetir `execute` con la misma clave **no repite el efecto** y devuelve la misma respuesta; otra clave es
+   otra operación. Un adaptador que dice `True` y repite el efecto es peor que uno que dice `False`: la batería lo detecta.
+3. Si declara `False`, el servicio **no le manda clave** y nunca le repite una petición: su `UNKNOWN_OUTCOME` solo se cierra por
+   `lookup` o por una persona.
+4. Si sabe consultar, implementa `LookupCapableAdapter.lookup(clave)`: devuelve la respuesta de lo que ejecutó y `None`
+   **solo** de lo que el proveedor asegura que no existe. No poder alcanzar al proveedor es un `ProviderError`, nunca un `None`.
+5. Lanza `ProviderRejectedError` o `ProviderUnreachableError` **solo** cuando sabe que no hubo efecto; un timeout es
+   `ProviderTimeoutError`. Todo lo demás se trata como desconocido, así que equivocarse hacia «no sé» es siempre seguro.
+6. No lee configuración ni credenciales por su cuenta, y no decide si puede ejecutarse: eso es del `ActionGate`.
+
+Los adaptadores de los tests son falsos y cuentan los efectos que habrían tenido en el mundo real
+(`tests/integration/action_test_support.py`); ninguna prueba habla con un proveedor de verdad.
+
 ## Consecuencias
 
 - Ningún camino libera una reserva sin saber que no hubo efecto, ni repite un efecto sin la misma clave.

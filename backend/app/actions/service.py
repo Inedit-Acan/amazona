@@ -25,6 +25,7 @@ from app.actions.contract import (
     ActionResponse,
     ActionStatus,
     ExternalActionAdapter,
+    LookupCapableAdapter,
     ProviderRejectedError,
     ProviderTimeoutError,
     ProviderUnreachableError,
@@ -308,10 +309,9 @@ class ExternalActionService:
         Un timeout al reconciliar tampoco resuelve nada: sigue desconocido."""
         if action.status != ActionStatus.UNKNOWN_OUTCOME.value:
             return ActionStatus(action.status)
-        lookup = getattr(adapter, "lookup", None)
         try:
-            if callable(lookup):
-                found = lookup(action.idempotency_key)
+            if isinstance(adapter, LookupCapableAdapter):
+                found = adapter.lookup(action.idempotency_key)
                 self._close_unknown(
                     action,
                     ActionStatus.SUCCEEDED if found is not None else ActionStatus.FAILED_CONFIRMED,
