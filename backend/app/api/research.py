@@ -1,17 +1,19 @@
 import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
 from app.auth.dependencies import authorize
+from app.core.config import Settings, get_settings
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.product import Product as ProductModel
 from app.db.models.product_analysis import ProductAnalysis as ProductAnalysisModel
 from app.db.models.research_comparison import ResearchComparison as ResearchComparisonModel
 from app.db.session import get_db
+from app.idempotency.service import IdempotencyKeyHeader, run_idempotent
 from app.permissions.policies import ApiAction
 from app.research.comparison_service import ResearchComparisonService
 from app.research.service import ResearchService
@@ -94,19 +96,36 @@ def _load_run(correlation_id: str, db: Session) -> ResearchRunOut:
 @router.post("/runs", response_model=ResearchRunOut, status_code=201)
 def create_research_run(
     payload: ResearchRunCreate,
+    response: Response,
     db: Session = Depends(get_db),
-    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+    identity: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
 ) -> ResearchRunOut:
-    correlation_id = new_correlation_id()
-    products = ResearchService(db).run_research(
-        category=payload.category,
-        keywords=payload.keywords,
-        max_results=payload.max_results,
-        correlation_id=correlation_id,
+    def work() -> ResearchRunOut:
+        correlation_id = new_correlation_id()
+        products = ResearchService(db).run_research(
+            category=payload.category,
+            keywords=payload.keywords,
+            max_results=payload.max_results,
+            correlation_id=correlation_id,
+        )
+        if not products:
+            return ResearchRunOut(correlation_id=correlation_id, candidates=[])
+        return _load_run(correlation_id, db)
+
+    return run_idempotent(
+        db,
+        scope="research.run",
+        identity=identity,
+        client_key=idempotency_key,
+        settings=settings,
+        payload=payload.model_dump(),
+        response=response,
+        status_code=201,
+        response_model=ResearchRunOut,
+        work=work,
     )
-    if not products:
-        return ResearchRunOut(correlation_id=correlation_id, candidates=[])
-    return _load_run(correlation_id, db)
 
 
 @router.get("/runs/{correlation_id}", response_model=ResearchRunOut)
@@ -117,8 +136,11 @@ def get_research_run(correlation_id: str, db: Session = Depends(get_db)) -> Rese
 @router.post("/comparisons", response_model=ComparisonOut, status_code=201)
 def create_research_comparison(
     payload: ComparisonCreate,
+    response: Response,
     db: Session = Depends(get_db),
     identity: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
 ) -> ResearchComparisonModel:
     """Contrasta lo que mide la fuente real con lo que se inventa el mock
     (Milestone 35).
@@ -128,12 +150,23 @@ def create_research_comparison(
     mock, y ahí los datos simulados no se admiten (ADR 0008). Hacer una
     excepción «solo para un informe» sería vaciar la regla.
     """
-    return ResearchComparisonService(db).run(
-        category=payload.category,
-        market=payload.market,
-        keywords=payload.keywords,
-        max_results=payload.max_results,
-        actor=identity.audit_name,
+    return run_idempotent(
+        db,
+        scope="research.comparison",
+        identity=identity,
+        client_key=idempotency_key,
+        settings=settings,
+        payload=payload.model_dump(),
+        response=response,
+        status_code=201,
+        response_model=ComparisonOut,
+        work=lambda: ResearchComparisonService(db).run(
+            category=payload.category,
+            market=payload.market,
+            keywords=payload.keywords,
+            max_results=payload.max_results,
+            actor=identity.audit_name,
+        ),
     )
 
 

@@ -1,0 +1,107 @@
+"""Ninguna ruta `POST` queda sin clasificar (hardening pre-M44, ADR 0025 §6).
+
+Una ruta con efecto que nace sin que nadie se pregunte «¿qué pasa si esto se repite?» es exactamente el hueco que
+cerró la fase 2. Esta guarda obliga a responderlo: añadir un `POST` sin clasificarlo falla, y clasificar una
+ruta como protegida exige que de verdad declare la cabecera `Idempotency-Key` (si no, el documento y el código
+divergirían).
+
+Las clases:
+
+- `GENERIC`: idempotencia genérica (`app.idempotency`); declara `Idempotency-Key`.
+- `OWN_KEY`: su recurso ya tiene clave y la usa (trabajos, ejecuciones del pipeline): la cabecera o el cuerpo.
+- `STATE`: una transición de estado con compare-and-set; repetirla es un 409 o un no-op.
+- `DRAFT`: escribe un registro propio sin efecto fuera del sistema; un duplicado es un registro más. Cuando una de estas
+  rutas pase a tocar un proveedor real deja de ser un borrador y tiene que pasar a `GENERIC` o a `ExternalAction`.
+"""
+
+import pytest
+
+from app.main import app
+
+GENERIC = "GENERIC"
+OWN_KEY = "OWN_KEY"
+STATE = "STATE"
+DRAFT = "DRAFT"
+
+CLASSIFICATION: dict[str, str] = {
+    # Salen a una fuente externa, reservan presupuesto o escriben análisis: idempotencia genérica.
+    "/api/exchange-rates/backfill": GENERIC,
+    "/api/exchange-rates/refresh": GENERIC,
+    "/api/legal/runs": GENERIC,
+    "/api/national-transpositions/{transposition_id}/verify": GENERIC,
+    "/api/objectives/{objective_id}/run": GENERIC,
+    "/api/regulatory-requirements/{requirement_id}/verify": GENERIC,
+    "/api/research/comparisons": GENERIC,
+    "/api/research/runs": GENERIC,
+    # Su recurso ya tiene clave.
+    "/api/pipeline/runs": OWN_KEY,
+    "/api/jobs": OWN_KEY,
+    # Transiciones de estado con compare-and-set.
+    "/api/approvals/{approval_id}/approve": STATE,
+    "/api/approvals/{approval_id}/reject": STATE,
+    "/api/incidents/{incident_id}/resolve": STATE,
+    "/api/jobs/{job_id}/cancel": STATE,
+    "/api/jobs/{job_id}/requeue": STATE,
+    "/api/national-transpositions/{transposition_id}/withdraw": STATE,
+    "/api/pipeline/kill-switch": STATE,
+    "/api/pipeline/reviews/{review_id}/approve": STATE,
+    "/api/pipeline/reviews/{review_id}/reject": STATE,
+    "/api/pipeline/runs/{correlation_id}/cancel": STATE,
+    "/api/pipeline/runs/{correlation_id}/resume": STATE,
+    "/api/regulatory-requirements/{requirement_id}/supersede": STATE,
+    "/api/regulatory-requirements/{requirement_id}/withdraw": STATE,
+    # Registros propios, sin efecto fuera del sistema.
+    "/api/cfo/runs": DRAFT,
+    "/api/ecommerce/runs": DRAFT,
+    "/api/economics/runs": DRAFT,
+    "/api/exchange-rates": DRAFT,
+    "/api/incidents": DRAFT,
+    "/api/marketing/runs": DRAFT,
+    "/api/marketplace/runs": DRAFT,
+    "/api/objectives": DRAFT,
+    "/api/operations/runs": DRAFT,
+    "/api/products/{product_id}/compliance-evidence": DRAFT,
+    "/api/regulatory-requirements": DRAFT,
+    "/api/regulatory-requirements/{requirement_id}/national-transpositions": DRAFT,
+    "/api/sourcing/runs": DRAFT,
+    "/api/suppliers": DRAFT,
+    "/api/suppliers/{supplier_id}/capabilities": DRAFT,
+    "/api/suppliers/{supplier_id}/quotes": DRAFT,
+}
+
+
+@pytest.fixture(scope="module")
+def post_routes() -> dict[str, list[str]]:
+    spec = app.openapi()
+    return {
+        path: [parameter["name"] for parameter in item["post"].get("parameters", [])]
+        for path, item in spec["paths"].items()
+        if "post" in item
+    }
+
+
+def test_every_post_route_is_classified(post_routes):
+    unclassified = sorted(set(post_routes) - set(CLASSIFICATION))
+
+    assert unclassified == [], (
+        f"new POST routes with no idempotency classification: {unclassified}. "
+        "Decide what happens when the request is repeated and add them to CLASSIFICATION (ADR 0025 §6)."
+    )
+
+
+def test_no_classified_route_has_disappeared(post_routes):
+    assert sorted(set(CLASSIFICATION) - set(post_routes)) == []
+
+
+@pytest.mark.parametrize("path", sorted(p for p, kind in CLASSIFICATION.items() if kind == GENERIC))
+def test_a_generic_route_declares_the_idempotency_header(post_routes, path):
+    assert "Idempotency-Key" in post_routes[path]
+
+
+def test_the_pipeline_run_declares_its_own_header(post_routes):
+    assert "Idempotency-Key" in post_routes["/api/pipeline/runs"]
+
+
+@pytest.mark.parametrize("path", sorted(p for p, kind in CLASSIFICATION.items() if kind in (STATE, DRAFT)))
+def test_a_state_or_draft_route_does_not_pretend_to_be_idempotent(post_routes, path):
+    assert "Idempotency-Key" not in post_routes[path]

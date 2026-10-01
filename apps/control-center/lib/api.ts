@@ -1,3 +1,5 @@
+import { withIdempotencyKey } from "@/lib/idempotency";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -51,7 +53,12 @@ async function authHeader(): Promise<Record<string, string>> {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(await authHeader()), ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(await authHeader()),
+      ...withIdempotencyKey(init),
+      ...(init?.headers ?? {}),
+    },
     cache: "no-store",
   });
 

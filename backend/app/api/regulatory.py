@@ -8,12 +8,13 @@ declarado es dato de negocio, como el resto de Legal.
 
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
 from app.auth.dependencies import authorize
+from app.core.config import Settings, get_settings
 from app.core.errors import NotFoundError
 from app.costs.service import ApiBudgetExceededError
 from app.db.models.compliance_evidence import ComplianceEvidence
@@ -23,6 +24,7 @@ from app.db.models.product import Product
 from app.db.models.regulatory_anchor import RegulatoryAnchor
 from app.db.models.regulatory_requirement import RegulatoryRequirement
 from app.db.session import get_db
+from app.idempotency.service import IdempotencyKeyHeader, run_idempotent
 from app.integrations.regulatory.boe import NationalSourceUnavailableError
 from app.integrations.regulatory.eur_lex import AnchorUnavailableError
 from app.legal.national import ATTRIBUTION, NOTICE, TranspositionAssessment, official_url
@@ -276,25 +278,44 @@ def withdraw_requirement(
 @router.post("/api/regulatory-requirements/{requirement_id}/verify", response_model=AnchorOut)
 def verify_requirement(
     requirement_id: str,
+    response: Response,
     db: Session = Depends(get_db),
-    _actor: Actor = Depends(authorize(ApiAction.REGULATORY_WRITE)),
+    identity: Actor = Depends(authorize(ApiAction.REGULATORY_WRITE)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
 ) -> RegulatoryAnchor:
     """Pregunta a la fuente por la norma de este requisito. Es una llamada
-    externa: pasa por el contador de coste y por la matriz de derechos."""
-    service = RegulatoryService(db)
-    row = db.get(RegulatoryRequirement, requirement_id)
-    if row is None:
-        raise NotFoundError(f"regulatory requirement {requirement_id} not found")
-    try:
-        return service.verify(row.celex)
-    except SourceNotConfiguredError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ApiBudgetExceededError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-    except AnchorUnavailableError as exc:
-        # 502: la fuente no contestó bien. No se guarda nada: un fallo no puede
-        # leerse después como «la fuente dijo que no existe».
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    externa: pasa por el contador de coste y por la matriz de derechos. Con
+    `Idempotency-Key`, un reintento no vuelve a salir a la fuente (ni a gastar de su cuota)."""
+
+    def work() -> RegulatoryAnchor:
+        service = RegulatoryService(db)
+        row = db.get(RegulatoryRequirement, requirement_id)
+        if row is None:
+            raise NotFoundError(f"regulatory requirement {requirement_id} not found")
+        try:
+            return service.verify(row.celex)
+        except SourceNotConfiguredError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ApiBudgetExceededError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except AnchorUnavailableError as exc:
+            # 502: la fuente no contestó bien. No se guarda nada: un fallo no puede
+            # leerse después como «la fuente dijo que no existe».
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return run_idempotent(
+        db,
+        scope="regulatory.verify",
+        identity=identity,
+        client_key=idempotency_key,
+        settings=settings,
+        payload={"requirement_id": requirement_id},
+        response=response,
+        status_code=200,
+        response_model=AnchorOut,
+        work=work,
+    )
 
 
 @router.post(
@@ -322,26 +343,45 @@ def declare_transposition(
 @router.post("/api/national-transpositions/{transposition_id}/verify", response_model=TranspositionOut)
 def verify_transposition(
     transposition_id: str,
+    response: Response,
     db: Session = Depends(get_db),
-    _actor: Actor = Depends(authorize(ApiAction.REGULATORY_WRITE)),
+    identity: Actor = Depends(authorize(ApiAction.REGULATORY_WRITE)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
 ) -> TranspositionOut:
     """Pregunta al BOE por la norma declarada. Es una llamada externa: pasa por el
-    contador de coste y por la matriz de derechos. Un fallo no guarda nada."""
-    service = RegulatoryService(db)
-    row = service.get_transposition(transposition_id)
-    requirement = db.get(RegulatoryRequirement, row.requirement_id)
-    assert requirement is not None
-    try:
-        service.verify_national(row.national_id)
-    except SourceNotConfiguredError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except ApiBudgetExceededError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-    except NationalSourceUnavailableError as exc:
-        # 502: la fuente no contestó bien. No se guarda nada: un fallo no puede
-        # leerse después como «la fuente dice que no».
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return _transposition_out(row, requirement.celex, service)
+    contador de coste y por la matriz de derechos. Un fallo no guarda nada. Con
+    `Idempotency-Key`, un reintento no vuelve a salir a la fuente."""
+
+    def work() -> TranspositionOut:
+        service = RegulatoryService(db)
+        row = service.get_transposition(transposition_id)
+        requirement = db.get(RegulatoryRequirement, row.requirement_id)
+        assert requirement is not None
+        try:
+            service.verify_national(row.national_id)
+        except SourceNotConfiguredError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ApiBudgetExceededError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+        except NationalSourceUnavailableError as exc:
+            # 502: la fuente no contestó bien. No se guarda nada: un fallo no puede
+            # leerse después como «la fuente dice que no».
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return _transposition_out(row, requirement.celex, service)
+
+    return run_idempotent(
+        db,
+        scope="national.verify",
+        identity=identity,
+        client_key=idempotency_key,
+        settings=settings,
+        payload={"transposition_id": transposition_id},
+        response=response,
+        status_code=200,
+        response_model=TranspositionOut,
+        work=work,
+    )
 
 
 @router.post("/api/national-transpositions/{transposition_id}/withdraw", response_model=TranspositionOut)

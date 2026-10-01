@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
 from app.auth.dependencies import authorize
+from app.core.config import Settings, get_settings
 from app.core.errors import NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.legal_analysis import LegalAnalysis as LegalAnalysisModel
 from app.db.session import get_db
+from app.idempotency.service import IdempotencyKeyHeader, run_idempotent
 from app.legal.service import LegalComplianceService
 from app.permissions.policies import ApiAction
 
@@ -43,17 +45,34 @@ def _load_run(correlation_id: str, db: Session) -> LegalAnalysisOut:
 @router.post("/api/legal/runs", response_model=LegalAnalysisOut, status_code=201)
 def create_legal_analysis_run(
     payload: LegalAnalysisRunCreate,
+    response: Response,
     db: Session = Depends(get_db),
-    _actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+    identity: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
 ) -> LegalAnalysisOut:
-    correlation_id = new_correlation_id()
-    LegalComplianceService(db).run_analysis(
-        product_id=payload.product_id,
-        market=payload.market,
-        certification_available=payload.certification_available,
-        correlation_id=correlation_id,
+    def work() -> LegalAnalysisOut:
+        correlation_id = new_correlation_id()
+        LegalComplianceService(db).run_analysis(
+            product_id=payload.product_id,
+            market=payload.market,
+            certification_available=payload.certification_available,
+            correlation_id=correlation_id,
+        )
+        return _load_run(correlation_id, db)
+
+    return run_idempotent(
+        db,
+        scope="legal.run",
+        identity=identity,
+        client_key=idempotency_key,
+        settings=settings,
+        payload=payload.model_dump(),
+        response=response,
+        status_code=201,
+        response_model=LegalAnalysisOut,
+        work=work,
     )
-    return _load_run(correlation_id, db)
 
 
 @router.get("/api/legal/runs/{correlation_id}", response_model=LegalAnalysisOut)

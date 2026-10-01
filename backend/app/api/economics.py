@@ -1,13 +1,14 @@
 import datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
 from app.auth.dependencies import authorize
+from app.core.config import Settings, get_settings
 from app.core.errors import NotFoundError, ValidationError
 from app.core.ids import new_correlation_id
 from app.costs.service import ApiBudgetExceededError
@@ -16,6 +17,7 @@ from app.db.models.economic_analysis import EconomicAnalysis as EconomicAnalysis
 from app.db.models.exchange_rate import ExchangeRate as ExchangeRateModel
 from app.db.session import get_db
 from app.economics.service import DEFAULT_CHANNEL, EconomicAnalysisService
+from app.idempotency.service import IdempotencyKeyHeader, run_idempotent
 from app.integrations.fx.ecb import FeedUnavailableError
 from app.money.ecb import ATTRIBUTION, NOTICE, is_ecb_source
 from app.money.fx_refresh import FxRefreshService, FxSourceNotConfiguredError, RefreshResult
@@ -311,25 +313,54 @@ def _refresh(action: str, actor: Actor, db: Session) -> RefreshResult:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+def _refresh_once(
+    action: str,
+    actor: Actor,
+    db: Session,
+    response: Response,
+    settings: Settings,
+    idempotency_key: str | None,
+) -> RefreshResult:
+    """Una llamada externa que escribe: con `Idempotency-Key`, un reintento no vuelve a salir a la fuente."""
+    return run_idempotent(
+        db,
+        scope=f"fx.{action}",
+        identity=actor,
+        client_key=idempotency_key,
+        settings=settings,
+        payload={"action": action},
+        response=response,
+        status_code=200,
+        response_model=RefreshOut,
+        work=lambda: _refresh(action, actor, db),
+    )
+
+
 @router.post("/api/exchange-rates/refresh", response_model=RefreshOut)
 def refresh_exchange_rates(
+    response: Response,
     db: Session = Depends(get_db),
     actor: Actor = Depends(authorize(ApiAction.EXCHANGE_RATE_WRITE)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
 ) -> RefreshResult:
     """Trae las referencias diarias del BCE y las guarda. Es una llamada externa:
     pasa por la matriz de derechos y por el contador de coste. El análisis
     económico no la hace nunca: lee lo que este endpoint dejó guardado."""
-    return _refresh("daily", actor, db)
+    return _refresh_once("daily", actor, db, response, settings, idempotency_key)
 
 
 @router.post("/api/exchange-rates/backfill", response_model=RefreshOut)
 def backfill_exchange_rates(
+    response: Response,
     db: Session = Depends(get_db),
     actor: Actor = Depends(authorize(ApiAction.EXCHANGE_RATE_WRITE)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
 ) -> RefreshResult:
     """Recuperación explícita con el histórico de 90 días del BCE. Solo la pide una
     persona: no es el respaldo automático de un fallo del refresco diario."""
-    return _refresh("backfill", actor, db)
+    return _refresh_once("backfill", actor, db, response, settings, idempotency_key)
 
 
 class EconomicsTimeseriesPoint(BaseModel):

@@ -55,6 +55,16 @@ class IdempotencyConflictError(AmazonaError):
     different payload: it is a different request hiding behind the same key."""
 
 
+class IdempotencyInProgressError(AmazonaError):
+    """Raised when an `Idempotency-Key` belongs to a request that has not finished (or whose process stopped
+    before finishing). It is never run again on a timer: repeating it could repeat an effect."""
+
+
+class IdempotencyOutcomeUnknownError(AmazonaError):
+    """Raised when an `Idempotency-Key` belongs to a request that failed in a way that does not say whether it
+    took effect. The key is not reusable: a person checks and uses a new one."""
+
+
 class BudgetExhaustedError(AmazonaError):
     """Raised when a spend that fitted when it was assessed no longer fits when it is reserved:
     another request took the budget in between."""

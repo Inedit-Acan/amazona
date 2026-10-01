@@ -395,10 +395,25 @@ def test_analyst_can_run_an_analysis_agent(client, key_pair):
     response = client.post(
         "/api/research/runs",
         json={"category": "hydration", "keywords": ["bottle"], "max_results": 2},
-        headers={"Authorization": f"Bearer {token_for(private_key, RoleName.ANALYST)}"},
+        # En producción la operación puede tener efecto fuera del sistema: la clave es obligatoria (ADR 0025).
+        headers={
+            "Authorization": f"Bearer {token_for(private_key, RoleName.ANALYST)}",
+            "Idempotency-Key": "analyst-run-1",
+        },
     )
 
     assert response.status_code == 201
+
+
+def test_in_production_an_analysis_run_without_an_idempotency_key_is_refused(client, key_pair):
+    private_key, _ = key_pair
+    response = client.post(
+        "/api/research/runs",
+        json={"category": "hydration", "keywords": ["bottle"], "max_results": 2},
+        headers={"Authorization": f"Bearer {token_for(private_key, RoleName.ANALYST)}"},
+    )
+
+    assert response.status_code == 428
 
 
 def test_operator_can_open_an_incident(client, key_pair):

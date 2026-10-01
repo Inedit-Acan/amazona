@@ -1,6 +1,4 @@
 import datetime
-import hashlib
-import re
 from typing import cast
 
 from fastapi import APIRouter, Depends, Header, Response
@@ -20,6 +18,7 @@ from app.db.models.pipeline_run import PipelineRun as PipelineRunModel
 from app.db.models.pipeline_step import PipelineStep as PipelineStepModel
 from app.db.models.pipeline_step import PipelineStepAttempt as PipelineStepAttemptModel
 from app.db.session import get_db
+from app.idempotency.service import IDEMPOTENCY_KEY_PATTERN, actor_scope
 from app.permissions.policies import ApiAction
 from app.pipeline.kill_switch import PipelineKillSwitchService
 from app.pipeline.schemas import REVIEW_KIND_ACTION_GATE, PipelineRunStatus
@@ -148,9 +147,6 @@ def _view(record: PipelineRunModel, db: Session) -> PipelineRunOut:
     return PipelineRunOut(**_run_fields(record), steps=steps_view(steps))
 
 
-IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9._:\-]{1,128}")
-
-
 def _idempotency_key(client_key: str | None, identity: Actor, settings: Settings) -> str | None:
     """La clave con la que se guarda la petición, o `None` si no hay.
 
@@ -167,8 +163,7 @@ def _idempotency_key(client_key: str | None, identity: Actor, settings: Settings
         return None
     if not IDEMPOTENCY_KEY_PATTERN.fullmatch(client_key):
         raise ValidationError("Idempotency-Key must be 1-128 characters of letters, digits, '.', '_', ':' or '-'")
-    scope = hashlib.sha256(identity.subject.encode("utf-8")).hexdigest()[:16]
-    return f"pipeline-run:{scope}:{client_key}"
+    return f"pipeline-run:{actor_scope(identity)}:{client_key}"
 
 
 @router.post("/api/pipeline/runs", response_model=PipelineRunOut, status_code=202)

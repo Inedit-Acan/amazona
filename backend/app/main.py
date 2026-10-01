@@ -34,7 +34,9 @@ from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
 from app.core.errors import (
     IdempotencyConflictError,
+    IdempotencyInProgressError,
     IdempotencyKeyRequiredError,
+    IdempotencyOutcomeUnknownError,
     IncidentNotOpenError,
     NotFoundError,
     PipelineDisabledError,
@@ -123,6 +125,16 @@ async def idempotency_key_required_handler(request: Request, exc: IdempotencyKey
 
 @app.exception_handler(IdempotencyConflictError)
 async def idempotency_conflict_handler(request: Request, exc: IdempotencyConflictError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(IdempotencyInProgressError)
+async def idempotency_in_progress_handler(request: Request, exc: IdempotencyInProgressError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(IdempotencyOutcomeUnknownError)
+async def idempotency_outcome_unknown_handler(request: Request, exc: IdempotencyOutcomeUnknownError) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
