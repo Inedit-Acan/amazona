@@ -105,6 +105,9 @@ class GateInput:
     economics_recommendation: str | None = None
     #: El kill switch operativo de la ADR 0006. Apagado, no se ejecuta nada.
     kill_switch_enabled: bool = True
+    #: Una operación anterior de este mismo sitio puede haberse ejecutado y no se conoce su resultado
+    #: (`UNKNOWN_OUTCOME`). Repetir el efecto sin resolverlo podría duplicarlo.
+    unresolved_outcome: bool = False
     budget: BudgetSignal = field(default_factory=_unevaluated_budget)
     human_approval: HumanApproval = HumanApproval.NONE
     #: Lo que `PermissionEngine` responde para el rol de quien lo pidió. None
@@ -150,6 +153,10 @@ def evaluate_action(gate_input: GateInput) -> GateDecision:
     # --- 1. Vetos ---------------------------------------------------------
     if not gate_input.kill_switch_enabled:
         reasons.append("the pipeline kill switch is off")
+    if gate_input.unresolved_outcome:
+        reasons.append(
+            "an earlier external action of this step has an unknown outcome: reconcile it before acting again"
+        )
     if gate_input.legal_recommendation == "NO_GO":
         reasons.append("legal recommendation is NO_GO")
     if gate_input.economics_recommendation == "NO_GO" and gate_input.is_spending:

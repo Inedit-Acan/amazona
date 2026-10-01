@@ -22,6 +22,7 @@ import datetime
 import threading
 
 import pytest
+from action_test_support import FakeProviderAdapter
 from pg_test_support import ephemeral_postgres
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -208,16 +209,13 @@ def test_a_later_step_still_needs_its_own_approval(db: Session):
 # --- Si algo se interrumpe ----------------------------------------------------------
 
 
-def test_a_worker_that_dies_mid_step_does_not_leave_a_reusable_authorisation(db: Session, monkeypatch):
+def test_a_worker_that_dies_mid_call_does_not_leave_a_reusable_authorisation(db: Session, monkeypatch):
     run = waiting_run(db)
     review = reviews(db)[0]
     approve(db, review)
+    provider = FakeProviderAdapter(behaviors=["die"])  # el proceso muere en mitad de la llamada al proveedor
+    monkeypatch.setattr("app.pipeline.service.SimulatedAdapter", lambda: provider)
 
-    def process_dies(self, *args, **kwargs):
-        raise KeyboardInterrupt("the process died")  # no es un Exception: el pipeline no lo captura
-
-    original = PipelineOrchestrator._step_ecommerce
-    monkeypatch.setattr(PipelineOrchestrator, "_step_ecommerce", process_dies)
     with pytest.raises(KeyboardInterrupt):
         Worker(name="worker-1").run_once(db)
     db.rollback()  # lo que no se confirmó, con el proceso, desaparece
@@ -229,19 +227,19 @@ def test_a_worker_that_dies_mid_step_does_not_leave_a_reusable_authorisation(db:
     attempt = db.query(PipelineStepAttempt).filter_by(pipeline_step_id=step_of(db, run).id).one()
     assert attempt.status == PipelineStepStatus.RUNNING
 
-    # El arriendo vence y otro worker reintenta con el código ya sano.
+    # El arriendo vence y otro worker reintenta con el proveedor ya sano.
     job = db.get(Job, run.job_id)
     job.lease_expires_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
     db.commit()
-    monkeypatch.setattr(PipelineOrchestrator, "_step_ecommerce", original)
     drain(db)
 
-    db.refresh(run)
-    assert run.status == PipelineRunStatus.WAITING_APPROVAL  # no ejecutó: pregunta
+    # No se sabe qué hizo el proveedor: ese efecto queda vetado hasta que alguien lo reconcilie. Ni se
+    # ejecuta de nuevo, ni una firma levanta el veto.
+    step = step_of(db, run)
+    assert step.status == PipelineStepStatus.DENIED
+    assert "unknown outcome" in step.error
+    assert provider.effect_count == 0
     assert storefronts(db) == 0
-    pending = [item for item in reviews(db) if item.status == "PENDING"]
-    assert len(pending) == 1
-    assert any("outcome is unknown" in reason for reason in pending[0].reasons)
 
 
 def test_a_lost_lease_mid_step_resets_the_step_but_not_the_authorisation(db: Session):
@@ -269,18 +267,14 @@ def test_a_step_that_fails_after_consuming_needs_a_new_authorisation(db: Session
     run = waiting_run(db)
     review = reviews(db)[0]
     approve(db, review)
+    provider = FakeProviderAdapter(behaviors=["reject"])  # el proveedor se niega: se sabe que no hubo efecto
+    monkeypatch.setattr("app.pipeline.service.SimulatedAdapter", lambda: provider)
 
-    def fails(self, *args, **kwargs):
-        raise RuntimeError("remote call failed")
-
-    original = PipelineOrchestrator._step_ecommerce
-    monkeypatch.setattr(PipelineOrchestrator, "_step_ecommerce", fails)
     Worker(name="worker-1").run_once(db)
     db.refresh(review)
     assert review.status == "CONSUMED"
     assert step_of(db, run).status == PipelineStepStatus.FAILED
 
-    monkeypatch.setattr(PipelineOrchestrator, "_step_ecommerce", original)
     PipelineOrchestrator(db).resume_run(db.get(PipelineRun, run.id), actor="owner@amazona.local")
     drain(db)
 

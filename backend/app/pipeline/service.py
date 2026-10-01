@@ -26,18 +26,23 @@ from sqlalchemy import update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from app.actions.contract import ActionStatus, ExternalActionAdapter, SimulatedAdapter
+from app.actions.service import ExternalActionService
 from app.auth.actor import Actor
 from app.budgets.service import BudgetLedgerService
 from app.cfo.service import CFOService
 from app.core.errors import (
     BudgetExhaustedError,
+    ExternalOutcomeUnknownError,
     IdempotencyConflictError,
     NotFoundError,
     PipelineDisabledError,
+    PipelineOutcomeUnknownError,
     PipelineRunStateError,
 )
 from app.core.ids import new_correlation_id, new_id
 from app.db.models.audit import AuditLog
+from app.db.models.external_action import ExternalAction
 from app.db.models.job import Job
 from app.db.models.pipeline_review import PipelineReview
 from app.db.models.pipeline_run import PipelineRun
@@ -141,6 +146,21 @@ class StepOutcome:
     halt_reason: str | None = None
 
 
+@dataclass
+class SideEffect:
+    """Lo que un paso con efecto va a hacer fuera del sistema: con quién, qué, cuánto, y su sitio
+    (`reference`) para saber si ya hay una operación abierta. `action` se rellena al abrirla.
+    """
+
+    adapter: ExternalActionAdapter
+    operation: str
+    amount: float | None
+    payload: dict
+    reference: str
+    correlation_id: str
+    action: ExternalAction | None = None
+
+
 def pick_best_candidate(products: list[Product], score_by_product_id: dict[str, float]) -> Product:
     """Same ranking ResearchService/ProductResearchAgent already apply
     internally (opportunity_score descending) — the pipeline just needs
@@ -225,6 +245,7 @@ class PipelineOrchestrator:
         db: Session,
         kill_switch: PipelineKillSwitchService | None = None,
         gate: ActionGateService | None = None,
+        action_adapters: dict[str, ExternalActionAdapter] | None = None,
     ) -> None:
         self._db = db
         self._kill_switch = kill_switch or PipelineKillSwitchService(db)
@@ -232,6 +253,10 @@ class PipelineOrchestrator:
         # sistema está autorizado a actuar (Milestone 33, ADR 0011).
         self._gate = gate or ActionGateService(db, kill_switch=self._kill_switch)
         self._ledger = BudgetLedgerService(db)
+        # Quien ejecuta la acción de cada paso con efecto, por nombre de paso. Sin uno, el paso usa el
+        # adaptador simulado: cumple el mismo contrato, no sale nada de AMAZONA.
+        self._adapters = dict(action_adapters or {})
+        self._actions = ExternalActionService(db, ledger=self._ledger, kill_switch=self._kill_switch)
 
     # --- Encolar -----------------------------------------------------------
 
@@ -406,19 +431,37 @@ class PipelineOrchestrator:
             if gate_decision is not None and gate_decision.outcome is GateOutcome.REQUIRE_APPROVAL:
                 return self._await_approval(run, step, gate_decision, context)
 
-            reservation = self._spend_reservation(run, step, request)
+            side_effect = self._side_effect(run, step, request)
             try:
-                self._start_step(step, context, authorisation=authorisation, reservation=reservation)
+                self._start_step(step, context, authorisation=authorisation, side_effect=side_effect)
             except BudgetExhaustedError as exc:
                 # Otra petición se llevó el presupuesto entre la evaluación y la reserva. No se
                 # ha consumido ni reservado nada (todo iba en la misma transacción).
                 self._deny_step(step, GateDecision(outcome=GateOutcome.DENY, reasons=[str(exc)]))
                 continue
             try:
+                if side_effect is not None and side_effect.action is not None:
+                    # El efecto fuera del sistema, con su ciclo de vida: la reserva se compromete si el
+                    # proveedor lo confirma, se libera si confirma que no hubo efecto, y se queda si no se sabe.
+                    self._actions.execute(side_effect.action, side_effect.adapter, side_effect.payload)
                 outcome = self._dispatch(step.name, run, request)
             except JobCancelledError:
                 self._release_step(run, step)
                 raise
+            except PipelineDisabledError:
+                # El kill switch se apagó justo antes del efecto irreversible: no salió nada.
+                self._release_step(run, step)
+                run.status = PipelineRunStatus.BLOCKED
+                self._db.commit()
+                raise
+            except ExternalOutcomeUnknownError as exc:
+                # Pudo ejecutarse y no se sabe: ni se reintenta a ciegas, ni se libera el presupuesto, ni se
+                # declara éxito. La ejecución queda BLOCKED hasta que se reconcilie, sin gastar intentos.
+                self._finish_step(step, PipelineStepStatus.FAILED, error=f"UNKNOWN_OUTCOME: {exc}")
+                run.status = PipelineRunStatus.BLOCKED
+                run.failed_step = step.name
+                self._db.commit()
+                raise PipelineOutcomeUnknownError(str(exc)) from exc
             except Exception as exc:  # noqa: BLE001 - cualquier fallo del paso es un intento fallido
                 message = f"{type(exc).__name__}: {exc}"
                 self._finish_step(step, PipelineStepStatus.FAILED, error=message)
@@ -428,10 +471,6 @@ class PipelineOrchestrator:
                 raise
 
             if outcome.halted:
-                # No se ejecutó nada que gaste: lo reservado se libera. (Si el paso falla por una
-                # excepción se queda reservado: no se sabe qué llegó a hacer, y un fallo no se
-                # convierte en un cero.)
-                self._settle_reservation(reservation, committed=False)
                 self._finish_step(
                     step,
                     PipelineStepStatus.FAILED,
@@ -442,7 +481,9 @@ class PipelineOrchestrator:
                 self._skip_remaining(run, after=step.ordinal)
                 return self._settle(run, PipelineRunStatus.PARTIAL, failed_step=step.name)
 
-            self._settle_reservation(reservation, committed=True)
+            if side_effect is not None and side_effect.action is not None:
+                # El paso registra localmente el resultado: a partir de aquí la operación está cerrada del todo.
+                self._actions.mark_applied(side_effect.action)
             self._finish_step(
                 step,
                 PipelineStepStatus.COMPLETED,
@@ -721,6 +762,15 @@ class PipelineOrchestrator:
         if action is None:
             return None, None
 
+        reference = self._reference(run, step)
+        latest = self._actions.latest(reference)
+        if latest is not None and latest.status == ActionStatus.SUCCEEDED.value and latest.applied_at is None:
+            # El efecto ya ocurrió y solo falta registrarlo: no hay nada que autorizar, y volver a preguntar
+            # (o volver a ejecutar) sería repetirlo.
+            return None, None
+        # Si el intento anterior cayó después de empezar la llamada, no se sabe qué hizo el proveedor.
+        unresolved = self._actions.mark_interrupted(reference) is not None
+
         view = steps_view(self._steps(run))
         review = self._latest_review(run, step)
         decision = self._gate.evaluate(
@@ -730,6 +780,7 @@ class PipelineOrchestrator:
             amount=self._amount_to_assess(run, step, request, action),
             human_approval=self._human_approval(review),
             actor_role=run.requested_by_role,
+            unresolved_outcome=unresolved,
         )
         if decision.outcome is GateOutcome.REQUIRE_APPROVAL and self._authorisation_was_spent(run, step, review):
             decision = GateDecision(
@@ -891,24 +942,34 @@ class PipelineOrchestrator:
         context: JobContext | None,
         *,
         authorisation: PipelineReview | None = None,
-        reservation: tuple[float, str] | None = None,
+        side_effect: SideEffect | None = None,
     ) -> None:
-        """Empieza el paso. Si se apoya en una autorización humana, **la consume en
-        esta misma transacción**: o queda consumida y el paso en marcha, o ninguna
-        de las dos cosas. No existe un estado «consumida pero sin empezar».
+        """Empieza el paso. Si se apoya en una autorización humana, **la consume en esta misma
+        transacción**: o queda consumida y el paso en marcha, o ninguna de las dos cosas. No existe un
+        estado «consumida pero sin empezar».
 
-        Si el proceso cae después del commit, la autorización ya está gastada y el
-        paso queda `RUNNING` con su intento sin terminar: el reintento vuelve a
-        preguntar (y le dice a quien decide que el intento anterior no terminó). Si
-        cae antes, no se ha consumido nada y el reintento la usa."""
+        Con un efecto fuera del sistema, **abre su operación y reserva su gasto en la misma
+        transacción**, comprobando el límite en la sentencia que reserva. Un reintento no abre otra
+        operación ni reserva dos veces: reutiliza la que está abierta, con su misma clave hacia el proveedor.
+
+        Si el proceso cae después del commit, la autorización ya está gastada y el paso queda `RUNNING`
+        con su intento sin terminar: el reintento vuelve a preguntar (y le dice a quien decide que el
+        intento anterior no terminó). Si cae antes, no se ha consumido nada y el reintento la usa.
+        """
         if authorisation is not None:
             self._consume(authorisation, step, context)
-        if reservation is not None:
-            amount, reference = reservation
-            # El gasto se reserva en la misma transacción que consume la autorización y arranca el
-            # paso, comprobando el límite en la sentencia que reserva. Un reintento no reserva dos
-            # veces el mismo gasto (`idempotent`).
-            if not self._ledger.reserve(amount=amount, reference=reference, idempotent=True):
+        if side_effect is not None:
+            side_effect.action = self._actions.open(
+                reference=side_effect.reference,
+                adapter=side_effect.adapter,
+                operation=side_effect.operation,
+                amount=side_effect.amount,
+                payload=side_effect.payload,
+                correlation_id=side_effect.correlation_id,
+            )
+            if side_effect.action.status == ActionStatus.PENDING.value and not self._actions.reserve(
+                side_effect.action
+            ):
                 self._db.rollback()
                 raise BudgetExhaustedError(
                     "the budget was used up by another request before this step could reserve its spend"
@@ -929,47 +990,57 @@ class PipelineOrchestrator:
         )
         self._db.commit()
 
-    def _step_spend(self, step: PipelineStep, request: PipelineRequest) -> tuple[SideEffectAction, float | None] | None:
-        """La acción de gasto de este paso y su importe (`None`: no se sabe), o `None` si el paso
-        no gasta."""
+    @staticmethod
+    def _reference(run: PipelineRun, step: PipelineStep) -> str:
+        """El «sitio» de las operaciones de este paso en esta ejecución."""
+        return f"pipeline_step:{run.correlation_id}:{step.name}"
+
+    def _side_effect(self, run: PipelineRun, step: PipelineStep, request: PipelineRequest) -> SideEffect | None:
+        """La acción con efecto de este paso, o `None` si es análisis puro."""
         action = STEP_SIDE_EFFECTS.get(step.name)
-        if action is None or action not in SPENDING_ACTIONS:
+        if action is None:
             return None
-        return action, (request.daily_budget if action is SideEffectAction.ACTIVATE_ADS else None)
+        spends = action in SPENDING_ACTIONS
+        payload: dict = {"market": request.market}
+        if action is SideEffectAction.ACTIVATE_ADS:
+            payload.update(platform=request.marketing_platform, daily_budget=request.daily_budget)
+        elif step.name == "marketplace":
+            payload.update(platform=request.marketplace_platform)
+        return SideEffect(
+            adapter=self._adapters.get(step.name) or SimulatedAdapter(),
+            operation=action.value,
+            amount=request.daily_budget if spends and action is SideEffectAction.ACTIVATE_ADS else None,
+            payload=payload,
+            reference=self._reference(run, step),
+            correlation_id=run.correlation_id,
+        )
 
     def _amount_to_assess(
         self, run: PipelineRun, step: PipelineStep, request: PipelineRequest, action: SideEffectAction
     ) -> float | None:
-        """El importe que se le pregunta al presupuesto. Si este mismo paso ya tiene una reserva viva
-        (un reintento tras una caída), esa parte no cuenta contra sí misma: ya está reservada.
+        """El importe que se le pregunta al presupuesto. Si este mismo paso ya tiene una reserva viva (un
+        reintento tras una caída), esa parte no cuenta contra sí misma: ya está reservada.
         """
-        spend = self._step_spend(step, request)
-        if spend is None or spend[1] is None:
+        if action not in SPENDING_ACTIONS or action is not SideEffectAction.ACTIVATE_ADS:
             return None
-        reference = f"pipeline_step:{run.correlation_id}:{step.name}"
-        return max(0.0, spend[1] - float(self._ledger.outstanding(reference)))
+        amount = request.daily_budget
+        latest = self._actions.latest(self._reference(run, step))
+        if latest is not None and latest.status in (ActionStatus.PENDING.value, ActionStatus.CALLING.value):
+            amount = max(0.0, amount - float(self._ledger.outstanding(latest.reservation_reference)))
+        return amount
 
-    def _spend_reservation(
-        self, run: PipelineRun, step: PipelineStep, request: PipelineRequest
-    ) -> tuple[float, str] | None:
-        """Lo que este paso tiene que reservar al arrancar: su importe, con la referencia de este
-        paso en esta ejecución. `None` si el paso no gasta, el importe es cero o no hay un presupuesto
-        autorizado que reservar (una simulación declarada: no hay libro que mover).
+    # --- Resolver un resultado desconocido ---------------------------------------
+
+    def resolve_unknown_outcome(self, action_id: str, *, succeeded: bool, actor: str, reason: str) -> ExternalAction:
+        """Una persona cierra una operación de resultado desconocido tras comprobarla por su cuenta. Comprometer o
+        liberar la reserva sale de ahí; después se reanuda la ejecución (`resume_run`): si el efecto ocurrió, el
+        paso solo registra el resultado; si no, abre una operación nueva.
         """
-        spend = self._step_spend(step, request)
-        if spend is None or not spend[1] or spend[1] <= 0 or self._ledger.find_budget() is None:
-            return None
-        return spend[1], f"pipeline_step:{run.correlation_id}:{step.name}"
-
-    def _settle_reservation(self, reservation: tuple[float, str] | None, *, committed: bool) -> None:
-        """El paso terminó bien (la reserva pasa a gastada) o no hizo nada (se libera)."""
-        if reservation is None:
-            return
-        amount, reference = reservation
-        if committed:
-            self._ledger.record_commit(amount=amount, reference=reference)
-        else:
-            self._ledger.record_release(amount=amount, reference=reference)
+        action = self._db.get(ExternalAction, action_id)
+        if action is None:
+            raise NotFoundError(f"external action {action_id} not found")
+        self._actions.resolve(action, succeeded=succeeded, actor=actor, reason=reason)
+        return action
 
     def _consume(self, review: PipelineReview, step: PipelineStep, context: JobContext | None) -> None:
         """`APPROVED` -> `CONSUMED`, en una sola sentencia (compare-and-set): de dos

@@ -61,6 +61,7 @@ class ActionGateService:
         amount: float | None = None,
         human_approval: HumanApproval = HumanApproval.NONE,
         actor_role: str | None = None,
+        unresolved_outcome: bool = False,
     ) -> GateDecision:
         simulated = self._settings.operating_in_simulation
         gate_input = GateInput(
@@ -68,6 +69,7 @@ class ActionGateService:
             legal_recommendation=legal_recommendation,
             economics_recommendation=economics_recommendation,
             kill_switch_enabled=self._kill_switch.is_enabled(),
+            unresolved_outcome=unresolved_outcome,
             budget=self._budget_signal(action, amount, simulated=simulated),
             human_approval=human_approval,
             permission=self._permission(actor_role, simulated=simulated),

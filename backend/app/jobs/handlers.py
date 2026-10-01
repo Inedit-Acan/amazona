@@ -10,7 +10,7 @@ la API lo importan por ese efecto.
 
 from sqlalchemy.orm import Session
 
-from app.core.errors import PipelineDisabledError
+from app.core.errors import PipelineDisabledError, PipelineOutcomeUnknownError
 from app.costs.service import ApiBudgetExceededError
 from app.jobs.registry import register
 from app.jobs.schemas import JobBlockedError, JobContext, JobResult
@@ -71,7 +71,9 @@ def run_pipeline(payload: dict, context: JobContext, db: Session) -> JobResult:
 
     try:
         run = PipelineOrchestrator(db).execute_run(str(run_id), context)
-    except PipelineDisabledError as exc:
+    except (PipelineDisabledError, PipelineOutcomeUnknownError) as exc:
+        # Un kill switch apagado, o una acción externa de resultado desconocido: esperar no lo arregla, así que el
+        # trabajo queda BLOCKED sin gastar intentos hasta que una persona lo resuelva.
         raise JobBlockedError(str(exc)) from exc
 
     return JobResult(

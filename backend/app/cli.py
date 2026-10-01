@@ -13,22 +13,33 @@ the system itself (hardening pre-M44, ADR 0023).
     AMAZONA_BOOTSTRAP=1 python -m app.cli authorise-budget --hard-limit 500 [--soft-limit 400]
     python -m app.cli show-budget
 
+An external action whose outcome is unknown (the provider may have executed it and the answer was lost) is
+never closed by the system on a guess. A person checks it, then says what happened (ADR 0024):
+
+    python -m app.cli show-actions [--open]
+    AMAZONA_BOOTSTRAP=1 python -m app.cli reconcile-actions [--older-than-minutes 60]
+    AMAZONA_BOOTSTRAP=1 python -m app.cli resolve-action --id ID (--succeeded | --failed) --reason "..."
+
 Requires AMAZONA_BOOTSTRAP=1 in the environment so the command cannot be run by
 accident, and writes an audit entry for every grant.
 """
 
 import argparse
+import datetime
 import os
 import sys
 
 from sqlalchemy.orm import Session
 
+from app.actions.contract import OPEN_STATUSES
+from app.actions.service import ExternalActionService, ExternalActionStateError
 from app.auth.actor import ActorSource, RoleName
 from app.budgets.service import BudgetLedgerService
 from app.core.errors import ValidationError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.budget import Budget
+from app.db.models.external_action import ExternalAction
 from app.db.models.role import Role
 from app.db.models.user import User
 from app.db.session import get_session_factory
@@ -61,6 +72,34 @@ def authorise_budget(db: Session, *, hard_limit: float, soft_limit: float | None
         )
     except ValidationError as exc:
         raise BootstrapError(str(exc)) from exc
+
+
+def list_actions(db: Session, *, only_open: bool = False) -> list[ExternalAction]:
+    query = db.query(ExternalAction)
+    if only_open:
+        query = query.filter(ExternalAction.status.in_([status.value for status in OPEN_STATUSES]))
+    return query.order_by(ExternalAction.created_at, ExternalAction.sequence).all()
+
+
+def reconcile_actions(db: Session, *, older_than_minutes: int) -> dict[str, list[str]]:
+    """El barrido de operaciones huérfanas: libera lo que nunca salió, marca como desconocido lo que
+    pudo salir. `older_than_minutes` tiene que superar el arriendo de un trabajo: es la prueba de que su
+    ejecutor ya no está."""
+    if older_than_minutes < 1:
+        raise BootstrapError("--older-than-minutes must be at least 1")
+    return ExternalActionService(db).reconcile_interrupted(older_than=datetime.timedelta(minutes=older_than_minutes))
+
+
+def resolve_action(db: Session, *, action_id: str, succeeded: bool, reason: str) -> ExternalAction:
+    """Una persona cierra un resultado desconocido tras comprobarlo por su cuenta. Queda quién, cuándo y por qué."""
+    action = db.get(ExternalAction, action_id)
+    if action is None:
+        raise BootstrapError(f"external action {action_id} not found")
+    try:
+        ExternalActionService(db).resolve(action, succeeded=succeeded, actor=cli_actor(), reason=reason)
+    except (ValidationError, ExternalActionStateError) as exc:
+        raise BootstrapError(str(exc)) from exc
+    return action
 
 
 def grant_role(db: Session, *, email: str, role_name: str, force: bool = False) -> User:
@@ -135,6 +174,19 @@ def build_parser() -> argparse.ArgumentParser:
     budget.add_argument("--hard-limit", required=True, type=float, help="the most that can be reserved and spent")
     budget.add_argument("--soft-limit", type=float, help="a warning threshold below the hard limit")
     commands.add_parser("show-budget", help="show the authorised budget and what has been used")
+
+    actions = commands.add_parser("show-actions", help="list the external actions and where each one stands")
+    actions.add_argument("--open", action="store_true", help="only those not yet closed")
+    sweep = commands.add_parser(
+        "reconcile-actions", help="release reservations whose request never left; mark the rest as unknown"
+    )
+    sweep.add_argument("--older-than-minutes", type=int, default=60, help="must exceed a job lease (default 60)")
+    resolve = commands.add_parser("resolve-action", help="close an action of unknown outcome after checking it")
+    resolve.add_argument("--id", required=True)
+    outcome = resolve.add_mutually_exclusive_group(required=True)
+    outcome.add_argument("--succeeded", action="store_true", help="the effect did happen: commit the reservation")
+    outcome.add_argument("--failed", action="store_true", help="the effect did not happen: release the reservation")
+    resolve.add_argument("--reason", required=True, help="what you checked and where")
     return parser
 
 
@@ -159,6 +211,29 @@ def main(argv: list[str] | None = None) -> int:
                     f"hard limit {snapshot.hard_limit:.2f} | reserved {snapshot.reserved:.2f} | "
                     f"committed {snapshot.committed:.2f} | spent {snapshot.spent:.2f}"
                 )
+        elif args.command == "show-actions":
+            rows = list_actions(db, only_open=args.open)
+            if not rows:
+                print("no open external actions" if args.open else "no external actions")
+            for action in rows:
+                amount = f"{float(action.amount):.2f}" if action.amount is not None else "-"
+                print(
+                    f"{action.id} {action.status:16} #{action.sequence} {action.provider}/{action.operation} "
+                    f"amount {amount} {action.reference}"
+                )
+        elif args.command == "reconcile-actions":
+            _require_bootstrap_flag("external actions")
+            swept = reconcile_actions(db, older_than_minutes=args.older_than_minutes)
+            print(
+                f"released (never sent): {len(swept['released'])} | "
+                f"now unknown (may have been sent): {len(swept['unknown'])}"
+            )
+            for action_id in swept["unknown"]:
+                print(f"  check by hand, then resolve-action: {action_id}")
+        elif args.command == "resolve-action":
+            _require_bootstrap_flag("external actions")
+            closed = resolve_action(db, action_id=args.id, succeeded=args.succeeded, reason=args.reason)
+            print(f"{closed.id} is now {closed.status}")
         elif args.command == "list-users":
             users = db.query(User).order_by(User.email).all()
             if not users:

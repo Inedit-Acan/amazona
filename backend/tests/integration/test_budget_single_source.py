@@ -16,10 +16,12 @@ import datetime
 import os
 
 import pytest
+from action_test_support import FakeProviderAdapter
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import cli
+from app.actions.service import ExternalActionService
 from app.budgets.engine import BudgetStatus
 from app.budgets.service import BudgetLedgerService
 from app.ceo.orchestrator import CEOOrchestrator
@@ -30,6 +32,7 @@ from app.db.base import Base
 from app.db.models.approval import Approval
 from app.db.models.audit import AuditLog
 from app.db.models.budget import BudgetAllocation, FinancialEvent
+from app.db.models.job import Job
 from app.db.models.objective import Objective
 from app.db.models.pipeline_run import PipelineRun
 from app.db.models.pipeline_step import PipelineStep
@@ -265,21 +268,43 @@ def test_the_pipeline_denies_a_real_spend_without_a_budget(db: Session):
 # --- El ciclo de reserva del paso ---------------------------------------------------
 
 
-def test_a_step_that_fails_keeps_its_reservation_because_a_failure_is_not_a_zero(db: Session, monkeypatch):
+def use_provider(monkeypatch, *behaviors: str) -> FakeProviderAdapter:
+    """Un proveedor falso para el paso de marketing (el worker construye su propio orquestador, así que
+    se sustituye el adaptador por defecto). Los demás pasos con efecto van siempre bien."""
+    provider = FakeProviderAdapter(behaviors=list(behaviors), only_operation=SideEffectAction.ACTIVATE_ADS.value)
+    monkeypatch.setattr("app.pipeline.service.SimulatedAdapter", lambda: provider)
+    return provider
+
+
+def expire_lease(db: Session, run: PipelineRun) -> None:
+    job = db.get(Job, run.job_id)
+    job.lease_expires_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
+    db.commit()
+
+
+def test_a_step_whose_outcome_is_unknown_keeps_its_reservation_because_unknown_is_not_zero(db: Session, monkeypatch):
     authorise(db, 100_000.0)
+    use_provider(monkeypatch, "timeout_after")  # ejecutó y la respuesta se perdió
 
-    def fails(self, *args, **kwargs):
-        raise RuntimeError("remote call failed")
-
-    monkeypatch.setattr(PipelineOrchestrator, "_step_marketing", fails)
     run = pipeline_spend(db, 30_000.0)
 
     assert marketing_step(db, run).status == PipelineStepStatus.FAILED
     assert allocation(db) == (30_000.0, 0.0, 0.0)  # no se sabe qué llegó a hacer: sigue reservado
 
 
-def test_a_retry_after_a_crash_does_not_reserve_the_same_spend_twice(db: Session, monkeypatch):
+def test_a_step_the_provider_confirmed_failed_releases_its_reservation(db: Session, monkeypatch):
     authorise(db, 100_000.0)
+    use_provider(monkeypatch, "reject")
+
+    run = pipeline_spend(db, 30_000.0)
+
+    assert marketing_step(db, run).status == PipelineStepStatus.FAILED
+    assert allocation(db) == (0.0, 0.0, 0.0)  # se sabe que no hubo efecto: se libera
+
+
+def test_a_crash_before_the_call_is_retried_without_reserving_twice(db: Session, monkeypatch):
+    authorise(db, 100_000.0)
+    provider = use_provider(monkeypatch)
     orchestrator = PipelineOrchestrator(db)
     run = orchestrator.enqueue_run(
         PipelineRequest(
@@ -287,27 +312,55 @@ def test_a_retry_after_a_crash_does_not_reserve_the_same_spend_twice(db: Session
         )
     )
 
-    def process_dies(self, *args, **kwargs):
-        raise KeyboardInterrupt("the process died")
+    def process_dies(self, action):
+        raise KeyboardInterrupt("the process died before the call was sent")
 
-    original = PipelineOrchestrator._step_marketing
-    monkeypatch.setattr(PipelineOrchestrator, "_step_marketing", process_dies)
+    original = ExternalActionService.begin_call
+
+    def dies_only_for_marketing(self, action):
+        if action.operation == SideEffectAction.ACTIVATE_ADS.value:
+            process_dies(self, action)
+        return original(self, action)
+
+    monkeypatch.setattr(ExternalActionService, "begin_call", dies_only_for_marketing)
     with pytest.raises(KeyboardInterrupt):
         Worker(name="worker-1").run_once(db)
     db.rollback()
     assert allocation(db) == (60_000.0, 0.0, 0.0)  # reservado y confirmado antes de caer
+    assert provider.effects_of(SideEffectAction.ACTIVATE_ADS.value) == 0  # la petición no llegó a salir
 
-    from app.db.models.job import Job
-
-    job = db.get(Job, run.job_id)
-    job.lease_expires_at = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
-    db.commit()
-    monkeypatch.setattr(PipelineOrchestrator, "_step_marketing", original)
+    expire_lease(db, run)
+    monkeypatch.setattr(ExternalActionService, "begin_call", original)
     drain(db)
 
-    # El reintento no se compara contra su propia reserva, no la duplica, y al terminar la gasta.
+    # Nada había salido: el reintento reutiliza la misma operación, no se compara contra su propia
+    # reserva, no la duplica y, al terminar, la gasta.
     assert marketing_step(db, run).status == PipelineStepStatus.COMPLETED
     assert allocation(db) == (0.0, 60_000.0, 60_000.0)
+    assert db.query(FinancialEvent).filter_by(type="RESERVE").count() == 1
+    assert provider.effects_of(SideEffectAction.ACTIVATE_ADS.value) == 1
+
+
+def test_a_crash_during_the_call_keeps_the_reservation_and_blocks_the_retry(db: Session, monkeypatch):
+    authorise(db, 100_000.0)
+    provider = use_provider(monkeypatch, "die")
+    run = PipelineOrchestrator(db).enqueue_run(
+        PipelineRequest(
+            category="home", sale_price=50.0, destination_region="mexico", market="us", daily_budget=60_000.0
+        )
+    )
+    with pytest.raises(KeyboardInterrupt):
+        Worker(name="worker-1").run_once(db)
+    db.rollback()
+
+    expire_lease(db, run)
+    drain(db)
+
+    step = marketing_step(db, run)
+    assert step.status == PipelineStepStatus.DENIED
+    assert "unknown outcome" in step.error
+    assert provider.effects_of(SideEffectAction.ACTIVATE_ADS.value) == 0
+    assert allocation(db) == (60_000.0, 0.0, 0.0)  # ni se libera ni se gasta: espera a la reconciliación
     assert db.query(FinancialEvent).filter_by(type="RESERVE").count() == 1
 
 

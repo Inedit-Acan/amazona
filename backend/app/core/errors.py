@@ -58,3 +58,18 @@ class IdempotencyConflictError(AmazonaError):
 class BudgetExhaustedError(AmazonaError):
     """Raised when a spend that fitted when it was assessed no longer fits when it is reserved:
     another request took the budget in between."""
+
+
+class ExternalActionFailedError(AmazonaError):
+    """An external action failed and the provider confirmed it had no effect (or the request never left):
+    its budget is released and it may be tried again as a new operation."""
+
+
+class ExternalOutcomeUnknownError(AmazonaError):
+    """An external action may have been executed and its result is not known. It is not retried blindly,
+    its budget is not released and it is not declared a success: it needs reconciling."""
+
+
+class PipelineOutcomeUnknownError(AmazonaError):
+    """A pipeline step stopped on an external action whose outcome is unknown. The run is blocked until it is
+    reconciled; it does not burn job attempts."""
