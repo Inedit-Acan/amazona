@@ -425,9 +425,20 @@ class PipelineOrchestrator:
 
             gate_decision, authorisation = self._gate_step(run, step, request)
             if gate_decision is not None and gate_decision.outcome is GateOutcome.DENY:
+                self._deny_step(step, gate_decision)
+                latest = self._actions.latest(self._reference(run, step))
+                if latest is not None and latest.status == ActionStatus.UNKNOWN_OUTCOME.value:
+                    # Un efecto de este paso pudo ocurrir y no se sabe: la ejecución no «termina» con dinero en el aire.
+                    # Queda BLOCKED, igual que cuando el resultado se descubre durante la ejecución, hasta que se
+                    # reconcilie o una persona lo resuelva; el trabajo no gasta intentos.
+                    run.status = PipelineRunStatus.BLOCKED
+                    run.failed_step = step.name
+                    self._db.commit()
+                    raise PipelineOutcomeUnknownError(
+                        f"step {step.name} has an external action of unknown outcome: reconcile or resolve it first"
+                    )
                 # Denegado, pero la cadena sigue: los pasos de análisis que
                 # vengan después no le hacen nada a nadie (plan maestro §7).
-                self._deny_step(step, gate_decision)
                 continue
             if gate_decision is not None and gate_decision.outcome is GateOutcome.REQUIRE_APPROVAL:
                 return self._await_approval(run, step, gate_decision, context)

@@ -30,7 +30,11 @@ class Approval(BaseModel):
 class ApprovalService:
     """Human approval lifecycle. Each approval authorizes exactly one
     contextual action (a specific decision_id + action + amount) and can
-    never be reused once resolved or expired."""
+    never be reused once resolved or expired.
+
+    **In-memory model from Milestone 1: it persists nothing and no route authorises through it.** The approvals that
+    exist are the `approvals` rows (`app.db.models.approval`) resolved by `app/api/approvals.py`, and the pipeline's
+    own `PipelineReview`. Do not use this class to authorise anything (ADR 0027)."""
 
     def __init__(self) -> None:
         self._approvals: dict[str, Approval] = {}

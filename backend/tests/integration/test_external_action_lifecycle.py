@@ -301,6 +301,83 @@ def test_case_f_a_confirmed_failure_releases_the_reservation(
     assert adapter.effect_count == 0
 
 
+# --- La respuesta de la llamada original llega tarde -------------------------------------
+
+
+def seen_in_flight_by_another_executor(db: Session, service: ExternalActionService, adapter) -> ExternalAction:
+    """La llamada sigue en vuelo; otro ejecutor la ve `CALLING`, no sabe si su dueño sigue vivo y la marca."""
+    action = prepare(service, db, adapter)
+    service.begin_call(action)
+    assert service.mark_interrupted(REFERENCE) is not None
+    db.refresh(action)
+    assert action.status == ActionStatus.UNKNOWN_OUTCOME.value
+    return action
+
+
+def test_the_late_success_of_the_original_call_closes_an_unknown_outcome_and_commits(
+    db: Session, service: ExternalActionService
+):
+    action = seen_in_flight_by_another_executor(db, service, FakeProviderAdapter())
+
+    service.finish(action, ActionStatus.SUCCEEDED)  # el dueño de la llamada, vivo, recibe por fin su respuesta
+
+    db.refresh(action)
+    assert action.status == ActionStatus.SUCCEEDED.value
+    assert allocation(db) == (0.0, 100.0, 100.0)
+    closing = db.query(AuditLog).filter_by(action="external_action.succeeded").one()
+    assert closing.before == {"status": "UNKNOWN_OUTCOME"}
+    assert closing.after["late_response"] is True
+
+
+def test_the_late_rejection_of_the_original_call_closes_an_unknown_outcome_and_releases(
+    db: Session, service: ExternalActionService
+):
+    action = seen_in_flight_by_another_executor(db, service, FakeProviderAdapter())
+
+    service.finish(action, ActionStatus.FAILED_CONFIRMED, error="the provider refused")
+
+    db.refresh(action)
+    assert action.status == ActionStatus.FAILED_CONFIRMED.value
+    assert allocation(db) == (0.0, 0.0, 0.0)
+
+
+def test_a_late_timeout_of_the_original_call_leaves_an_unknown_outcome_as_it_was(
+    db: Session, service: ExternalActionService
+):
+    action = seen_in_flight_by_another_executor(db, service, FakeProviderAdapter())
+
+    service.finish(action, ActionStatus.UNKNOWN_OUTCOME, error="timed out too")  # no es un error: ya estaba así
+
+    db.refresh(action)
+    assert action.status == ActionStatus.UNKNOWN_OUTCOME.value
+    assert allocation(db) == (100.0, 0.0, 0.0)
+
+
+def test_nothing_but_a_response_a_lookup_or_a_person_closes_an_unknown_outcome(
+    db: Session, service: ExternalActionService
+):
+    """Ni el barrido, ni volver a mirar, ni volver a abrirla, ni intentar ejecutarla otra vez."""
+    action = seen_in_flight_by_another_executor(db, service, FakeProviderAdapter())
+
+    service.reconcile_interrupted(older_than=datetime.timedelta(seconds=-1))
+    service.mark_interrupted(REFERENCE)
+    reopened = service.open(
+        reference=REFERENCE,
+        adapter=FakeProviderAdapter(),
+        operation=OPERATION,
+        amount=100.0,
+        payload=PAYLOAD,
+        correlation_id="c",
+    )
+    with pytest.raises(ExternalActionStateError):
+        service.begin_call(action)
+
+    db.refresh(action)
+    assert reopened.id == action.id
+    assert action.status == ActionStatus.UNKNOWN_OUTCOME.value
+    assert allocation(db) == (100.0, 0.0, 0.0)
+
+
 # --- Éxito --------------------------------------------------------------------------
 
 

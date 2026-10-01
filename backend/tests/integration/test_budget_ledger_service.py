@@ -66,7 +66,15 @@ def test_authorising_a_budget_creates_it_with_its_allocation_and_audits_it(db_se
     entry = db_session.query(AuditLog).filter_by(action="budget.authorise").one()
     assert entry.actor == "cli:owner"
     assert entry.before is None
-    assert entry.after == {"hard_limit": 1000.0, "soft_limit": 800.0}
+    # Qué se autoriza, con qué techo y para qué dinero: el ámbito y la moneda van en la propia auditoría.
+    assert entry.after == {
+        "hard_limit": 1000.0,
+        "soft_limit": 800.0,
+        "scope": "orchestrator-default",
+        "period": "monthly",
+        "currency": "EUR",
+    }
+    assert entry.created_at is not None  # y cuándo
 
 
 def test_changing_the_budget_keeps_one_row_and_audits_before_and_after(db_session: Session):
@@ -77,8 +85,9 @@ def test_changing_the_budget_keeps_one_row_and_audits_before_and_after(db_sessio
     assert db_session.query(Budget).count() == 1
     assert db_session.query(BudgetAllocation).count() == 1
     entry = db_session.query(AuditLog).filter_by(action="budget.authorise").order_by(AuditLog.created_at).all()[-1]
-    assert entry.before == {"hard_limit": 1000.0, "soft_limit": None}
-    assert entry.after == {"hard_limit": 2500.0, "soft_limit": None}
+    scope = {"scope": "orchestrator-default", "period": "monthly", "currency": "EUR"}
+    assert entry.before == {"hard_limit": 1000.0, "soft_limit": None, **scope}
+    assert entry.after == {"hard_limit": 2500.0, "soft_limit": None, **scope}
 
 
 @pytest.mark.parametrize("hard, soft", [(0.0, None), (-5.0, None), (100.0, 0.0), (100.0, 150.0)])

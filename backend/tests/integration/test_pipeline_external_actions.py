@@ -139,6 +139,22 @@ def test_resuming_an_unknown_outcome_does_not_call_the_provider_again(db: Sessio
     assert ledger(db) == (60_000.0, 0.0)
 
 
+def test_a_run_never_finishes_while_a_step_has_an_effect_of_unknown_outcome(db: Session, monkeypatch):
+    """Ni la primera vez ni al reanudar: una ejecución `COMPLETED` con dinero en el aire escondería el problema."""
+    provider(monkeypatch, "timeout_after")
+    run = start(db)
+    drain(db)
+
+    for _ in range(3):
+        resume(db, run)
+
+        db.refresh(run)
+        assert run.status == PipelineRunStatus.BLOCKED
+        assert run.failed_step == "marketing"
+        assert marketing(db, run).status == PipelineStepStatus.DENIED
+        assert db.get(Job, run.job_id).status == JobStatus.BLOCKED
+
+
 def test_confirming_the_effect_by_hand_lets_the_run_continue_without_repeating_it(db: Session, monkeypatch):
     fake = provider(monkeypatch, "timeout_after")
     run = start(db)

@@ -192,20 +192,38 @@ class ExternalActionService:
         return response
 
     def finish(self, action: ExternalAction, status: ActionStatus, *, error: str | None = None) -> None:
-        """Cierra una operación que estaba `CALLING` y mueve el libro como corresponde: `SUCCEEDED` compromete,
-        `FAILED_CONFIRMED` libera, `UNKNOWN_OUTCOME` no toca nada (la reserva se queda hasta que se sepa). Salir
-        de `UNKNOWN_OUTCOME` solo se hace por `reconcile` o `resolve`."""
+        """Cierra una operación con la **respuesta de la llamada que la hizo** y mueve el libro como corresponde:
+        `SUCCEEDED` compromete, `FAILED_CONFIRMED` libera, `UNKNOWN_OUTCOME` no toca nada (la reserva se queda hasta
+        que se sepa).
+
+        Normalmente la operación está `CALLING`. Pero otro ejecutor pudo ver esa llamada en vuelo, no saber si seguía
+        viva y marcarla `UNKNOWN_OUTCOME`; si la llamada original responde **después**, su respuesta es autoritativa y
+        cierra la operación (`late_response` en la auditoría): descartarla perdería lo único que de verdad se sabe. Lo
+        que **no** puede cerrar un `UNKNOWN_OUTCOME` es una suposición: ni el barrido, ni un reintento, ni el paso del
+        tiempo; solo esta respuesta, `reconcile` o `resolve`."""
         now = self._clock()
+        was = action.status
+        if status is ActionStatus.UNKNOWN_OUTCOME and was == ActionStatus.UNKNOWN_OUTCOME.value:
+            return  # otro ejecutor ya lo dejó así: la llamada original tampoco supo qué pasó
         fields: dict = {"finished_at": now, "updated_at": now, "error": (error or "")[:2000] or None}
+        expected = {ActionStatus.CALLING}
         if status is ActionStatus.UNKNOWN_OUTCOME:
             fields["finished_at"] = None
-        if not self._transition(action, {ActionStatus.CALLING}, status, **fields):
+        else:
+            expected.add(ActionStatus.UNKNOWN_OUTCOME)
+        if not self._transition(action, expected, status, **fields):
             raise ExternalActionStateError(f"action {action.id} was already closed by someone else")
         if status is ActionStatus.SUCCEEDED:
             self._move_ledger(action, commit=True)
         elif status is ActionStatus.FAILED_CONFIRMED:
             self._move_ledger(action, commit=False)
-        self._audit(action, status.value.lower(), before=None, after={"status": status.value, "error": error})
+        late = was == ActionStatus.UNKNOWN_OUTCOME.value
+        self._audit(
+            action,
+            status.value.lower(),
+            before={"status": was} if late else None,
+            after={"status": status.value, "error": error, **({"late_response": True} if late else {})},
+        )
         self._db.commit()
 
     def mark_applied(self, action: ExternalAction) -> None:

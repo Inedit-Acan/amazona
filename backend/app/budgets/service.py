@@ -9,6 +9,7 @@ from app.core.errors import ValidationError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.budget import Budget, BudgetAllocation, FinancialEvent
+from app.sourcing.trade_terms import ACCOUNTING_CURRENCY
 
 DEFAULT_BUDGET_NAME = "orchestrator-default"
 
@@ -101,7 +102,8 @@ class BudgetLedgerService:
             self._db.add(budget)
             self._db.flush()
         else:
-            before = {"hard_limit": float(budget.hard_limit), "soft_limit": _as_float(budget.soft_limit)}
+            before = {**self._describe(budget), "hard_limit": float(budget.hard_limit)}
+            before["soft_limit"] = _as_float(budget.soft_limit)
             budget.hard_limit = float(hard)
             budget.soft_limit = float(soft) if soft is not None else None
         self._allocation(budget)
@@ -111,12 +113,17 @@ class BudgetLedgerService:
                 action="budget.authorise",
                 resource=f"budget:{budget.id}",
                 before=before,
-                after={"hard_limit": float(hard), "soft_limit": _as_float(soft)},
+                after={**self._describe(budget), "hard_limit": float(hard), "soft_limit": _as_float(soft)},
                 correlation_id=correlation_id or new_correlation_id(),
             )
         )
         self._db.commit()
         return budget
+
+    def _describe(self, budget: Budget) -> dict:
+        """Qué autoriza exactamente la fila: el ámbito (su nombre y periodo) y la moneda. Quien lee la auditoría
+        no tiene que adivinar a qué dinero se refiere un importe."""
+        return {"scope": budget.name, "period": budget.period, "currency": ACCOUNTING_CURRENCY}
 
     # --- Mover dinero ------------------------------------------------------------------
 

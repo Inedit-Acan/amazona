@@ -14,7 +14,13 @@ class PipelineReview(IdMixin, TimestampMixin, Base):
     non-nullable and tied to the Milestone-1 Decision domain, which a
     PipelineRun is not part of). Resolving a review is a governance
     annotation — it does not revert or retry the pipeline run, which is
-    already a completed fact."""
+    already a completed fact.
+
+    Frontera con `Approval` (ADR 0027): una `ACTION_GATE` autoriza **un efecto de un paso** de una ejecución, una
+    sola vez (`APPROVED -> CONSUMED` al arrancar el paso), y no mueve el libro de presupuesto —el gasto lo reserva el
+    paso al empezar, con su `ExternalAction`—. No caduca. Una `POST_HOC` es una anotación sobre una ejecución
+    terminada y **nunca** autoriza nada. Para autorizar una decisión del CEO, y su dinero, está `Approval`: otra
+    bandeja, con otro propósito."""
 
     __tablename__ = "pipeline_reviews"
     #: A lo sumo **una** pregunta abierta por paso (y una revisión a posteriori abierta por ejecución): dos

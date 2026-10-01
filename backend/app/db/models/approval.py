@@ -8,6 +8,14 @@ from app.db.models.mixins import IdMixin, TimestampMixin
 
 
 class Approval(IdMixin, TimestampMixin, Base):
+    """La autorización humana de una **decisión del CEO** (ADR 0027): decide si un proyecto sigue adelante y, si
+    lleva dinero, cuánto. Lo crea el CEO con el importe **ya reservado** en el libro (`approval:{id}`); resolverla lo
+    compromete (aprobar) o lo libera (rechazar o caducar), una sola vez, con compare-and-set. Caduca (`expires_at`).
+
+    **No es** la autorización de un paso del pipeline: eso es `PipelineReview`. Ninguno de los dos lados importa al
+    otro, y aprobar una de las dos no desbloquea nada de la otra (`tests/unit/test_approval_boundary.py`).
+    """
+
     __tablename__ = "approvals"
 
     decision_id: Mapped[str] = mapped_column(ForeignKey("decisions.id"))

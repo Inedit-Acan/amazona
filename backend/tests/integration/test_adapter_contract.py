@@ -1,13 +1,13 @@
 """El contrato de un adaptador con efecto, y que la batería de conformidad distingue a uno honesto de uno que miente.
 
-La batería (`adapter_contract.py`) es lo que pasará cada adaptador real de M44 con su transporte falso. Aquí se prueba
-contra los adaptadores que ya existen —el simulado y los falsos de las pruebas— y contra tres que incumplen el contrato,
-para que la batería no pueda volverse permisiva sin que lo note una prueba.
+La batería (`adapter_contract_test_support.py`) es lo que pasará cada adaptador real de M44 con su transporte
+falso. Aquí se prueba contra los adaptadores que ya existen —el simulado y los falsos de las pruebas— y contra tres
+que incumplen el contrato, para que la batería no pueda volverse permisiva sin que lo note una prueba.
 """
 
 import pytest
 from action_test_support import FakeLookupProviderAdapter, FakeProviderAdapter
-from adapter_contract import assert_adapter_honours_contract, request_for
+from adapter_contract_test_support import assert_adapter_honours_contract, request_for
 
 from app.actions.contract import (
     ActionRequest,

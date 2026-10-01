@@ -100,12 +100,19 @@ solo libera el sitio cuando está cerrada del todo (`applied_at`) o ha fallado c
 Y siempre queda la persona: `resolve` (CLI) compromete o libera la reserva tras una comprobación manual, exige
 **un motivo** y deja quién, cuándo y por qué en la fila y en la auditoría. Es de un solo uso (compare-and-set).
 
+**La respuesta tardía de la llamada original también cierra.** Otro ejecutor puede ver una llamada en vuelo (`CALLING`),
+no saber si su dueño sigue vivo y marcarla `UNKNOWN_OUTCOME`; si la llamada original responde **después**, esa respuesta es
+autoritativa y cierra la operación (`SUCCEEDED` compromete, `FAILED_CONFIRMED` libera) dejando `late_response` en la
+auditoría. Descartarla perdería lo único que de verdad se sabe. Lo que **nunca** cierra un `UNKNOWN_OUTCOME` es una
+suposición: ni el barrido, ni un reintento, ni volver a mirar, ni el paso del tiempo.
+
 ### 7. Un efecto sin resolver veta el siguiente
 
 El `ActionGate` recibe `unresolved_outcome` y lo trata como un **veto**, de los que ganan a cualquier aprobación
 humana: ni una firma permite volver a ejecutar un efecto que quizá ya ocurrió. El paso queda `DENIED` con el
-motivo, y si el resultado se descubre durante la ejecución, el paso queda `FAILED` (`UNKNOWN_OUTCOME: …`), la
-ejecución `BLOCKED` y el trabajo `BLOCKED` **sin gastar intentos**. No hay estado nuevo de paso.
+motivo; si el resultado se descubre durante la ejecución, el paso queda `FAILED` (`UNKNOWN_OUTCOME: …`). En los dos casos la
+ejecución queda `BLOCKED` —**nunca** `COMPLETED` con dinero en el aire— y el trabajo `BLOCKED` **sin gastar intentos**,
+también al reanudarla sin haber resuelto nada. No hay estado nuevo de paso.
 
 ### 8. Lo que respalda la base de datos
 
@@ -133,7 +140,7 @@ ocurrió, el paso solo lo registra; si no, abre una operación nueva.
 ## Contrato de un adaptador con efecto (lo que M44 tendrá que cumplir)
 
 Un adaptador que **escribe** en un proveedor implementa `ExternalActionAdapter` y pasa la batería de conformidad
-(`tests/integration/adapter_contract.py`) con su transporte falso **antes** de que el pipeline lo use:
+(`tests/integration/adapter_contract_test_support.py`) con su transporte falso **antes** de que el pipeline lo use:
 
 1. **Declara** su `name` y `supports_idempotency`; las capacidades no se infieren.
 2. Si declara `True`, repetir `execute` con la misma clave **no repite el efecto** y devuelve la misma respuesta; otra clave es
