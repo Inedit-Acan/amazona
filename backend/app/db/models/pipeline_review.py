@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -17,6 +17,25 @@ class PipelineReview(IdMixin, TimestampMixin, Base):
     already a completed fact."""
 
     __tablename__ = "pipeline_reviews"
+    #: A lo sumo **una** pregunta abierta por paso (y una revisión a posteriori abierta por ejecución): dos
+    #: bandejas con la misma pregunta pendiente permitirían contestar una y dejar la otra viva (ADR 0026).
+    __table_args__ = (
+        Index(
+            "uq_pipeline_reviews_one_pending_gate_per_step",
+            "pipeline_run_id",
+            "step",
+            unique=True,
+            postgresql_where=text("kind = 'ACTION_GATE' AND status = 'PENDING'"),
+            sqlite_where=text("kind = 'ACTION_GATE' AND status = 'PENDING'"),
+        ),
+        Index(
+            "uq_pipeline_reviews_one_pending_post_hoc_per_run",
+            "pipeline_run_id",
+            unique=True,
+            postgresql_where=text("kind = 'POST_HOC' AND status = 'PENDING'"),
+            sqlite_where=text("kind = 'POST_HOC' AND status = 'PENDING'"),
+        ),
+    )
 
     pipeline_run_id: Mapped[str] = mapped_column(ForeignKey("pipeline_runs.id"))
     #: Qué clase de decisión se pide (Milestone 33):

@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,6 +12,9 @@ class PipelineKillSwitch(IdMixin, TimestampMixin, Base):
     BudgetLedgerService (Milestone 11) uses for its canonical Budget row."""
 
     __tablename__ = "pipeline_kill_switch"
+    #: Una fila por nombre, garantizada por la base de datos (ADR 0026): dos interruptores con el mismo nombre
+    #: podrían decir cosas distintas.
+    __table_args__ = (UniqueConstraint("name", name="uq_pipeline_kill_switch_name"),)
 
     name: Mapped[str] = mapped_column(String(64))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -85,8 +85,9 @@ class PipelineKillSwitchService:
         return switch
 
     def _find(self) -> PipelineKillSwitch | None:
-        """Read only. The oldest row wins, so that if a duplicate ever exists (the
-        table has no unique constraint on `name`) every reader still agrees."""
+        """Read only. The name is unique in the database (ADR 0026), so there is at
+        most one row; the ordering is only a deterministic tie-break that cannot
+        matter."""
         return (
             self._db.query(PipelineKillSwitch)
             .filter_by(name=self._name)

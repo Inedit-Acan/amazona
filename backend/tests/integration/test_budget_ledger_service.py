@@ -157,13 +157,36 @@ def test_an_idempotent_reservation_is_not_repeated(db_session: Session):
     assert ledger.outstanding("step:1") == 60
 
 
-def test_once_committed_an_idempotent_reference_can_reserve_again(db_session: Session):
+def test_a_settled_reference_is_never_reserved_again(db_session: Session):
+    """ADR 0026: una referencia se reserva una vez. Un gasto nuevo es otro gasto y necesita otra referencia; reservar de
+    nuevo lo ya liquidado contaría el mismo dinero dos veces."""
     ledger = authorised(db_session, 100.0)
     ledger.reserve(amount=30.0, reference="step:1", idempotent=True)
     ledger.record_commit(amount=30.0, reference="step:1")
 
     assert ledger.outstanding("step:1") == 0
-    assert ledger.reserve(amount=30.0, reference="step:1", idempotent=True) is True
+    with pytest.raises(ValidationError, match="already reserved"):
+        ledger.reserve(amount=30.0, reference="step:1", idempotent=True)
+    with pytest.raises(ValidationError, match="already reserved"):
+        ledger.reserve(amount=30.0, reference="step:1")
+    allocation = db_session.query(BudgetAllocation).one()
+    assert (allocation.reserved, allocation.committed) == (0.0, 30.0)  # y el libro no se movió
+
+
+def test_an_idempotent_reserve_of_a_live_reservation_is_still_a_noop(db_session: Session):
+    ledger = authorised(db_session, 100.0)
+    ledger.reserve(amount=30.0, reference="step:2", idempotent=True)
+
+    assert ledger.reserve(amount=30.0, reference="step:2", idempotent=True) is True
+    assert db_session.query(BudgetAllocation).one().reserved == 30.0
+
+
+def test_a_non_idempotent_second_reserve_of_the_same_reference_is_refused(db_session: Session):
+    ledger = authorised(db_session, 100.0)
+    ledger.reserve(amount=30.0, reference="step:3")
+
+    with pytest.raises(ValidationError, match="already reserved"):
+        ledger.reserve(amount=30.0, reference="step:3")
     assert db_session.query(BudgetAllocation).one().reserved == 30.0
 
 

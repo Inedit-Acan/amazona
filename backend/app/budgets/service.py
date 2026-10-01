@@ -12,6 +12,12 @@ from app.db.models.budget import Budget, BudgetAllocation, FinancialEvent
 
 DEFAULT_BUDGET_NAME = "orchestrator-default"
 
+#: El techo más alto que se puede autorizar. No es una política de negocio sino una guarda contra un error de
+#: tecleo (un cero de más, `inf`, `nan`): ningún límite infinito existe, y uno absurdo no es una decisión del
+#: propietario. Subirlo es un cambio de código revisado, no un parámetro.
+MAX_HARD_LIMIT = Decimal("10000000.00")
+_CENT = Decimal("0.01")
+
 
 class BudgetLedgerService:
     """**La** fuente de verdad del presupuesto: las filas `budgets` (lo que el propietario
@@ -39,7 +45,7 @@ class BudgetLedgerService:
 
     def find_budget(self) -> Budget | None:
         """El presupuesto autorizado, o `None`. Nunca lo crea. El más antiguo gana si
-        hubiera duplicados (la tabla no tiene restricción única por nombre)."""
+        hubiera duplicados (imposible desde la ADR 0026: el nombre es único en la base de datos)."""
         return (
             self._db.query(Budget)
             .filter_by(name=self._budget_name)
@@ -76,10 +82,12 @@ class BudgetLedgerService:
     ) -> Budget:
         """Crea o cambia el techo autorizado, y lo deja en la auditoría con el antes y el
         después. Es el único sitio donde nace una fila de `budgets`."""
-        hard = Decimal(str(hard_limit))
-        soft = Decimal(str(soft_limit)) if soft_limit is not None else None
+        hard = _amount(hard_limit, "the hard limit")
+        soft = _amount(soft_limit, "the soft limit") if soft_limit is not None else None
         if hard <= 0:
             raise ValidationError("the hard limit of a budget must be greater than zero")
+        if hard > MAX_HARD_LIMIT:
+            raise ValidationError(f"the hard limit cannot exceed {MAX_HARD_LIMIT}: there is no unlimited budget")
         if soft is not None and not (0 < soft <= hard):
             raise ValidationError("the soft limit must be greater than zero and not above the hard limit")
 
@@ -133,8 +141,16 @@ class BudgetLedgerService:
         allocation = self._allocation(budget)
         if idempotent:
             self._serialise(f"reserve:{reference}")
-            if self.outstanding(reference) > 0:
+        if self._db.query(FinancialEvent.id).filter_by(type="RESERVE", reference=reference).first() is not None:
+            # Una referencia se reserva **una** vez (ADR 0026; lo garantiza también la base de datos). Reintentar una
+            # reserva que sigue viva es lo que `idempotent` permite; reservar otra vez lo que ya se liquidó, no: el
+            # gasto nuevo es otro gasto y necesita otra referencia.
+            if idempotent and self.outstanding(reference) > 0:
                 return True
+            raise ValidationError(
+                f"reference {reference} was already reserved: a new spend needs a new reference, "
+                "and a settled reservation is not reserved again"
+            )
 
         hard_limit = select(Budget.hard_limit).where(Budget.id == budget.id).scalar_subquery()
         result = self._execute(
@@ -188,7 +204,13 @@ class BudgetLedgerService:
     # --- Interno -----------------------------------------------------------------------
 
     def _allocation(self, budget: Budget) -> BudgetAllocation:
+        """El saldo del presupuesto, creándolo si falta. Con dos primeras reservas a la vez, sin más, las dos lo
+        creaban (medido: 3 de 12 pruebas con 30 hilos dejaron entre 2 y 4 filas, y cada comprobación de límite miraba la
+        suya). Ahora la creación se serializa por presupuesto y, además, la base de datos solo admite una fila."""
         allocation = self._db.query(BudgetAllocation).filter_by(budget_id=budget.id).first()
+        if allocation is None:
+            self._serialise(f"allocation:{budget.id}")
+            allocation = self._db.query(BudgetAllocation).filter_by(budget_id=budget.id).first()
         if allocation is None:
             allocation = BudgetAllocation(budget_id=budget.id, reserved=0.0, committed=0.0, spent=0.0)
             self._db.add(allocation)
@@ -220,6 +242,24 @@ class BudgetLedgerService:
         esperan una a la otra en vez de pisarse. Lo libera el commit."""
         if self._db.get_bind().dialect.name == "postgresql":
             self._db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": key})
+
+
+def _amount(value: float, what: str) -> Decimal:
+    """Un importe de verdad: finito, y en céntimos (más decimales se redondearían a otra cosa distinta de lo que se
+    escribió)."""
+    try:
+        amount = Decimal(str(value))
+    except ArithmeticError as exc:
+        raise ValidationError(f"{what} must be a number") from exc
+    if not amount.is_finite():
+        raise ValidationError(f"{what} must be a finite number")
+    try:
+        in_cents = amount == amount.quantize(_CENT)
+    except ArithmeticError as exc:  # un exponente enorme no cabe ni en la precisión de un importe
+        raise ValidationError(f"{what} is out of range") from exc
+    if not in_cents:
+        raise ValidationError(f"{what} cannot have more than two decimals")
+    return amount
 
 
 def _as_float(value) -> float | None:

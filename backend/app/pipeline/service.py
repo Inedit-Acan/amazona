@@ -24,6 +24,7 @@ from typing import cast
 
 from sqlalchemy import update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.actions.contract import ActionStatus, ExternalActionAdapter, SimulatedAdapter
@@ -892,7 +893,7 @@ class PipelineOrchestrator:
             .first()
         )
         if pending is None:
-            self._db.add(
+            pending = self._open_review(
                 PipelineReview(
                     pipeline_run_id=run.id,
                     kind=REVIEW_KIND_ACTION_GATE,
@@ -903,7 +904,7 @@ class PipelineOrchestrator:
                     correlation_id=run.correlation_id,
                 )
             )
-        else:
+        if pending is not None:
             pending.reasons = decision.reasons
 
         run.status = PipelineRunStatus.WAITING_APPROVAL
@@ -1196,7 +1197,7 @@ class PipelineOrchestrator:
                 .first()
             )
             if pending is None:
-                self._db.add(
+                pending = self._open_review(
                     PipelineReview(
                         pipeline_run_id=run.id,
                         reasons=assessment.reasons,
@@ -1204,7 +1205,7 @@ class PipelineOrchestrator:
                         correlation_id=run.correlation_id,
                     )
                 )
-            else:
+            if pending is not None:
                 pending.reasons = assessment.reasons
 
         self._audit(
@@ -1221,6 +1222,26 @@ class PipelineOrchestrator:
         self._db.commit()
         self._db.refresh(run)
         return run
+
+    def _open_review(self, review: PipelineReview) -> PipelineReview | None:
+        """Abre una pregunta pendiente. Si otro ejecutor abrió la misma un instante antes, la base de datos lo impide
+        (índice único parcial, ADR 0026) y se devuelve **esa**, en vez de dejar dos bandejas con la misma pregunta. El
+        SAVEPOINT se abre antes de añadir la fila: añadirla antes la volcaría fuera de él."""
+        try:
+            with self._db.begin_nested():
+                self._db.add(review)
+                self._db.flush()
+        except IntegrityError:
+            existing = (
+                self._db.query(PipelineReview)
+                .filter_by(pipeline_run_id=review.pipeline_run_id, kind=review.kind, step=review.step, status="PENDING")
+                .first()
+            )
+            if existing is None:
+                # No fue una carrera por la misma pregunta (una clave ajena rota, por ejemplo): no se disimula.
+                raise
+            return existing
+        return None
 
     def _requeue_job(self, run: PipelineRun, *, actor: str) -> Job:
         """Reanudar reencola **el mismo trabajo**: sus intentos y su bitácora son

@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -158,21 +158,21 @@ def test_a_second_mutation_reuses_the_row(engine, db: Session):
     assert service.is_enabled() is True
 
 
-def test_the_oldest_row_wins_when_a_duplicate_already_exists(db: Session):
-    """La tabla no tiene restricción única por nombre: si ya hay duplicados, todos los lectores coinciden."""
+def test_a_duplicate_row_for_the_same_switch_cannot_exist(db: Session):
+    """Antes la tabla no tenía restricción única por nombre y los lectores desempataban por antigüedad; desde la ADR
+    0026 la base de datos no admite el duplicado, así que no hay nada que desempatar."""
     now = datetime.datetime.now(datetime.UTC)
     db.add(PipelineKillSwitch(id="b", name="pipeline-default", enabled=True, created_at=now, updated_at=now))
-    older = now - datetime.timedelta(hours=1)
-    db.add(
-        PipelineKillSwitch(
-            id="z", name="pipeline-default", enabled=False, reason="old", created_at=older, updated_at=older
-        )
-    )
     db.commit()
 
-    for _ in range(5):
-        assert PipelineKillSwitchService(db).is_enabled() is False
-        assert PipelineKillSwitchService(db).get_state().reason == "old"
+    db.add(
+        PipelineKillSwitch(id="z", name="pipeline-default", enabled=False, reason="x", created_at=now, updated_at=now)
+    )
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+
+    assert PipelineKillSwitchService(db).is_enabled() is True
 
 
 # --- Los consumidores siguen comportándose igual ------------------------------------

@@ -115,13 +115,16 @@ orden de la regla del gate. Sin migración: las tablas son las mismas.
 - **No hay pantalla ni endpoint para autorizar el presupuesto**: es un comando en la máquina que tiene
   la base de datos. Es deliberado (ver 2) y queda pendiente decidir una interfaz.
 - **Un paso que falla tras reservar deja su reserva viva** (un fallo no se convierte en un cero): hace
-  falta una forma humana de liberarla, que no existe todavía.
-- `budgets.name` sigue sin restricción única en la base; `authorise_budget` serializa con un lock y
-  los lectores ven la fila más antigua, pero la garantía definitiva es una migración pendiente.
+  falta una forma humana de liberarla. *Resuelto en la [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md)*:
+  una reserva se libera sola solo si se sabe que la petición no salió o que el proveedor confirmó que no hubo efecto, y
+  si no se sabe la cierra una persona con `resolve-action`.
+- `budgets.name` no tenía restricción única en la base. *Resuelto en la [ADR 0026](adr-0026-database-identity-guards.md)*:
+  hay restricciones únicas para el presupuesto, su saldo, el interruptor del pipeline, los movimientos del libro y las
+  preguntas pendientes; y el techo debe ser un número finito, en céntimos y no superior a 10 000 000.
 
 ## Antes del primer proveedor de pago real
 
-Un presupuesto autorizado en cada entorno real; el medio para liberar reservas huérfanas; una clave
+Un presupuesto autorizado en cada entorno real; el medio para liberar reservas huérfanas y una clave
 idempotente hacia el proveedor, estable entre reintentos ([ADR 0011](adr-0011-action-gate.md),
-enmienda); y que los adaptadores que ejecuten acciones declaren su coste (`0` con procedencia, o un
+enmienda) —ambos ya resueltos en la [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md)—; y que los adaptadores que ejecuten acciones declaren su coste (`0` con procedencia, o un
 importe) en lugar de dejarlo en `None`.
