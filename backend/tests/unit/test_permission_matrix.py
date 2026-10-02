@@ -31,6 +31,7 @@ EXPECTED: dict[RoleName, set[ApiAction]] = {
         # Milestone 44: crear un pedido. SYSTEM tampoco lo tiene todavía: cuando exista la web pública, su
         # identidad de sistema será una decisión explícita.
         ApiAction.ORDER_WRITE,
+        ApiAction.PAYMENT_WRITE,
     },
     RoleName.ANALYST: READS | {ApiAction.AGENT_RUN},
     RoleName.REVIEWER: READS

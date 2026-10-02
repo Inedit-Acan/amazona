@@ -74,6 +74,9 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
         },
         ApiAction.ORDER_WRITE,
     ),
+    # Milestone 44: cancelar un pedido sin cobrar, y abrir un intento de cobro (una acción externa gobernada).
+    ("POST", "/api/orders/ord-1/cancel", {}, ApiAction.ORDER_WRITE),
+    ("POST", "/api/orders/ord-1/payments", {}, ApiAction.PAYMENT_WRITE),
     ("POST", "/api/suppliers/sup-1/quotes", {"product_id": "p-1"}, ApiAction.SUPPLIER_WRITE),
     (
         "POST",
@@ -251,6 +254,9 @@ def call(client: TestClient, route, token: str | None = None):
     return client.request(method, path, json=body, headers=headers)
 
 
+SIGNED_WEBHOOKS = {("POST", "/api/payments/webhooks/{provider}")}
+
+
 # --- El inventario no se queda atrás -----------------------------------------
 
 
@@ -264,6 +270,11 @@ def test_the_route_table_covers_every_mutating_route():
         for method in route.methods
         if method in {"POST", "PUT", "PATCH", "DELETE"}
     }
+    # El webhook de un proveedor de pagos (Milestone 44, ADR 0028) es la única ruta que muta sin `ApiAction`: no
+    # lleva el token de nadie, se autentica por la firma de su cuerpo. Es una excepción nombrada, no un hueco: el
+    # test de abajo comprueba que no admite nada sin firma.
+    assert SIGNED_WEBHOOKS <= actual
+    actual = actual - SIGNED_WEBHOOKS
     # The table uses concrete ids; compare on the templated form.
     templated = {
         ("POST", "/api/objectives"),
@@ -290,6 +301,8 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/incidents/{incident_id}/resolve"),
         ("POST", "/api/suppliers"),
         ("POST", "/api/orders"),
+        ("POST", "/api/orders/{order_id}/cancel"),
+        ("POST", "/api/orders/{order_id}/payments"),
         ("POST", "/api/suppliers/{supplier_id}/quotes"),
         ("POST", "/api/suppliers/{supplier_id}/capabilities"),
         ("POST", "/api/exchange-rates"),

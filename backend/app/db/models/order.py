@@ -1,4 +1,5 @@
 import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
@@ -48,7 +49,7 @@ class Order(IdMixin, TimestampMixin, Base):
     customer_ref: Mapped[str] = mapped_column(String(64))
     market: Mapped[str] = mapped_column(String(16))
     currency: Mapped[str] = mapped_column(String(3))
-    amount_due: Mapped[float] = mapped_column(Numeric(18, 4))
+    amount_due: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     status: Mapped[str] = mapped_column(String(20), default="AWAITING_PAYMENT")
     #: Si se creó en una simulación (todos los proveedores `MOCK`). Se fija al crear y no cambia.
     is_simulated: Mapped[bool] = mapped_column(Boolean)
@@ -100,9 +101,9 @@ class OrderItem(IdMixin, TimestampMixin, Base):
     supplier_quote_id: Mapped[str | None] = mapped_column(ForeignKey("supplier_quotes.id"), nullable=True)
     quantity: Mapped[int] = mapped_column(Integer)
     allocated_quantity: Mapped[int] = mapped_column(Integer, default=0)
-    unit_price: Mapped[float] = mapped_column(Numeric(18, 4))
-    line_total: Mapped[float] = mapped_column(Numeric(18, 4))
-    unit_cost: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    line_total: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
     cost_provenance: Mapped[str | None] = mapped_column(String(32), nullable=True)
     cost_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

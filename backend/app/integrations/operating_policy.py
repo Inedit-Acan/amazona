@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from app.core.config import Settings
-from app.core.errors import AmazonaError
+from app.core.errors import ConflictError
 
 
 class CostModel(StrEnum):
@@ -41,7 +41,7 @@ class CostModel(StrEnum):
     NOT_APPLICABLE = "not_applicable"
 
 
-class OperationNotPermittedError(AmazonaError):
+class OperationNotPermittedError(ConflictError):
     """El adaptador no declara esta operación, o sus efectos no valen en este entorno."""
 
 

@@ -12,6 +12,12 @@ Las clases:
 - `STATE`: una transición de estado con compare-and-set; repetirla es un 409 o un no-op.
 - `DRAFT`: escribe un registro propio sin efecto fuera del sistema; un duplicado es un registro más. Cuando una de estas
   rutas pase a tocar un proveedor real deja de ser un borrador y tiene que pasar a `GENERIC` o a `ExternalAction`.
+- `EXTERNAL_WRITE` (Milestone 44, ADR 0028): una operación con efecto fuera del sistema (abrir un cobro, reembolsar,
+  comprar al proveedor, enviar). Declara `Idempotency-Key` **y** pasa por `ExternalAction` y el ActionGate: dos
+  mecanismos distintos, a propósito (la clave del cliente identifica la intención; la clave hacia el proveedor, la
+  operación).
+- `WEBHOOK` (Milestone 44): un hecho que cuenta un proveedor. No lleva el token de nadie ni `Idempotency-Key`: se
+  autentica por la firma del cuerpo y se deduplica por el identificador del evento del proveedor.
 """
 
 import pytest
@@ -22,6 +28,8 @@ GENERIC = "GENERIC"
 OWN_KEY = "OWN_KEY"
 STATE = "STATE"
 DRAFT = "DRAFT"
+EXTERNAL_WRITE = "EXTERNAL_WRITE"
+WEBHOOK = "WEBHOOK"
 
 CLASSIFICATION: dict[str, str] = {
     # Salen a una fuente externa, reservan presupuesto o escriben análisis: idempotencia genérica.
@@ -32,6 +40,8 @@ CLASSIFICATION: dict[str, str] = {
     "/api/objectives/{objective_id}/run": GENERIC,
     # Un pedido (Milestone 44): la clave es obligatoria siempre, también en simulación.
     "/api/orders": GENERIC,
+    "/api/orders/{order_id}/payments": EXTERNAL_WRITE,
+    "/api/payments/webhooks/{provider}": WEBHOOK,
     "/api/regulatory-requirements/{requirement_id}/verify": GENERIC,
     "/api/research/comparisons": GENERIC,
     "/api/research/runs": GENERIC,
@@ -44,6 +54,7 @@ CLASSIFICATION: dict[str, str] = {
     "/api/incidents/{incident_id}/resolve": STATE,
     "/api/jobs/{job_id}/cancel": STATE,
     "/api/jobs/{job_id}/requeue": STATE,
+    "/api/orders/{order_id}/cancel": STATE,
     "/api/national-transpositions/{transposition_id}/withdraw": STATE,
     "/api/pipeline/kill-switch": STATE,
     "/api/pipeline/reviews/{review_id}/approve": STATE,
@@ -104,6 +115,20 @@ def test_the_pipeline_run_declares_its_own_header(post_routes):
     assert "Idempotency-Key" in post_routes["/api/pipeline/runs"]
 
 
-@pytest.mark.parametrize("path", sorted(p for p, kind in CLASSIFICATION.items() if kind in (STATE, DRAFT)))
-def test_a_state_or_draft_route_does_not_pretend_to_be_idempotent(post_routes, path):
+@pytest.mark.parametrize("path", sorted(p for p, kind in CLASSIFICATION.items() if kind in (STATE, DRAFT, WEBHOOK)))
+def test_a_state_draft_or_webhook_route_does_not_pretend_to_be_idempotent(post_routes, path):
     assert "Idempotency-Key" not in post_routes[path]
+
+
+@pytest.mark.parametrize("path", sorted(p for p, kind in CLASSIFICATION.items() if kind == EXTERNAL_WRITE))
+def test_an_external_write_declares_the_idempotency_header(post_routes, path):
+    assert "Idempotency-Key" in post_routes[path]
+
+
+def test_every_route_that_moves_orders_or_money_is_classified_by_what_it_does():
+    """Una ruta nueva bajo pedidos o pagos no puede ser un borrador: o es una transición con compare-and-set, o una
+    operación externa gobernada, o un webhook (ADR 0028)."""
+    allowed = {GENERIC, STATE, EXTERNAL_WRITE, WEBHOOK}
+    for path, kind in CLASSIFICATION.items():
+        if path.startswith(("/api/orders", "/api/payments", "/api/fulfillments")):
+            assert kind in allowed, f"{path} is {kind}"

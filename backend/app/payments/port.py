@@ -24,6 +24,10 @@ from app.core.errors import AmazonaError
 from app.money.money import Money
 from app.payments.verification import PROOF
 
+#: Las operaciones salientes que un proveedor de pagos declara (ADR 0028).
+OPERATION_OPEN = "payment.open"
+OPERATION_REFUND = "payment.refund"
+
 
 class PaymentEventType(StrEnum):
     """El vocabulario normalizado de lo que un proveedor puede contar.

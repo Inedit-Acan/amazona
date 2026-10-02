@@ -35,6 +35,8 @@ from app.actions.contract import ActionRequest, ActionResponse, ProviderRejected
 from app.core.errors import ValidationError
 from app.money.money import Money
 from app.payments.port import (
+    OPERATION_OPEN,
+    OPERATION_REFUND,
     InvalidSignatureError,
     MalformedEventError,
     MissingSignatureError,
@@ -47,8 +49,6 @@ from app.payments.verification import PROOF, payload_hash
 
 PROVIDER_NAME = "simulated-payments"
 SIGNATURE_HEADER = "Amazona-Simulated-Signature"
-OPERATION_OPEN = "payment.open"
-OPERATION_REFUND = "payment.refund"
 SIGNATURE_TOLERANCE_SECONDS = 300
 
 _process_key: bytes | None = None

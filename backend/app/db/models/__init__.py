@@ -23,6 +23,7 @@ from app.db.models.national_transposition import NationalTransposition
 from app.db.models.objective import Objective
 from app.db.models.operations_record import OperationsRecord
 from app.db.models.order import Order, OrderItem
+from app.db.models.payment import Payment, PaymentEvent, Refund
 from app.db.models.pipeline_kill_switch import PipelineKillSwitch
 from app.db.models.pipeline_review import PipelineReview
 from app.db.models.pipeline_run import PipelineRun
@@ -80,7 +81,10 @@ __all__ = [
     "OperationsRecord",
     "Order",
     "OrderItem",
+    "Payment",
+    "PaymentEvent",
     "PipelineKillSwitch",
+    "Refund",
     "PipelineReview",
     "PipelineRun",
     "PipelineStep",

@@ -8,17 +8,21 @@ existen todavía), el coste de proveedor de una línea es el de su cotización *
 que declara quien crea el pedido, y si no se sabe se queda desconocido (`NULL`), nunca cero.
 """
 
+import datetime
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
-from app.core.errors import NotFoundError, ValidationError
+from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.order import Order, OrderItem
+from app.db.models.payment import Payment
 from app.db.models.product import Product
 from app.db.models.supplier_quote import SupplierQuote
 from app.money.money import Money, total
@@ -29,6 +33,7 @@ from app.orders.domain import (
     require_cents,
     validate_customer_ref,
 )
+from app.payments.domain import ACTIVE_PAYMENT_STATUSES
 
 ORDER_ACTOR = "orders"
 
@@ -164,6 +169,52 @@ class OrderService:
         if quote.product_id != line.product_id:
             raise ValidationError(f"line {number}: the supplier quote belongs to another product")
         return quote
+
+    # --- Cancelar ----------------------------------------------------------------------------------
+
+    def cancel(self, order_id: str, *, actor: str) -> Order:
+        """Cancela un pedido que **nunca se cobró**. Es una decisión local: no toca al proveedor.
+
+        Solo desde `AWAITING_PAYMENT`, y solo si no hay ningún intento de cobro vivo (un cobro abierto en el
+        proveedor se cierra antes por su evento: cancelarlo allí es una operación externa que M44 no tiene) ni
+        dinero capturado. Se toma el bloqueo del pedido, el mismo que toma abrir un intento de cobro, así que
+        cancelar y abrir un cobro a la vez no pueden ganar los dos."""
+        order = self._db.scalars(
+            select(Order).where(Order.id == order_id).with_for_update().execution_options(populate_existing=True)
+        ).one_or_none()
+        if order is None:
+            raise NotFoundError(f"order {order_id} not found")
+        if order.status != OrderStatus.AWAITING_PAYMENT.value:
+            raise ConflictError(f"order {order_id} is {order.status}: only an order awaiting payment can be cancelled")
+        payments = list(self._db.scalars(select(Payment).where(Payment.order_id == order_id)))
+        if any(p.status in ACTIVE_PAYMENT_STATUSES for p in payments):
+            raise ConflictError(
+                f"order {order_id} has a payment attempt that is still alive: let it end before cancelling the order"
+            )
+        if any(Decimal(str(p.captured_amount)) > 0 for p in payments):
+            raise ConflictError(f"order {order_id} has money captured: it cannot be cancelled as if unpaid")
+        result = self._db.execute(
+            update(Order)
+            .where(Order.id == order_id, Order.status == OrderStatus.AWAITING_PAYMENT.value)
+            .values(status=OrderStatus.CANCELLED.value, cancelled_at=datetime.datetime.now(datetime.UTC))
+            .execution_options(synchronize_session=False)
+        )
+        assert isinstance(result, CursorResult)
+        if result.rowcount != 1:
+            raise ConflictError(f"order {order_id} changed while it was being cancelled")
+        self._db.add(
+            AuditLog(
+                actor=actor,
+                action="order.cancelled",
+                resource=f"order:{order_id}",
+                before={"status": OrderStatus.AWAITING_PAYMENT.value},
+                after={"status": OrderStatus.CANCELLED.value},
+                correlation_id=order.correlation_id,
+            )
+        )
+        self._db.commit()
+        self._db.refresh(order)
+        return order
 
     # --- Leer (no escribe nunca) -----------------------------------------------------------------
 

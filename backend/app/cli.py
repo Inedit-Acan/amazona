@@ -26,6 +26,14 @@ an opaque reference that starts with `sim_` in a simulation.
     AMAZONA_BOOTSTRAP=1 python -m app.cli create-test-order --product-id ID --quantity 2 --unit-price 19.99 \
         [--currency EUR] [--market eu] [--customer-ref sim_demo] [--quote-id ID] [--unit-cost 8.50]
 
+A payment is never confirmed by a command that edits an order. In a simulation, the simulated provider emits a
+signed event that goes through the same door and the same service as the webhook of a real gateway would
+(ADR 0028 §1); an event that was stored and not applied (the process died in between) is applied again:
+
+    AMAZONA_BOOTSTRAP=1 python -m app.cli simulate-payment --order-id ID --outcome succeeded \
+        [--payment-id ID] [--amount 50.00]
+    AMAZONA_BOOTSTRAP=1 python -m app.cli reconcile-payment-events [--older-than-minutes 5]
+
 Requires AMAZONA_BOOTSTRAP=1 in the environment so the command cannot be run by
 accident, and writes an audit entry for every grant.
 """
@@ -52,6 +60,11 @@ from app.db.models.user import User
 from app.db.session import get_session_factory
 from app.money.money import Money
 from app.orders.service import NewOrderLine, OrderService
+from app.payments.domain import EventProcessing
+from app.payments.ingress import PaymentIngress
+from app.payments.port import PaymentEventType
+from app.payments.providers.simulated import SimulatedPaymentProvider
+from app.payments.service import PaymentService
 
 BOOTSTRAP_ENV = "AMAZONA_BOOTSTRAP"
 
@@ -199,6 +212,87 @@ def create_test_order(
     )
 
 
+SIMULATED_OUTCOMES = {
+    "succeeded": PaymentEventType.PAYMENT_SUCCEEDED,
+    "failed": PaymentEventType.PAYMENT_FAILED,
+    "expired": PaymentEventType.PAYMENT_EXPIRED,
+    "attempt-failed": PaymentEventType.PAYMENT_ATTEMPT_FAILED,
+}
+
+
+def simulate_payment(
+    db: Session,
+    *,
+    outcome: str,
+    order_id: str | None = None,
+    payment_id: str | None = None,
+    amount: str | None = None,
+    event_id: str | None = None,
+):
+    """Emite un evento de pago **simulado** y lo entrega a la puerta, como lo haría el webhook de una pasarela.
+
+    No toca pedidos ni cobros: el simulador firma el evento con su clave efímera, la puerta lo verifica y lo guarda,
+    y `PaymentService` lo aplica. Solo existe en una simulación (el proveedor activo tiene que ser el simulado)."""
+    from sqlalchemy import select
+
+    from app.core.config import get_settings
+    from app.core.errors import NotFoundError
+    from app.db.models.payment import Payment
+    from app.integrations.ports import IntegrationDomain
+    from app.integrations.registry import ProviderNotAvailableError, ProviderRegistry
+
+    try:
+        provider = ProviderRegistry(get_settings()).resolve(IntegrationDomain.PAYMENTS)
+    except ProviderNotAvailableError as exc:
+        raise BootstrapError(f"no payment provider to emit events: {exc}") from exc
+    if not isinstance(provider, SimulatedPaymentProvider):
+        raise BootstrapError("only the simulated payment provider can emit events: a real gateway sends its own")
+    if (order_id is None) == (payment_id is None):
+        raise BootstrapError("say which payment: --payment-id, or --order-id for its latest attempt")
+    if payment_id is not None:
+        payment = db.get(Payment, payment_id)
+    else:
+        payment = db.scalars(
+            select(Payment).where(Payment.order_id == order_id).order_by(Payment.attempt_number.desc())
+        ).first()
+    if payment is None:
+        raise NotFoundError("no such payment")
+    money = Money.of(amount if amount is not None else str(payment.amount), payment.currency)
+    headers, raw = provider.simulate_event(
+        SIMULATED_OUTCOMES[outcome],
+        provider_payment_ref=payment.provider_payment_ref,
+        client_reference=payment.id,
+        amount=money if outcome == "succeeded" else None,
+        failure_code="simulated" if outcome in ("failed", "attempt-failed") else None,
+        event_id=event_id,
+    )
+    return PaymentIngress(db, provider=provider).receive(provider.name, headers, raw)
+
+
+def reconcile_payment_events(db: Session, *, older_than_minutes: int) -> dict[str, int]:
+    """Aplica de nuevo los eventos que se guardaron y no se aplicaron (el proceso cayó entre las dos transacciones).
+    Nunca aplica uno reciente: podría estar aplicándose ahora mismo."""
+    from sqlalchemy import select
+
+    from app.db.models.payment import PaymentEvent
+
+    if older_than_minutes < 1:
+        raise ValidationError("the threshold must be at least one minute")
+    limit = datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=older_than_minutes)
+    stuck = list(
+        db.scalars(
+            select(PaymentEvent)
+            .where(PaymentEvent.processing_status == EventProcessing.RECEIVED.value, PaymentEvent.received_at < limit)
+            .order_by(PaymentEvent.received_at)
+        )
+    )
+    counts: dict[str, int] = {}
+    for event in stuck:
+        outcome = PaymentService(db).apply(event.id)
+        counts[outcome.lower()] = counts.get(outcome.lower(), 0) + 1
+    return counts
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -239,6 +333,19 @@ def build_parser() -> argparse.ArgumentParser:
     order.add_argument("--customer-ref", help="an opaque reference; sim_… is generated in a simulation")
     order.add_argument("--quote-id", help="the supplier quote the line would be bought from")
     order.add_argument("--unit-cost", help="the supplier cost per unit, if you know it; otherwise it stays unknown")
+
+    simulate = commands.add_parser(
+        "simulate-payment", help="emit a signed simulated payment event through the same door as a real webhook"
+    )
+    simulate.add_argument("--order-id", help="the order; its latest payment attempt is used")
+    simulate.add_argument("--payment-id", help="a specific payment attempt")
+    simulate.add_argument("--outcome", required=True, choices=sorted(SIMULATED_OUTCOMES))
+    simulate.add_argument("--amount", help="the captured amount (default: the amount of the payment)")
+    simulate.add_argument(
+        "--event-id", help="a fixed provider event id; using it again with different content is refused as a conflict"
+    )
+    stuck = commands.add_parser("reconcile-payment-events", help="apply the events that were stored and never applied")
+    stuck.add_argument("--older-than-minutes", type=int, default=5)
     return parser
 
 
@@ -300,6 +407,22 @@ def main(argv: list[str] | None = None) -> int:
                 unit_cost=args.unit_cost,
             )
             print(f"order {created.id} created for {created.customer_ref}: {created.amount_due} {created.currency}")
+        elif args.command == "simulate-payment":
+            _require_bootstrap_flag("payments")
+            result = simulate_payment(
+                db,
+                outcome=args.outcome,
+                order_id=args.order_id,
+                payment_id=args.payment_id,
+                amount=args.amount,
+                event_id=args.event_id,
+            )
+            repeated = " (a repeated delivery)" if result.duplicate else ""
+            print(f"event {result.event_id}: {result.outcome}{repeated}")
+        elif args.command == "reconcile-payment-events":
+            _require_bootstrap_flag("payments")
+            applied = reconcile_payment_events(db, older_than_minutes=args.older_than_minutes)
+            print("applied: " + (", ".join(f"{k} {v}" for k, v in sorted(applied.items())) or "nothing to apply"))
         elif args.command == "list-users":
             users = db.query(User).order_by(User.email).all()
             if not users:

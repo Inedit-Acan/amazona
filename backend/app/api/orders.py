@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.actor import Actor
@@ -16,12 +17,15 @@ from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
 from app.db.models.order import Order as OrderModel
 from app.db.models.order import OrderItem as OrderItemModel
+from app.db.models.payment import Payment as PaymentModel
+from app.db.models.payment import Refund as RefundModel
 from app.db.session import get_db
 from app.idempotency.service import IdempotencyKeyHeader, run_idempotent
 from app.money.money import Money
 from app.money.serialization import money_to_json
 from app.orders.attention import attention_reasons
 from app.orders.domain import OrderStatus
+from app.orders.payment_attempts import PaymentAttemptService, Requester
 from app.orders.service import NewOrderLine, OrderService
 from app.permissions.policies import ApiAction
 
@@ -87,6 +91,39 @@ class OrderItemOut(BaseModel):
     cost_source: str | None
 
 
+class PaymentOut(BaseModel):
+    id: str
+    attempt_number: int
+    provider: str
+    #: `REQUESTED` (nada enviado) · `OPENING` (pudo salir) · `UNKNOWN_OUTCOME` · `OPEN` · `SUCCEEDED` · `FAILED` ·
+    #: `EXPIRED` · `DUPLICATE_CAPTURE` · `CAPTURE_MISMATCH`.
+    status: str
+    amount: MoneyOut
+    captured_amount: MoneyOut
+    refund_committed_amount: MoneyOut
+    refunded_amount: MoneyOut
+    provider_payment_ref: str | None
+    duplicate_of_payment_id: str | None
+    last_failure_code: str | None
+    opened_at: datetime.datetime | None
+    succeeded_at: datetime.datetime | None
+    closed_at: datetime.datetime | None
+    created_at: datetime.datetime
+
+
+class RefundOut(BaseModel):
+    id: str
+    payment_id: str
+    origin: str
+    status: str
+    amount: MoneyOut
+    reason: str
+    provider_refund_ref: str | None
+    failure_code: str | None
+    requested_at: datetime.datetime
+    finished_at: datetime.datetime | None
+
+
 class OrderOut(BaseModel):
     id: str
     customer_ref: str
@@ -95,6 +132,8 @@ class OrderOut(BaseModel):
     is_simulated: bool
     amount_due: MoneyOut
     items: list[OrderItemOut]
+    payments: list[PaymentOut] = Field(default_factory=list)
+    refunds: list[RefundOut] = Field(default_factory=list)
     created_at: datetime.datetime
     paid_at: datetime.datetime | None
     completed_at: datetime.datetime | None
@@ -128,8 +167,58 @@ def _item(item: OrderItemModel, currency: str) -> OrderItemOut:
     )
 
 
+def payment_out(payment: PaymentModel) -> PaymentOut:
+    cur = payment.currency
+    return PaymentOut(
+        id=payment.id,
+        attempt_number=payment.attempt_number,
+        provider=payment.provider,
+        status=payment.status,
+        amount=_money(payment.amount, cur),
+        captured_amount=_money(payment.captured_amount, cur),
+        refund_committed_amount=_money(payment.refund_committed_amount, cur),
+        refunded_amount=_money(payment.refunded_amount, cur),
+        provider_payment_ref=payment.provider_payment_ref,
+        duplicate_of_payment_id=payment.duplicate_of_payment_id,
+        last_failure_code=payment.last_failure_code,
+        opened_at=payment.opened_at,
+        succeeded_at=payment.succeeded_at,
+        closed_at=payment.closed_at,
+        created_at=payment.created_at,
+    )
+
+
+def refund_out(refund: RefundModel) -> RefundOut:
+    return RefundOut(
+        id=refund.id,
+        payment_id=refund.payment_id,
+        origin=refund.origin,
+        status=refund.status,
+        amount=_money(refund.amount, refund.currency),
+        reason=refund.reason,
+        provider_refund_ref=refund.provider_refund_ref,
+        failure_code=refund.failure_code,
+        requested_at=refund.requested_at,
+        finished_at=refund.finished_at,
+    )
+
+
 def order_out(db: Session, order: OrderModel) -> OrderOut:
     reasons = attention_reasons(db, order)
+    payments = list(
+        db.scalars(select(PaymentModel).where(PaymentModel.order_id == order.id).order_by(PaymentModel.attempt_number))
+    )
+    refunds = (
+        list(
+            db.scalars(
+                select(RefundModel)
+                .where(RefundModel.payment_id.in_([p.id for p in payments]))
+                .order_by(RefundModel.requested_at, RefundModel.id)
+            )
+        )
+        if payments
+        else []
+    )
     return OrderOut(
         id=order.id,
         customer_ref=order.customer_ref,
@@ -138,6 +227,8 @@ def order_out(db: Session, order: OrderModel) -> OrderOut:
         is_simulated=order.is_simulated,
         amount_due=_money(order.amount_due, order.currency),
         items=[_item(item, order.currency) for item in order.items],
+        payments=[payment_out(p) for p in payments],
+        refunds=[refund_out(r) for r in refunds],
         created_at=order.created_at,
         paid_at=order.paid_at,
         completed_at=order.completed_at,
@@ -208,3 +299,50 @@ def create_order(
         work=work,
         always_required=True,
     )
+
+
+@router.post("/{order_id}/payments", response_model=PaymentOut, status_code=201)
+def start_payment_attempt(
+    order_id: str,
+    response: Response,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.PAYMENT_WRITE)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
+) -> PaymentOut:
+    """Abre un intento de cobro del pedido: una acción externa que pasa por el ActionGate y por `ExternalAction`.
+
+    La misma `Idempotency-Key` es **la misma intención** (devuelve el mismo intento); una clave nueva es un intento
+    nuevo, y solo se admite si el anterior ya terminó. El resultado puede ser un intento `OPEN`, `FAILED` o
+    `UNKNOWN_OUTCOME`: esto último **bloquea** los intentos siguientes hasta reconciliarse. El pago no se confirma
+    aquí: lo confirma un evento verificado."""
+
+    def work() -> PaymentOut:
+        payment = PaymentAttemptService(db, settings=settings).start(
+            order_id, requester=Requester(name=identity.audit_name, role=identity.role.value if identity.role else None)
+        )
+        return payment_out(payment)
+
+    return run_idempotent(
+        db,
+        scope="orders.payment",
+        identity=identity,
+        client_key=idempotency_key,
+        settings=settings,
+        payload={"order_id": order_id},
+        response=response,
+        status_code=201,
+        response_model=PaymentOut,
+        work=work,
+        always_required=True,
+    )
+
+
+@router.post("/{order_id}/cancel", response_model=OrderOut)
+def cancel_order(
+    order_id: str,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.ORDER_WRITE)),
+) -> OrderOut:
+    """Cancela un pedido que nunca se cobró. Es una transición de estado con compare-and-set: repetirla es un 409."""
+    return order_out(db, OrderService(db).cancel(order_id, actor=identity.audit_name))

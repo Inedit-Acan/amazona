@@ -45,7 +45,9 @@ class ActionObserver(Protocol):
 #: Los observadores del producto: `(prefijo de la referencia, "módulo:Clase")`. Se cargan la primera vez que se
 #: necesitan y se instancian sin argumentos (no guardan estado). Un import perezoso evita el ciclo entre este
 #: paquete y los dominios que lo usan.
-REGISTERED: list[tuple[str, str]] = []
+REGISTERED: list[tuple[str, str]] = [
+    ("order_payment:", "app.payments.projection:PaymentOpenObserver"),
+]
 
 _loaded: dict[str, ActionObserver] = {}
 

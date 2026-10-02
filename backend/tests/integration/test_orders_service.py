@@ -272,7 +272,7 @@ def test_listing_filters_by_status_and_unknown_orders_are_not_found(db, product)
 def test_the_order_service_has_no_way_to_mark_an_order_as_paid():
     public = {name for name, member in inspect.getmembers(OrderService, inspect.isfunction) if not name.startswith("_")}
 
-    assert public == {"create", "get", "list"}
+    assert public == {"create", "get", "list", "cancel"}, "creating, reading and cancelling: never paying"
     source = inspect.getsource(orders_service)
     assert "OrderStatus.PAID" not in source and "paid_at =" not in source
 

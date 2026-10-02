@@ -97,6 +97,9 @@ class ApiAction(StrEnum):
     #: Crear un pedido (Milestone 44, ADR 0028). Lo crea una persona con permiso, o el CLI en una simulación;
     #: cuando exista la web pública lo creará una identidad de sistema. Distinto de cobrar, devolver o enviar.
     ORDER_WRITE = "order.write"
+    #: Abrir un intento de cobro de un pedido (Milestone 44). Es una acción externa con consecuencias, aunque no
+    #: gaste presupuesto: pasa por el ActionGate (`COLLECT_PAYMENT`) y por `ExternalAction`.
+    PAYMENT_WRITE = "payment.write"
 
 
 #: Who may do what over HTTP. Deny by default: an action absent from a role's
@@ -119,6 +122,7 @@ API_ROLE_ACTIONS: dict[RoleName, frozenset[ApiAction]] = {
             ApiAction.JOB_WRITE,
             ApiAction.SUPPLIER_WRITE,
             ApiAction.ORDER_WRITE,
+            ApiAction.PAYMENT_WRITE,
             ApiAction.BUSINESS_READ,
             ApiAction.DIAGNOSTICS_READ,
         }
