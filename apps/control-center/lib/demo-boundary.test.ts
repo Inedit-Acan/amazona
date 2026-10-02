@@ -39,8 +39,6 @@ const ALLOWED = [
   "app/legal/legal-workspace.tsx",
   "app/marketing/marketing-panels.tsx",
   "app/marketing/marketing-workspace.tsx",
-  "app/operations/operations-panels.tsx",
-  "app/operations/operations-workspace.tsx",
   "app/projects/projects-panels.tsx",
   "app/projects/projects-workspace.tsx",
   "app/research/research-workspace.tsx",

@@ -1388,6 +1388,16 @@ export const api = {
   failFulfillment: (fulfillmentId: string) =>
     request<OrderFulfillment>(`/api/fulfillments/${fulfillmentId}/fail`, { method: "POST" }),
   cancelOrder: (orderId: string) => request<Order>(`/api/orders/${orderId}/cancel`, { method: "POST" }),
+  // Las lecturas no escriben nada (un `GET` no escribe, ADR 0028): son lo que lee el panel Operaciones.
+  listOrders: (options?: { status?: string; limit?: number; offset?: number }) => {
+    const query = new URLSearchParams();
+    if (options?.status) query.set("status", options.status);
+    if (options?.limit !== undefined) query.set("limit", String(options.limit));
+    if (options?.offset !== undefined) query.set("offset", String(options.offset));
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return request<Order[]>(`/api/orders${suffix}`);
+  },
+  getOrder: (orderId: string) => request<Order>(`/api/orders/${orderId}`),
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
   runObjective: (objectiveId: string, options?: Keyed) =>
