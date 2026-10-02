@@ -266,6 +266,7 @@ def test_no_route_lets_the_browser_say_a_payment_happened(env):
         ("POST", "/api/orders"),
         ("POST", "/api/orders/{order_id}/payments"),
         ("POST", "/api/orders/{order_id}/refunds"),
+        ("POST", "/api/orders/{order_id}/fulfillments"),
         ("POST", "/api/orders/{order_id}/cancel"),
         ("POST", "/api/payments/webhooks/{provider}"),
     }

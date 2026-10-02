@@ -32,6 +32,7 @@ EXPECTED: dict[RoleName, set[ApiAction]] = {
         # identidad de sistema será una decisión explícita.
         ApiAction.ORDER_WRITE,
         ApiAction.PAYMENT_WRITE,
+        ApiAction.FULFILMENT_WRITE,
     },
     RoleName.ANALYST: READS | {ApiAction.AGENT_RUN},
     RoleName.REVIEWER: READS

@@ -53,7 +53,13 @@ def test_only_the_payment_service_and_the_open_observer_write_the_state_of_a_pay
 def test_only_the_payment_service_marks_an_order_as_paid():
     marks = files_matching(r"OrderStatus\.PAID")
 
-    assert marks == {"orders/domain.py", "payments/service.py", "orders/attention.py"}, sorted(marks)
+    # Leen el estado (las reglas del dominio, la atención, el fulfillment que exige un pedido pagado)...
+    assert marks == {"orders/domain.py", "payments/service.py", "orders/attention.py", "orders/fulfilment.py"}, sorted(
+        marks
+    )
+    # ...pero solo `PaymentService` lo escribe.
+    writers = files_matching(r"\.values\([^)]*status=OrderStatus\.PAID")
+    assert writers == {"payments/service.py"}, sorted(writers)
     service = (APP / "payments" / "service.py").read_text(encoding="utf-8")
     assert "paid_at" in service
     others = [p for p in python_files() if relative(p) != "payments/service.py"]

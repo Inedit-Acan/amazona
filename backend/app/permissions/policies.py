@@ -103,6 +103,9 @@ class ApiAction(StrEnum):
     #: Devolver dinero cobrado (Milestone 44). Solo OWNER y ADMIN: es dinero que sale, y ningún camino automático lo
     #: pide. Pasa por el ActionGate (`REFUND`: permiso, kill switch, resultado desconocido) y por `ExternalAction`.
     REFUND_WRITE = "refund.write"
+    #: Repartir un pedido pagado en fulfillments, comprar al proveedor, enviar y confirmar la entrega (Milestone 44).
+    #: Comprar y enviar son acciones externas gobernadas por el ActionGate y por `ExternalAction`.
+    FULFILMENT_WRITE = "fulfilment.write"
 
 
 #: Who may do what over HTTP. Deny by default: an action absent from a role's
@@ -126,6 +129,7 @@ API_ROLE_ACTIONS: dict[RoleName, frozenset[ApiAction]] = {
             ApiAction.SUPPLIER_WRITE,
             ApiAction.ORDER_WRITE,
             ApiAction.PAYMENT_WRITE,
+            ApiAction.FULFILMENT_WRITE,
             ApiAction.BUSINESS_READ,
             ApiAction.DIAGNOSTICS_READ,
         }

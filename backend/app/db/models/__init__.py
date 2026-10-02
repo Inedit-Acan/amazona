@@ -11,6 +11,7 @@ from app.db.models.event import Event
 from app.db.models.exchange_rate import ExchangeRate
 from app.db.models.external_action import ExternalAction
 from app.db.models.external_api_cost import ExternalApiCost
+from app.db.models.fulfillment import Fulfillment, FulfillmentItem
 from app.db.models.idempotency_record import IdempotencyRecord
 from app.db.models.incident import Incident
 from app.db.models.job import Job, JobAttempt, JobEvent
@@ -58,6 +59,8 @@ __all__ = [
     "CFOReport",
     "ComplianceEvidence",
     "ExternalAction",
+    "Fulfillment",
+    "FulfillmentItem",
     "IdempotencyRecord",
     "NationalAnchor",
     "NationalTransposition",

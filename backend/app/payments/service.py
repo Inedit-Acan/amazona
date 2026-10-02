@@ -208,7 +208,10 @@ class PaymentService:
 
     def _lock_order(self, order_id: str) -> Order:
         return self._db.scalars(
-            select(Order).where(Order.id == order_id).with_for_update().execution_options(populate_existing=True)
+            select(Order)
+            .where(Order.id == order_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         ).one()
 
     # --- Eventos de cobro -------------------------------------------------------------------------

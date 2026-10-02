@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.auth.actor import Actor
 from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
+from app.db.models.fulfillment import Fulfillment as FulfillmentModel
+from app.db.models.fulfillment import FulfillmentItem as FulfillmentItemModel
 from app.db.models.order import Order as OrderModel
 from app.db.models.order import OrderItem as OrderItemModel
 from app.db.models.payment import Payment as PaymentModel
@@ -25,6 +27,7 @@ from app.money.money import Money
 from app.money.serialization import money_to_json
 from app.orders.attention import attention_reasons
 from app.orders.domain import OrderStatus
+from app.orders.fulfilment import FulfilmentRequestLine, FulfilmentService
 from app.orders.payment_attempts import PaymentAttemptService, Requester
 from app.orders.refunds import RefundService
 from app.orders.service import NewOrderLine, OrderService
@@ -135,6 +138,34 @@ class RefundOut(BaseModel):
     finished_at: datetime.datetime | None
 
 
+class FulfilmentItemOut(BaseModel):
+    order_item_id: str
+    line_number: int
+    quantity: int
+
+
+class FulfilmentOut(BaseModel):
+    id: str
+    order_id: str
+    provider: str
+    supplier_id: str | None
+    #: `READY` · `PURCHASING` · `PURCHASED` · `SHIPPING` · `SHIPPED` · `COMPLETED` · `FAILED` · `CANCELLED` ·
+    #: `UNKNOWN_OUTCOME` (con `unknown_phase`).
+    status: str
+    unknown_phase: str | None
+    purchase_reference: str | None
+    tracking_reference: str | None
+    failed_attempts: int
+    last_failure_code: str | None
+    items: list[FulfilmentItemOut]
+    created_by: str
+    completed_by: str | None
+    created_at: datetime.datetime
+    purchased_at: datetime.datetime | None
+    shipped_at: datetime.datetime | None
+    completed_at: datetime.datetime | None
+
+
 class OrderOut(BaseModel):
     id: str
     customer_ref: str
@@ -145,6 +176,7 @@ class OrderOut(BaseModel):
     items: list[OrderItemOut]
     payments: list[PaymentOut] = Field(default_factory=list)
     refunds: list[RefundOut] = Field(default_factory=list)
+    fulfillments: list[FulfilmentOut] = Field(default_factory=list)
     created_at: datetime.datetime
     paid_at: datetime.datetime | None
     completed_at: datetime.datetime | None
@@ -214,6 +246,42 @@ def refund_out(refund: RefundModel) -> RefundOut:
     )
 
 
+def fulfillment_out(db: Session, fulfillment: FulfillmentModel) -> FulfilmentOut:
+    numbers = {
+        item.id: item.line_number
+        for item in db.scalars(select(OrderItemModel).where(OrderItemModel.order_id == fulfillment.order_id))
+    }
+    items = db.scalars(
+        select(FulfillmentItemModel)
+        .where(FulfillmentItemModel.fulfillment_id == fulfillment.id)
+        .order_by(FulfillmentItemModel.created_at, FulfillmentItemModel.id)
+    ).all()
+    return FulfilmentOut(
+        id=fulfillment.id,
+        order_id=fulfillment.order_id,
+        provider=fulfillment.provider,
+        supplier_id=fulfillment.supplier_id,
+        status=fulfillment.status,
+        unknown_phase=fulfillment.unknown_phase,
+        purchase_reference=fulfillment.purchase_reference,
+        tracking_reference=fulfillment.tracking_reference,
+        failed_attempts=fulfillment.failed_attempts,
+        last_failure_code=fulfillment.last_failure_code,
+        items=[
+            FulfilmentItemOut(
+                order_item_id=item.order_item_id, line_number=numbers[item.order_item_id], quantity=item.quantity
+            )
+            for item in items
+        ],
+        created_by=fulfillment.created_by,
+        completed_by=fulfillment.completed_by,
+        created_at=fulfillment.created_at,
+        purchased_at=fulfillment.purchased_at,
+        shipped_at=fulfillment.shipped_at,
+        completed_at=fulfillment.completed_at,
+    )
+
+
 def order_out(db: Session, order: OrderModel) -> OrderOut:
     reasons = attention_reasons(db, order)
     payments = list(
@@ -240,6 +308,14 @@ def order_out(db: Session, order: OrderModel) -> OrderOut:
         items=[_item(item, order.currency) for item in order.items],
         payments=[payment_out(p) for p in payments],
         refunds=[refund_out(r) for r in refunds],
+        fulfillments=[
+            fulfillment_out(db, f)
+            for f in db.scalars(
+                select(FulfillmentModel)
+                .where(FulfillmentModel.order_id == order.id)
+                .order_by(FulfillmentModel.created_at, FulfillmentModel.id)
+            )
+        ],
         created_at=order.created_at,
         paid_at=order.paid_at,
         completed_at=order.completed_at,
@@ -388,6 +464,58 @@ def request_refund(
         response=response,
         status_code=201,
         response_model=RefundOut,
+        work=work,
+        always_required=True,
+    )
+
+
+class FulfilmentLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    order_item_id: str = Field(min_length=1, max_length=36)
+    quantity: int = Field(ge=1)
+
+
+class FulfilmentCreate(BaseModel):
+    """Qué líneas (y cuántas unidades de cada una) cubrirá un fulfillment. Ni un dato personal: no hay envíos reales."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lines: list[FulfilmentLineIn] = Field(min_length=1)
+
+
+@router.post("/{order_id}/fulfillments", response_model=FulfilmentOut, status_code=201)
+def create_fulfillment(
+    order_id: str,
+    payload: FulfilmentCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.FULFILMENT_WRITE)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
+) -> FulfilmentOut:
+    """Reparte unidades de un pedido **pagado** en un fulfillment `READY`: una decisión local, sin efecto fuera. Las
+    unidades se apartan con aritmética de base de datos, así que ninguna línea se asigna de más. La misma
+    `Idempotency-Key` devuelve el mismo fulfillment."""
+
+    def work() -> FulfilmentOut:
+        fulfillment = FulfilmentService(db, settings=settings).create(
+            order_id,
+            [FulfilmentRequestLine(line.order_item_id, line.quantity) for line in payload.lines],
+            actor=identity.audit_name,
+        )
+        return fulfillment_out(db, fulfillment)
+
+    return run_idempotent(
+        db,
+        scope="orders.fulfillment",
+        identity=identity,
+        client_key=idempotency_key,
+        settings=settings,
+        payload={"order_id": order_id, **payload.model_dump()},
+        response=response,
+        status_code=201,
+        response_model=FulfilmentOut,
         work=work,
         always_required=True,
     )

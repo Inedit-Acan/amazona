@@ -180,7 +180,10 @@ class OrderService:
         dinero capturado. Se toma el bloqueo del pedido, el mismo que toma abrir un intento de cobro, así que
         cancelar y abrir un cobro a la vez no pueden ganar los dos."""
         order = self._db.scalars(
-            select(Order).where(Order.id == order_id).with_for_update().execution_options(populate_existing=True)
+            select(Order)
+            .where(Order.id == order_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         ).one_or_none()
         if order is None:
             raise NotFoundError(f"order {order_id} not found")

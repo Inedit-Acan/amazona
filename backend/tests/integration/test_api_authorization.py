@@ -84,6 +84,19 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
         {"payment_id": "pay-1", "amount": {"amount": "1.00", "currency": "EUR"}, "reason": "other"},
         ApiAction.REFUND_WRITE,
     ),
+    # Milestone 44: repartir un pedido pagado en fulfillments; comprar y enviar son acciones externas gobernadas;
+    # confirmar la entrega, cancelar y abandonar son decisiones de una persona. Un solo permiso: `FULFILMENT_WRITE`.
+    (
+        "POST",
+        "/api/orders/ord-1/fulfillments",
+        {"lines": [{"order_item_id": "oi-1", "quantity": 1}]},
+        ApiAction.FULFILMENT_WRITE,
+    ),
+    ("POST", "/api/fulfillments/ful-1/purchase", {}, ApiAction.FULFILMENT_WRITE),
+    ("POST", "/api/fulfillments/ful-1/ship", {}, ApiAction.FULFILMENT_WRITE),
+    ("POST", "/api/fulfillments/ful-1/complete", {}, ApiAction.FULFILMENT_WRITE),
+    ("POST", "/api/fulfillments/ful-1/cancel", {}, ApiAction.FULFILMENT_WRITE),
+    ("POST", "/api/fulfillments/ful-1/fail", {}, ApiAction.FULFILMENT_WRITE),
     ("POST", "/api/suppliers/sup-1/quotes", {"product_id": "p-1"}, ApiAction.SUPPLIER_WRITE),
     (
         "POST",
@@ -311,6 +324,12 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/orders/{order_id}/cancel"),
         ("POST", "/api/orders/{order_id}/payments"),
         ("POST", "/api/orders/{order_id}/refunds"),
+        ("POST", "/api/orders/{order_id}/fulfillments"),
+        ("POST", "/api/fulfillments/{fulfillment_id}/purchase"),
+        ("POST", "/api/fulfillments/{fulfillment_id}/ship"),
+        ("POST", "/api/fulfillments/{fulfillment_id}/complete"),
+        ("POST", "/api/fulfillments/{fulfillment_id}/cancel"),
+        ("POST", "/api/fulfillments/{fulfillment_id}/fail"),
         ("POST", "/api/suppliers/{supplier_id}/quotes"),
         ("POST", "/api/suppliers/{supplier_id}/capabilities"),
         ("POST", "/api/exchange-rates"),

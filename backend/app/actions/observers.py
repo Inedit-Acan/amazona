@@ -48,6 +48,7 @@ class ActionObserver(Protocol):
 REGISTERED: list[tuple[str, str]] = [
     ("order_payment:", "app.payments.projection:PaymentOpenObserver"),
     ("order_refund:", "app.payments.refund_projection:RefundActionObserver"),
+    ("order_fulfilment:", "app.orders.fulfilment_projection:FulfilmentActionObserver"),
 ]
 
 _loaded: dict[str, ActionObserver] = {}

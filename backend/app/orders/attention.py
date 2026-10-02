@@ -15,9 +15,11 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.models.fulfillment import Fulfillment
 from app.db.models.order import Order
 from app.db.models.payment import Payment, PaymentEvent, Refund
 from app.orders.domain import OrderStatus
+from app.orders.fulfilment_domain import IN_PROGRESS_STATUSES, FulfillmentStatus
 from app.payments.domain import (
     ACTIVE_PAYMENT_STATUSES,
     REFUND_CONFIRMATION_GRACE_MINUTES,
@@ -35,6 +37,13 @@ CONFLICTING_PAYMENT_EVENTS = "conflicting_payment_events"
 REFUND_OUTCOME_UNKNOWN = "refund_outcome_unknown"
 #: El proveedor aceptó devolver el dinero y no lo ha confirmado con un hecho verificado pasado un tiempo.
 REFUND_UNCONFIRMED = "refund_unconfirmed"
+FULFILMENT_OUTCOME_UNKNOWN = "fulfilment_outcome_unknown"
+#: La compra falló de forma confirmada y el fulfillment sigue `READY`: reintentar, cancelar o abandonar.
+FULFILMENT_PURCHASE_FAILED = "fulfilment_purchase_failed"
+#: El envío falló de forma confirmada tras comprar: las unidades siguen compradas y asignadas.
+FULFILMENT_SHIP_FAILED = "fulfilment_ship_failed"
+#: Se devolvió (o se está devolviendo) dinero de un pedido cuyo fulfillment sigue en curso.
+REFUNDED_ORDER_IN_FULFILMENT = "refunded_order_in_fulfilment"
 
 
 def attention_reasons(db: Session, order: Order, *, now: datetime.datetime | None = None) -> list[str]:
@@ -82,6 +91,22 @@ def attention_reasons(db: Session, order: Order, *, now: datetime.datetime | Non
         ).all()
         if any(_aware(requested) < cutoff for requested in sent):
             reasons.append(REFUND_UNCONFIRMED)
+    reasons.extend(_fulfilment_reasons(db, order, payments))
+    return reasons
+
+
+def _fulfilment_reasons(db: Session, order: Order, payments: list[Payment]) -> list[str]:
+    fulfillments = list(db.scalars(select(Fulfillment).where(Fulfillment.order_id == order.id)))
+    reasons: list[str] = []
+    if any(f.status == FulfillmentStatus.UNKNOWN_OUTCOME.value for f in fulfillments):
+        reasons.append(FULFILMENT_OUTCOME_UNKNOWN)
+    if any(f.status == FulfillmentStatus.READY.value and f.failed_attempts >= 1 for f in fulfillments):
+        reasons.append(FULFILMENT_PURCHASE_FAILED)
+    if any(f.status == FulfillmentStatus.PURCHASED.value and f.failed_attempts >= 1 for f in fulfillments):
+        reasons.append(FULFILMENT_SHIP_FAILED)
+    in_progress = any(f.status in IN_PROGRESS_STATUSES for f in fulfillments)
+    if in_progress and any(Decimal(str(p.refund_committed_amount)) > 0 for p in payments):
+        reasons.append(REFUNDED_ORDER_IN_FULFILMENT)
     return reasons
 
 

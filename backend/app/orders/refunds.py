@@ -214,7 +214,10 @@ class RefundService:
             raise NotFoundError(f"payment {payment_id} not found")
         # El mismo orden de bloqueos que el resto (pedido, luego cobro): un evento y un reembolso a la vez no se cruzan.
         self._db.scalars(
-            select(Order).where(Order.id == found.order_id).with_for_update().execution_options(populate_existing=True)
+            select(Order)
+            .where(Order.id == found.order_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         ).one()
         return self._db.scalars(
             select(Payment).where(Payment.id == payment_id).with_for_update().execution_options(populate_existing=True)
