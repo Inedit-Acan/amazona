@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { NeuralNexusGraph } from "@/components/neural-nexus/neural-nexus-graph";
-import { Suspense, useState } from "react";
+import { Suspense, useRef, useState } from "react";
+import { OPERATIONS } from "@/lib/intent-operations";
+import { useIntent } from "@/lib/use-intent";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ChevronDown, Loader2, Plus, Save, X } from "lucide-react";
 import { api, ApiError, type AgentExecution, type Agent, type Decision, type RunResult } from "@/lib/api";
@@ -171,6 +173,9 @@ function CeoForm() {
   const [context, setContext] = useState(JSON.stringify(initial.context, null, 2));
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const intent = useIntent("ceo");
+  // El objetivo ya creado para esta misma petición: un reintento corre **ese**, no crea otro y otra clave.
+  const createdObjective = useRef<{ brief: string; id: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<RunResult | null>(null);
   const [decision, setDecision] = useState<Decision | null>(null);
@@ -229,13 +234,19 @@ function CeoForm() {
     setDecision(null);
     setExecutions([]);
     try {
-      const objective = await api.createObjective({
-        title,
-        description,
-        created_by: createdBy,
-        context: parsedContext,
-      });
-      const result = await api.runObjective(objective.id);
+      const brief = { title, description, created_by: createdBy, context: parsedContext };
+      const result = await intent.run(
+        { operation: OPERATIONS.objectiveRun, target: "ceo-brief", params: brief },
+        async (key) => {
+          const wanted = JSON.stringify(brief);
+          if (createdObjective.current?.brief !== wanted) {
+            const objective = await api.createObjective(brief);
+            createdObjective.current = { brief: wanted, id: objective.id };
+          }
+          return api.runObjective(createdObjective.current.id, { idempotencyKey: key });
+        },
+      );
+      createdObjective.current = null; // terminó: la próxima petición es otra
       setRunResult(result);
 
       // Best-effort enrichment — the graph and execution feed still work

@@ -1,4 +1,4 @@
-import { withIdempotencyKey } from "@/lib/idempotency";
+import { IDEMPOTENCY_HEADER, withIdempotencyKey } from "@/lib/idempotency";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -69,6 +69,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+/** Lo que acepta una operación que el backend exige idempotente. La clave la elige **quien llama**, a través de
+ * `lib/intent-key.ts`: `request` solo pone una clave nueva cuando nadie puso la suya, y esa clave no sobrevive a un
+ * segundo clic. Una función `api.*` que acepta `Keyed` está lista para recibir la clave de una intención. */
+export interface Keyed {
+  idempotencyKey?: string;
+}
+
+function keyed(init: RequestInit, options?: Keyed): RequestInit {
+  if (!options?.idempotencyKey) return init;
+  return { ...init, headers: { ...(init.headers ?? {}), [IDEMPOTENCY_HEADER]: options.idempotencyKey } };
 }
 
 export type ProjectStatus =
@@ -1209,11 +1221,177 @@ export interface PipelineKillSwitchState {
   updated_by: string | null;
 }
 
+/** Pedido, pago, reembolso y fulfillment (Milestone 44, ADR 0028). Los importes viajan como cadenas exactas. */
+export interface OrderItem {
+  id: string;
+  line_number: number;
+  product_id: string;
+  supplier_id: string | null;
+  supplier_quote_id: string | null;
+  quantity: number;
+  allocated_quantity: number;
+  unit_price: MoneyAmount;
+  line_total: MoneyAmount;
+  unit_cost: MoneyAmount | null;
+  cost_provenance: string | null;
+  cost_source: string | null;
+}
+
+export type PaymentStatus =
+  | "REQUESTED"
+  | "OPENING"
+  | "UNKNOWN_OUTCOME"
+  | "OPEN"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "EXPIRED"
+  | "DUPLICATE_CAPTURE"
+  | "CAPTURE_MISMATCH";
+
+export interface OrderPayment {
+  id: string;
+  attempt_number: number;
+  provider: string;
+  status: PaymentStatus;
+  amount: MoneyAmount;
+  captured_amount: MoneyAmount;
+  refund_committed_amount: MoneyAmount;
+  refunded_amount: MoneyAmount;
+  provider_payment_ref: string | null;
+  duplicate_of_payment_id: string | null;
+  last_failure_code: string | null;
+  opened_at: string | null;
+  succeeded_at: string | null;
+  closed_at: string | null;
+  created_at: string;
+}
+
+export interface OrderRefund {
+  id: string;
+  payment_id: string;
+  origin: string;
+  /** `REQUESTED` · `SENDING` · `UNKNOWN_OUTCOME` · `SUCCEEDED` · `FAILED`: solo un hecho verificado lo da por devuelto. */
+  status: string;
+  amount: MoneyAmount;
+  reason: string;
+  provider_refund_ref: string | null;
+  failure_code: string | null;
+  requested_at: string;
+  finished_at: string | null;
+}
+
+export type FulfillmentStatus =
+  | "READY"
+  | "PURCHASING"
+  | "PURCHASED"
+  | "SHIPPING"
+  | "SHIPPED"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED"
+  | "UNKNOWN_OUTCOME";
+
+export interface OrderFulfillment {
+  id: string;
+  order_id: string;
+  provider: string;
+  supplier_id: string | null;
+  status: FulfillmentStatus;
+  /** De qué operación no se sabe el resultado (`purchase` o `ship`) cuando `status` es `UNKNOWN_OUTCOME`. */
+  unknown_phase: string | null;
+  purchase_reference: string | null;
+  tracking_reference: string | null;
+  failed_attempts: number;
+  last_failure_code: string | null;
+  items: { order_item_id: string; line_number: number; quantity: number }[];
+  created_by: string;
+  completed_by: string | null;
+  created_at: string;
+  purchased_at: string | null;
+  shipped_at: string | null;
+  completed_at: string | null;
+}
+
+export interface Order {
+  id: string;
+  customer_ref: string;
+  market: string;
+  status: string;
+  is_simulated: boolean;
+  amount_due: MoneyAmount;
+  items: OrderItem[];
+  payments: OrderPayment[];
+  refunds: OrderRefund[];
+  fulfillments: OrderFulfillment[];
+  created_at: string;
+  paid_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  correlation_id: string;
+  attention_required: boolean;
+  attention_reasons: string[];
+}
+
+export interface NewOrderLine {
+  product_id: string;
+  quantity: number;
+  unit_price: MoneyAmount;
+  supplier_quote_id?: string | null;
+  declared_unit_cost?: MoneyAmount | null;
+}
+
+export interface NewOrder {
+  /** Una referencia **opaca** (`sim_…` en simulación): nunca un correo, un nombre, un teléfono ni una dirección. */
+  customer_ref: string;
+  market: string;
+  lines: NewOrderLine[];
+}
+
 export const api = {
+  // --- Pedidos, pagos, reembolsos y fulfillments (Milestone 44) ---
+  // Las operaciones con efecto reciben la clave de la intención como parámetro **obligatorio**: el tipo impide llamarlas
+  // sin pensar de dónde sale (`lib/use-intent.ts`). Las transiciones de estado (entregar, cancelar, abandonar) no la
+  // llevan: repetirlas es un 409 por compare-and-set.
+  createOrder: (payload: NewOrder, idempotencyKey: string) =>
+    request<Order>("/api/orders", keyed({ method: "POST", body: JSON.stringify(payload) }, { idempotencyKey })),
+  openOrderPayment: (orderId: string, idempotencyKey: string) =>
+    request<OrderPayment>(`/api/orders/${orderId}/payments`, keyed({ method: "POST" }, { idempotencyKey })),
+  requestOrderRefund: (
+    orderId: string,
+    payload: { payment_id: string; amount: MoneyAmount; reason: string },
+    idempotencyKey: string,
+  ) =>
+    request<OrderRefund>(
+      `/api/orders/${orderId}/refunds`,
+      keyed({ method: "POST", body: JSON.stringify(payload) }, { idempotencyKey }),
+    ),
+  createFulfillment: (
+    orderId: string,
+    payload: { lines: { order_item_id: string; quantity: number }[] },
+    idempotencyKey: string,
+  ) =>
+    request<OrderFulfillment>(
+      `/api/orders/${orderId}/fulfillments`,
+      keyed({ method: "POST", body: JSON.stringify(payload) }, { idempotencyKey }),
+    ),
+  purchaseFulfillment: (fulfillmentId: string, idempotencyKey: string) =>
+    request<OrderFulfillment>(
+      `/api/fulfillments/${fulfillmentId}/purchase`,
+      keyed({ method: "POST" }, { idempotencyKey }),
+    ),
+  shipFulfillment: (fulfillmentId: string, idempotencyKey: string) =>
+    request<OrderFulfillment>(`/api/fulfillments/${fulfillmentId}/ship`, keyed({ method: "POST" }, { idempotencyKey })),
+  completeFulfillment: (fulfillmentId: string) =>
+    request<OrderFulfillment>(`/api/fulfillments/${fulfillmentId}/complete`, { method: "POST" }),
+  cancelFulfillment: (fulfillmentId: string) =>
+    request<OrderFulfillment>(`/api/fulfillments/${fulfillmentId}/cancel`, { method: "POST" }),
+  failFulfillment: (fulfillmentId: string) =>
+    request<OrderFulfillment>(`/api/fulfillments/${fulfillmentId}/fail`, { method: "POST" }),
+  cancelOrder: (orderId: string) => request<Order>(`/api/orders/${orderId}/cancel`, { method: "POST" }),
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
-  runObjective: (objectiveId: string) =>
-    request<RunResult>(`/api/objectives/${objectiveId}/run`, { method: "POST" }),
+  runObjective: (objectiveId: string, options?: Keyed) =>
+    request<RunResult>(`/api/objectives/${objectiveId}/run`, keyed({ method: "POST" }, options)),
   listProducts: (status?: string) =>
     request<Product[]>(`/api/products${status ? `?status=${encodeURIComponent(status)}` : ""}`),
   listProjects: () => request<Project[]>("/api/projects"),
@@ -1248,8 +1426,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ actor }),
     }),
-  createResearchRun: (payload: { category: string; keywords?: string[]; max_results?: number }) =>
-    request<ResearchRun>("/api/research/runs", { method: "POST", body: JSON.stringify(payload) }),
+  createResearchRun: (payload: { category: string; keywords?: string[]; max_results?: number }, options?: Keyed) =>
+    request<ResearchRun>("/api/research/runs", keyed({ method: "POST", body: JSON.stringify(payload) }, options)),
   getResearchRun: (correlationId: string) => request<ResearchRun>(`/api/research/runs/${correlationId}`),
   createSourcingRun: (payload: {
     product_id: string;
@@ -1344,11 +1522,10 @@ export const api = {
     request<EconomicAnalysis[]>(`/api/products/${productId}/economics`),
   getEconomicsTimeseries: (days = 30) =>
     request<EconomicsTimeseriesPoint[]>(`/api/economics/analyses/timeseries?days=${days}`),
-  createLegalAnalysisRun: (payload: {
-    product_id: string;
-    market: string;
-    certification_available?: boolean;
-  }) => request<LegalAnalysis>("/api/legal/runs", { method: "POST", body: JSON.stringify(payload) }),
+  createLegalAnalysisRun: (
+    payload: { product_id: string; market: string; certification_available?: boolean },
+    options?: Keyed,
+  ) => request<LegalAnalysis>("/api/legal/runs", keyed({ method: "POST", body: JSON.stringify(payload) }, options)),
   listProductLegal: (productId: string) => request<LegalAnalysis[]>(`/api/products/${productId}/legal`),
   /** Requisitos regulatorios que una persona declaró (Milestone 41). */
   listRegulatoryRequirements: () => request<RegulatoryRequirement[]>("/api/regulatory-requirements"),
@@ -1374,8 +1551,8 @@ export const api = {
   withdrawRegulatoryRequirement: (id: string) =>
     request<RegulatoryRequirement>(`/api/regulatory-requirements/${id}/withdraw`, { method: "POST" }),
   /** Pregunta a la fuente por la norma de un requisito: es una llamada externa. */
-  verifyRegulatoryRequirement: (id: string) =>
-    request<RegulatoryAnchor>(`/api/regulatory-requirements/${id}/verify`, { method: "POST" }),
+  verifyRegulatoryRequirement: (id: string, options?: Keyed) =>
+    request<RegulatoryAnchor>(`/api/regulatory-requirements/${id}/verify`, keyed({ method: "POST" }, options)),
   /** Una persona declara qué norma española traspone la directiva del requisito (Milestone 43). */
   declareNationalTransposition: (requirementId: string, payload: { national_id: string; note?: string | null }) =>
     request<NationalTransposition>(`/api/regulatory-requirements/${requirementId}/national-transpositions`, {
@@ -1383,8 +1560,8 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   /** Pregunta al BOE por la norma declarada: es una llamada externa. */
-  verifyNationalTransposition: (id: string) =>
-    request<NationalTransposition>(`/api/national-transpositions/${id}/verify`, { method: "POST" }),
+  verifyNationalTransposition: (id: string, options?: Keyed) =>
+    request<NationalTransposition>(`/api/national-transpositions/${id}/verify`, keyed({ method: "POST" }, options)),
   withdrawNationalTransposition: (id: string) =>
     request<NationalTransposition>(`/api/national-transpositions/${id}/withdraw`, { method: "POST" }),
   listComplianceEvidence: (productId: string) =>

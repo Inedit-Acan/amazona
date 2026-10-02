@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { OPERATIONS } from "@/lib/intent-operations";
+import { useIntent } from "@/lib/use-intent";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -137,6 +139,7 @@ export function LegalWorkspace({
   const analysis = analyses.find((a) => a.market === market);
   const [certificationAvailable, setCertificationAvailable] = useState(analysis ? certificationsDeclared(analysis) : false);
   const [running, setRunning] = useState(false);
+  const intent = useIntent("legal");
   const [error, setError] = useState<string | null>(null);
 
   const view = useMemo(() => buildLegalView(market, analysis), [market, analysis]);
@@ -207,7 +210,12 @@ export function LegalWorkspace({
     setError(null);
     setRunning(true);
     try {
-      await api.createLegalAnalysisRun({ product_id: product!.id, market, certification_available: certificationAvailable });
+      const payload = { product_id: product!.id, market, certification_available: certificationAvailable };
+      // La misma intención (producto, mercado y certificación) conserva su clave ante un timeout o un segundo clic.
+      await intent.run(
+        { operation: OPERATIONS.legalRun, target: payload.product_id, params: payload },
+        (key) => api.createLegalAnalysisRun(payload, { idempotencyKey: key }),
+      );
       router.refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "El análisis legal falló.");

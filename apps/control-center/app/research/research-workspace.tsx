@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState, useSyncExternalStore } from "react";
+import { OPERATIONS } from "@/lib/intent-operations";
+import { useIntent } from "@/lib/use-intent";
 import { useRouter } from "next/navigation";
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -323,6 +325,7 @@ export function ResearchWorkspace({
   const [maxResults, setMaxResults] = useState(5);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const intent = useIntent("research");
   const [error, setError] = useState<string | null>(null);
 
   const rows = useMemo(() => buildRows(products, candidates), [products, candidates]);
@@ -362,7 +365,14 @@ export function ResearchWorkspace({
         .map((k) => k.trim())
         .filter(Boolean);
       const runs = await Promise.all(
-        categories.map((c) => api.createResearchRun({ category: c, keywords, max_results: maxResults })),
+        categories.map((c) => {
+          // Una intención por categoría: reintentar «todas» tras un fallo parcial no repite las que ya salieron.
+          const payload = { category: c, keywords, max_results: maxResults };
+          return intent.run(
+            { operation: OPERATIONS.researchRun, target: c, params: payload },
+            (key) => api.createResearchRun(payload, { idempotencyKey: key }),
+          );
+        }),
       );
       const ids = [...runs.map((r) => r.correlation_id), ...runIds].slice(0, 5);
       router.replace(`/research?${new URLSearchParams({ runs: ids.join(",") }).toString()}`);

@@ -3,8 +3,9 @@
  * El backend la exige en cuanto el despliegue puede tocar algo fuera del sistema (428 si falta) y, cuando llega,
  * garantiza que repetir **esa misma petición** no repite su efecto. Cada llamada de `api.*` lleva una clave nueva:
  * eso cubre la exigencia del backend y cualquier reintento de la misma llamada, pero **no** un segundo clic, que es
- * otra llamada con otra clave. Para que un formulario sea a prueba de doble clic tiene que conservar su clave y
- * pasarla en `headers` hasta que la operación termine; este módulo no lo hace por él.
+ * otra llamada con otra clave. Conservar la clave de una intención hasta que termine es trabajo de
+ * `lib/intent-key.ts` (y de `lib/use-intent.ts` en un componente): este módulo solo genera claves y pone la cabecera
+ * cuando nadie puso la suya.
  *
  * Las rutas que no usan la clave la ignoran. */
 

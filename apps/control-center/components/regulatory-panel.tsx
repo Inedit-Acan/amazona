@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { OPERATIONS } from "@/lib/intent-operations";
+import { useIntent } from "@/lib/use-intent";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, RefreshCw } from "lucide-react";
 import { ApiError, api, type LegalAnalysis, type RegulatoryRequirement } from "@/lib/api";
@@ -59,6 +61,7 @@ export function RegulatoryPanel({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
+  const intent = useIntent("regulatory");
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<RequirementForm>({ ...EMPTY_REQUIREMENT, productScope: productCategory });
@@ -195,7 +198,11 @@ export function RegulatoryPanel({
                       variant="outline"
                       disabled={busy !== null}
                       onClick={() =>
-                        void act(`verify:${r.id}`, () => api.verifyRegulatoryRequirement(r.id), "No se pudo comprobar la norma.")
+                        void act(`verify:${r.id}`, () =>
+                            intent.run(
+                              { operation: OPERATIONS.regulatoryVerify, target: r.id, params: {} },
+                              (key) => api.verifyRegulatoryRequirement(r.id, { idempotencyKey: key }),
+                            ), "No se pudo comprobar la norma.")
                       }
                     >
                       {busy === `verify:${r.id}` ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}

@@ -49,20 +49,32 @@ class IdempotencyKeyRequiredError(AmazonaError):
     without an `Idempotency-Key`: a retry after a timeout could not be told
     apart from a second request."""
 
+    #: Código legible por máquina que viaja en la respuesta HTTP: el cliente no clasifica por texto.
+    code = "idempotency_key_required"
+
 
 class IdempotencyConflictError(AmazonaError):
     """Raised when an `Idempotency-Key` that was already used comes with a
     different payload: it is a different request hiding behind the same key."""
+
+    #: Código legible por máquina que viaja en la respuesta HTTP: el cliente no clasifica por texto.
+    code = "idempotency_conflict"
 
 
 class IdempotencyInProgressError(AmazonaError):
     """Raised when an `Idempotency-Key` belongs to a request that has not finished (or whose process stopped
     before finishing). It is never run again on a timer: repeating it could repeat an effect."""
 
+    #: Código legible por máquina que viaja en la respuesta HTTP: el cliente no clasifica por texto.
+    code = "idempotency_in_progress"
+
 
 class IdempotencyOutcomeUnknownError(AmazonaError):
     """Raised when an `Idempotency-Key` belongs to a request that failed in a way that does not say whether it
     took effect. The key is not reusable: a person checks and uses a new one."""
+
+    #: Código legible por máquina que viaja en la respuesta HTTP: el cliente no clasifica por texto.
+    code = "idempotency_outcome_unknown"
 
 
 class BudgetExhaustedError(AmazonaError):

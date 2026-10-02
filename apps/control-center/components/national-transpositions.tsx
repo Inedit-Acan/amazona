@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { OPERATIONS } from "@/lib/intent-operations";
+import { useIntent } from "@/lib/use-intent";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, RefreshCw } from "lucide-react";
 import { ApiError, api, type RegulatoryRequirement } from "@/lib/api";
@@ -39,6 +41,7 @@ export function NationalTranspositions({ requirement }: { requirement: Regulator
   const [nationalId, setNationalId] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const intent = useIntent("transposition");
   const [error, setError] = useState<string | null>(null);
   const problems = nationalIdProblems(nationalId);
 
@@ -149,7 +152,11 @@ export function NationalTranspositions({ requirement }: { requirement: Regulator
                 variant="outline"
                 disabled={busy !== null}
                 onClick={() =>
-                  void act(`verify:${item.id}`, () => api.verifyNationalTransposition(item.id), "No se pudo comprobar en el BOE.")
+                  void act(`verify:${item.id}`, () =>
+                      intent.run(
+                        { operation: OPERATIONS.transpositionVerify, target: item.id, params: {} },
+                        (key) => api.verifyNationalTransposition(item.id, { idempotencyKey: key }),
+                      ), "No se pudo comprobar en el BOE.")
                 }
               >
                 {busy === `verify:${item.id}` ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}

@@ -131,22 +131,22 @@ async def pipeline_disabled_handler(request: Request, exc: PipelineDisabledError
 async def idempotency_key_required_handler(request: Request, exc: IdempotencyKeyRequiredError) -> JSONResponse:
     # 428 Precondition Required: la petición es válida, pero sin clave un reintento
     # tras un timeout no se distinguiría de una segunda petición.
-    return JSONResponse(status_code=428, content={"detail": str(exc)})
+    return JSONResponse(status_code=428, content={"detail": str(exc), "code": exc.code})
 
 
 @app.exception_handler(IdempotencyConflictError)
 async def idempotency_conflict_handler(request: Request, exc: IdempotencyConflictError) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"detail": str(exc)})
+    return JSONResponse(status_code=409, content={"detail": str(exc), "code": exc.code})
 
 
 @app.exception_handler(IdempotencyInProgressError)
 async def idempotency_in_progress_handler(request: Request, exc: IdempotencyInProgressError) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"detail": str(exc)})
+    return JSONResponse(status_code=409, content={"detail": str(exc), "code": exc.code})
 
 
 @app.exception_handler(IdempotencyOutcomeUnknownError)
 async def idempotency_outcome_unknown_handler(request: Request, exc: IdempotencyOutcomeUnknownError) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"detail": str(exc)})
+    return JSONResponse(status_code=409, content={"detail": str(exc), "code": exc.code})
 
 
 @app.exception_handler(IncidentNotOpenError)
