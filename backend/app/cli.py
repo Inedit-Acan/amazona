@@ -35,6 +35,15 @@ signed event that goes through the same door and the same service as the webhook
     AMAZONA_BOOTSTRAP=1 python -m app.cli simulate-refund --refund-id ID --outcome succeeded [--amount 10.00]
     AMAZONA_BOOTSTRAP=1 python -m app.cli reconcile-payment-events [--older-than-minutes 5]
 
+A provider event id is received once. Delivering it again with the *same content* is a repeated delivery and changes
+nothing; with *different content* it is refused as a conflict: the original event is kept, no payment, order or refund
+is touched, and the command ends with a clean message and exit code 3 (a refusal of the command itself is exit code 2).
+The simulator stamps every event with the instant it was made, so to repeat the identical delivery of an event id give
+the same `--occurred-at` (an ISO 8601 instant with its time zone):
+
+    AMAZONA_BOOTSTRAP=1 python -m app.cli simulate-payment --order-id ID --outcome succeeded
+        --event-id evt_1 --occurred-at 2026-10-03T10:00:00+00:00
+
 Requires AMAZONA_BOOTSTRAP=1 in the environment so the command cannot be run by
 accident, and writes an audit entry for every grant.
 """
@@ -51,7 +60,7 @@ from app.actions.contract import OPEN_STATUSES
 from app.actions.service import ExternalActionService, ExternalActionStateError
 from app.auth.actor import ActorSource, RoleName
 from app.budgets.service import BudgetLedgerService
-from app.core.errors import ValidationError
+from app.core.errors import ConflictError, ValidationError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.budget import Budget
@@ -62,12 +71,17 @@ from app.db.session import get_session_factory
 from app.money.money import Money
 from app.orders.service import NewOrderLine, OrderService
 from app.payments.domain import EventProcessing
-from app.payments.ingress import PaymentIngress
+from app.payments.ingress import PaymentIngress, ProviderEventConflictError
 from app.payments.port import PaymentEventType
 from app.payments.providers.simulated import SimulatedPaymentProvider
 from app.payments.service import PaymentService
 
 BOOTSTRAP_ENV = "AMAZONA_BOOTSTRAP"
+
+#: The command refused to run (a flag, an unknown id, a bad value).
+EXIT_REFUSED = 2
+#: The request was valid but what it acts on does not allow it: the CLI's 409. Nothing was changed.
+EXIT_CONFLICT = 3
 
 
 class BootstrapError(RuntimeError):
@@ -83,6 +97,20 @@ def _require_bootstrap_flag(what: str = "roles") -> None:
 
 def cli_actor() -> str:
     return f"cli:{os.environ.get('USERNAME') or os.environ.get('USER') or 'unknown'}"
+
+
+def parse_occurred_at(value: str | None) -> datetime.datetime | None:
+    """El instante que se le fija a un evento simulado, o `None` (el de ahora). Sin zona horaria no se acepta: un
+    instante «ingenuo» no dice cuándo ocurrió."""
+    if value is None:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise BootstrapError("--occurred-at must be an ISO 8601 instant such as 2026-10-03T10:00:00+00:00") from exc
+    if parsed.tzinfo is None:
+        raise BootstrapError("--occurred-at needs a time zone, for example 2026-10-03T10:00:00+00:00")
+    return parsed
 
 
 def authorise_budget(db: Session, *, hard_limit: float, soft_limit: float | None = None) -> Budget:
@@ -229,6 +257,7 @@ def simulate_payment(
     payment_id: str | None = None,
     amount: str | None = None,
     event_id: str | None = None,
+    occurred_at: datetime.datetime | None = None,
 ):
     """Emite un evento de pago **simulado** y lo entrega a la puerta, como lo haría el webhook de una pasarela.
 
@@ -266,6 +295,7 @@ def simulate_payment(
         amount=money if outcome == "succeeded" else None,
         failure_code="simulated" if outcome in ("failed", "attempt-failed") else None,
         event_id=event_id,
+        occurred_at=occurred_at,
     )
     return PaymentIngress(db, provider=provider).receive(provider.name, headers, raw)
 
@@ -277,7 +307,13 @@ SIMULATED_REFUND_OUTCOMES = {
 
 
 def simulate_refund(
-    db: Session, *, refund_id: str, outcome: str, amount: str | None = None, event_id: str | None = None
+    db: Session,
+    *,
+    refund_id: str,
+    outcome: str,
+    amount: str | None = None,
+    event_id: str | None = None,
+    occurred_at: datetime.datetime | None = None,
 ):
     """Emite el evento **simulado** con el que el proveedor confirma (o niega) un reembolso que pedimos, por la misma
     puerta que un webhook real. No toca reembolsos ni cobros: `PaymentService` lo aplica."""
@@ -306,6 +342,7 @@ def simulate_refund(
         amount=Money.of(amount if amount is not None else str(refund.amount), refund.currency),
         failure_code="simulated" if outcome == "failed" else None,
         event_id=event_id,
+        occurred_at=occurred_at,
     )
     return PaymentIngress(db, provider=provider).receive(provider.name, headers, raw)
 
@@ -385,6 +422,10 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument(
         "--event-id", help="a fixed provider event id; using it again with different content is refused as a conflict"
     )
+    simulate.add_argument(
+        "--occurred-at",
+        help="a fixed instant (ISO 8601 with time zone): with the same --event-id it repeats the same delivery",
+    )
     sim_refund = commands.add_parser(
         "simulate-refund", help="emit a signed simulated refund event through the same door as a real webhook"
     )
@@ -392,6 +433,10 @@ def build_parser() -> argparse.ArgumentParser:
     sim_refund.add_argument("--outcome", required=True, choices=sorted(SIMULATED_REFUND_OUTCOMES))
     sim_refund.add_argument("--amount", help="the refunded amount (default: the amount of the refund)")
     sim_refund.add_argument("--event-id", help="a fixed provider event id")
+    sim_refund.add_argument(
+        "--occurred-at",
+        help="a fixed instant (ISO 8601 with time zone): with the same --event-id it repeats the same delivery",
+    )
     stuck = commands.add_parser("reconcile-payment-events", help="apply the events that were stored and never applied")
     stuck.add_argument("--older-than-minutes", type=int, default=5)
     return parser
@@ -464,13 +509,19 @@ def main(argv: list[str] | None = None) -> int:
                 payment_id=args.payment_id,
                 amount=args.amount,
                 event_id=args.event_id,
+                occurred_at=parse_occurred_at(args.occurred_at),
             )
             repeated = " (a repeated delivery)" if result.duplicate else ""
             print(f"event {result.event_id}: {result.outcome}{repeated}")
         elif args.command == "simulate-refund":
             _require_bootstrap_flag("payments")
             refund_result = simulate_refund(
-                db, refund_id=args.refund_id, outcome=args.outcome, amount=args.amount, event_id=args.event_id
+                db,
+                refund_id=args.refund_id,
+                outcome=args.outcome,
+                amount=args.amount,
+                event_id=args.event_id,
+                occurred_at=parse_occurred_at(args.occurred_at),
             )
             repeated = " (a repeated delivery)" if refund_result.duplicate else ""
             print(f"event {refund_result.event_id}: {refund_result.outcome}{repeated}")
@@ -487,7 +538,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{user.email:40} {role_name_of(db, user) or '(no role)':10} {linked}")
     except BootstrapError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return 2
+        return EXIT_REFUSED
+    except ProviderEventConflictError as exc:
+        # El identificador ya se recibió con otro contenido: el original se conserva y no se tocó nada. Ni el cuerpo ni
+        # su hash salen por la consola.
+        print(
+            f"error: provider event {exc.provider_event_id!r} was already received with different content; "
+            "the original event is kept and nothing was changed. Use a new --event-id for a different event, "
+            "or repeat the identical delivery with the same --event-id, --occurred-at, --amount and --outcome.",
+            file=sys.stderr,
+        )
+        return EXIT_CONFLICT
+    except ConflictError as exc:
+        # El 409 de la consola: lo pedido es válido pero lo que toca no está en un estado que lo permita.
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_CONFLICT
     finally:
         db.close()
     return 0

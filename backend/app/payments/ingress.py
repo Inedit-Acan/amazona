@@ -44,6 +44,17 @@ def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC)
 
 
+class ProviderEventConflictError(ConflictError):
+    """Un identificador de evento del proveedor que ya se recibió, ahora con **otro contenido** (otro hash del
+    cuerpo). El original se conserva intacto. Sigue siendo un `ConflictError` (un 409 en el webhook, con el mismo
+    mensaje de siempre); lleva el identificador para que quien lo reciba (la consola) pueda explicarlo sin comparar
+    textos. No lleva el cuerpo ni su hash."""
+
+    def __init__(self, provider_event_id: str) -> None:
+        super().__init__("this provider event id was already received with different content: the original is kept")
+        self.provider_event_id = provider_event_id
+
+
 @dataclass(frozen=True)
 class IngressResult:
     #: `applied`, `stale`, `conflict` o `unmatched` (un `EventProcessing`, en minúsculas).
@@ -133,9 +144,7 @@ class PaymentIngress:
                     )
                 )
                 self._db.commit()
-                raise ConflictError(
-                    "this provider event id was already received with different content: the original is kept"
-                ) from None
+                raise ProviderEventConflictError(verified.provider_event_id) from None
             return existing.id, True
         self._db.commit()
         return event.id, False

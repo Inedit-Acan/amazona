@@ -236,6 +236,13 @@ la mantiene en el doble clic, el timeout, el 5xx, el fallo de red y el 409 «en 
 cambian los parámetros o tras un éxito. El webhook se deduplica por `(provider, provider_event_id)`; un mismo id
 con otro `payload_hash` es un 409 y el original queda intacto.
 
+*Consola (M45, P3-12).* El simulador estampa en el cuerpo el instante en que hace cada evento, así que repetir `--event-id`
+desde la consola da otro contenido con el mismo identificador: la puerta lo rechaza con `ProviderEventConflictError` (un
+`ConflictError`, el mismo 409 y el mismo mensaje de siempre en el webhook) y la consola, que antes solo traducía
+`BootstrapError` y lo dejaba salir como *traceback*, termina ahora con un mensaje claro y el código de salida 3 (el 2 es que
+el comando se negó a ejecutarse). El mensaje no lleva el cuerpo, su hash ni la firma. Para repetir una entrega idéntica,
+`simulate-payment` y `simulate-refund` aceptan `--occurred-at` (un instante ISO 8601 con zona horaria).
+
 ### 10. Operaciones muestra datos reales o un estado vacío
 
 El panel deja de inventar pedidos, clientes y transportistas. Lo que M44 puede representar se lee de
