@@ -129,7 +129,7 @@ class SimulatedPaymentProvider:
                 detail={
                     "simulated": True,
                     "operation": request.operation,
-                    "client_reference": payload.get("payment_id"),
+                    "client_reference": payload.get("refund_id") or payload.get("payment_id"),
                 },
             )
             self._operations[key] = response

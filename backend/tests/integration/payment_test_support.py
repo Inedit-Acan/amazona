@@ -10,6 +10,7 @@ Ningún test habla con un proveedor de verdad (I12) y la clave de firma es una p
 
 import datetime
 import secrets
+import threading
 from collections import deque
 from decimal import Decimal
 
@@ -143,3 +144,26 @@ def captured_total(db: Session, order: Order) -> Decimal:
 
 def fresh_order_status(db: Session, order: Order) -> str:
     return reload(db, order).status
+
+
+def run_together(engine, jobs: list) -> list:
+    barrier = threading.Barrier(len(jobs))
+    results: list = []
+    lock = threading.Lock()
+
+    def worker(job) -> None:
+        with Session(engine) as session:
+            try:
+                barrier.wait(timeout=10)
+                outcome = job(session)
+            except Exception as exc:  # noqa: BLE001 - lo que le pasó a cada tarea es el dato
+                outcome = exc
+        with lock:
+            results.append(outcome)
+
+    threads = [threading.Thread(target=worker, args=(job,)) for job in jobs]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+    return results

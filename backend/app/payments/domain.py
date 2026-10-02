@@ -79,6 +79,16 @@ RESERVING_REFUND_STATUSES: tuple[str, ...] = (
 REFUND_ORIGIN_OPERATOR = "OPERATOR"
 REFUND_ORIGIN_PROVIDER = "PROVIDER"
 
+#: Por qué una persona devuelve dinero: un código cerrado, nunca texto libre (un texto libre acabaría llevando datos
+#: personales a una tabla que no debe tenerlos). `provider_initiated` no está: lo pone el sistema al registrar un
+#: reembolso que el proveedor hizo por su cuenta.
+REFUND_REASONS: frozenset[str] = frozenset(
+    {"customer_request", "order_cancelled", "duplicate_capture", "capture_mismatch", "goodwill", "other"}
+)
+
+#: Un reembolso enviado que el proveedor no ha confirmado en este tiempo se muestra como «a mirar».
+REFUND_CONFIRMATION_GRACE_MINUTES = 60
+
 
 class EventProcessing(StrEnum):
     """Qué pasó con un evento verificado. `RECEIVED` es lo único que no es definitivo."""

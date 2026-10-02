@@ -26,6 +26,7 @@ from app.money.serialization import money_to_json
 from app.orders.attention import attention_reasons
 from app.orders.domain import OrderStatus
 from app.orders.payment_attempts import PaymentAttemptService, Requester
+from app.orders.refunds import RefundService
 from app.orders.service import NewOrderLine, OrderService
 from app.permissions.policies import ApiAction
 
@@ -44,6 +45,16 @@ class MoneyIn(BaseModel):
 
     def to_money(self) -> Money:
         return Money.of(self.amount, self.currency)
+
+
+class RefundCreate(BaseModel):
+    """Devolver parte o todo de un cobro. Un motivo de una lista cerrada; nunca texto libre."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payment_id: str = Field(min_length=1, max_length=36)
+    amount: MoneyIn
+    reason: str = Field(min_length=1, max_length=32)
 
 
 class OrderLineCreate(BaseModel):
@@ -333,6 +344,50 @@ def start_payment_attempt(
         response=response,
         status_code=201,
         response_model=PaymentOut,
+        work=work,
+        always_required=True,
+    )
+
+
+@router.post("/{order_id}/refunds", response_model=RefundOut, status_code=201)
+def request_refund(
+    order_id: str,
+    payload: RefundCreate,
+    response: Response,
+    db: Session = Depends(get_db),
+    identity: Actor = Depends(authorize(ApiAction.REFUND_WRITE)),
+    settings: Settings = Depends(get_settings),
+    idempotency_key: IdempotencyKeyHeader = None,
+) -> RefundOut:
+    """Devuelve dinero de un cobro con dinero capturado: una acción externa que pasa por el ActionGate y por
+    `ExternalAction`, y que solo ordena una persona con permiso. Lo que se aparta del cobro no puede pasar de lo
+    capturado, aunque lleguen dos peticiones a la vez.
+
+    La misma `Idempotency-Key` es **la misma intención** (devuelve el mismo reembolso); otra clave, con el mismo
+    importe, es otro reembolso. El resultado puede ser `SENDING` (aceptado, a la espera de que el proveedor lo
+    confirme con un hecho verificado), `UNKNOWN_OUTCOME` (bloquea nuevos reembolsos de ese cobro) o `FAILED`. Esta
+    ruta nunca da por devuelto el dinero."""
+
+    def work() -> RefundOut:
+        refund = RefundService(db, settings=settings).request(
+            payload.payment_id,
+            amount=payload.amount.to_money(),
+            reason=payload.reason,
+            requester=Requester(name=identity.audit_name, role=identity.role.value if identity.role else None),
+            order_id=order_id,
+        )
+        return refund_out(refund)
+
+    return run_idempotent(
+        db,
+        scope="orders.refund",
+        identity=identity,
+        client_key=idempotency_key,
+        settings=settings,
+        payload={"order_id": order_id, **payload.model_dump()},
+        response=response,
+        status_code=201,
+        response_model=RefundOut,
         work=work,
         always_required=True,
     )

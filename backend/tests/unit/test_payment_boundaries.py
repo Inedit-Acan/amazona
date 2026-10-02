@@ -95,3 +95,40 @@ def test_the_cli_does_not_edit_orders_or_payments_directly():
     assert ".status =" not in cli.split("def simulate_payment")[1].split("def build_parser")[0]
     simulate = cli.split("def simulate_payment")[1].split("def reconcile_payment_events")[0]
     assert "PaymentIngress" in simulate and "simulate_event" in simulate, "a simulated event goes through the same door"
+
+
+def test_only_the_refund_service_and_the_payment_service_create_a_refund():
+    builders = files_matching(r"(?<!class )Refund\(")
+
+    assert builders == {"orders/refunds.py", "payments/service.py"}, (
+        f"{sorted(builders)}: a refund is ordered by RefundService (a person) or recorded by PaymentService "
+        "(a fact of the provider); nothing else invents one"
+    )
+
+
+def test_only_the_refund_observer_and_the_payment_service_write_the_state_of_a_refund():
+    writers = files_matching(r"update\(Refund\)")
+
+    assert writers == {"payments/refund_projection.py", "payments/service.py"}, sorted(writers)
+
+
+def test_the_amount_set_aside_for_refunds_moves_only_through_the_ledger():
+    """`refund_committed_amount` / `refunded_amount` se escriben con aritmética de base de datos en `ledger.py`; nadie
+    más los asigna, ni siquiera `PaymentService`."""
+    for path in python_files():
+        if relative(path) == "payments/ledger.py":
+            continue
+        source = path.read_text(encoding="utf-8")
+        assert not re.search(r"\.values\([^)]*(refund_committed_amount|refunded_amount)\s*=", source, re.S), relative(
+            path
+        )
+
+
+def test_no_route_or_console_command_creates_a_refund_without_a_person_behind_it():
+    cli = (APP / "cli.py").read_text(encoding="utf-8")
+    assert "RefundService" not in cli and "Refund(" not in cli.replace("simulate_refund", "")
+    projection = (APP / "payments" / "refund_projection.py").read_text(encoding="utf-8")
+    assert "RefundService" not in projection, "an observer follows an action; it never starts a refund"
+    assert files_matching(r"RefundService\(") == {"api/orders.py"}, (
+        "only the route that a person calls (and the service itself) builds a RefundService"
+    )

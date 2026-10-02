@@ -47,6 +47,7 @@ class ActionObserver(Protocol):
 #: paquete y los dominios que lo usan.
 REGISTERED: list[tuple[str, str]] = [
     ("order_payment:", "app.payments.projection:PaymentOpenObserver"),
+    ("order_refund:", "app.payments.refund_projection:RefundActionObserver"),
 ]
 
 _loaded: dict[str, ActionObserver] = {}

@@ -9,6 +9,7 @@ pedido cancelado, captura de un importe distinto, intento abierto con el pedido 
 evidencia en conflicto) y, más adelante, el fulfillment. Lo que no existe aún no aporta ninguna.
 """
 
+import datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -17,7 +18,13 @@ from sqlalchemy.orm import Session
 from app.db.models.order import Order
 from app.db.models.payment import Payment, PaymentEvent, Refund
 from app.orders.domain import OrderStatus
-from app.payments.domain import ACTIVE_PAYMENT_STATUSES, EventProcessing, PaymentStatus, RefundStatus
+from app.payments.domain import (
+    ACTIVE_PAYMENT_STATUSES,
+    REFUND_CONFIRMATION_GRACE_MINUTES,
+    EventProcessing,
+    PaymentStatus,
+    RefundStatus,
+)
 
 CAPTURED_ON_CANCELLED_ORDER = "captured_on_cancelled_order"
 DUPLICATE_CAPTURE = "duplicate_capture"
@@ -26,10 +33,12 @@ OPEN_ATTEMPT_ON_SETTLED_ORDER = "open_attempt_on_settled_order"
 PAYMENT_OUTCOME_UNKNOWN = "payment_outcome_unknown"
 CONFLICTING_PAYMENT_EVENTS = "conflicting_payment_events"
 REFUND_OUTCOME_UNKNOWN = "refund_outcome_unknown"
+#: El proveedor aceptó devolver el dinero y no lo ha confirmado con un hecho verificado pasado un tiempo.
+REFUND_UNCONFIRMED = "refund_unconfirmed"
 
 
-def attention_reasons(db: Session, order: Order) -> list[str]:
-    """Las razones, en un orden estable. Vacío = nada que mirar."""
+def attention_reasons(db: Session, order: Order, *, now: datetime.datetime | None = None) -> list[str]:
+    """Las razones, en un orden estable. Vacío = nada que mirar. `now` solo lo fijan las pruebas."""
     payments = list(db.scalars(select(Payment).where(Payment.order_id == order.id).order_by(Payment.attempt_number)))
     reasons: list[str] = []
     settled = order.status in (
@@ -65,4 +74,17 @@ def attention_reasons(db: Session, order: Order) -> list[str]:
         )
         if unknown_refund is not None:
             reasons.append(REFUND_OUTCOME_UNKNOWN)
+        cutoff = (now or datetime.datetime.now(datetime.UTC)) - datetime.timedelta(
+            minutes=REFUND_CONFIRMATION_GRACE_MINUTES
+        )
+        sent = db.scalars(
+            select(Refund.requested_at).where(Refund.payment_id.in_(ids), Refund.status == RefundStatus.SENDING.value)
+        ).all()
+        if any(_aware(requested) < cutoff for requested in sent):
+            reasons.append(REFUND_UNCONFIRMED)
     return reasons
+
+
+def _aware(value: datetime.datetime) -> datetime.datetime:
+    """SQLite devuelve fechas sin zona; todas las que se guardan son UTC."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=datetime.UTC)

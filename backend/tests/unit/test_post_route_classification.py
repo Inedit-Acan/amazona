@@ -41,6 +41,7 @@ CLASSIFICATION: dict[str, str] = {
     # Un pedido (Milestone 44): la clave es obligatoria siempre, también en simulación.
     "/api/orders": GENERIC,
     "/api/orders/{order_id}/payments": EXTERNAL_WRITE,
+    "/api/orders/{order_id}/refunds": EXTERNAL_WRITE,
     "/api/payments/webhooks/{provider}": WEBHOOK,
     "/api/regulatory-requirements/{requirement_id}/verify": GENERIC,
     "/api/research/comparisons": GENERIC,

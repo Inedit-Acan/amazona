@@ -139,6 +139,14 @@ reembolsos **en vuelo**: hace falta una fila por reembolso.
   producto**: devolver dinero a un cliente es una obligación, no un gasto discrecional. Sí exige permiso,
   identidad verificada fuera de simulación, `Idempotency-Key`, límite ≤ cobrado, `ExternalAction`, kill switch y
   resolución del resultado desconocido.
+- **Aceptado no es devuelto.** Que el proveedor acepte la petición (`ExternalAction` `SUCCEEDED`) deja el reembolso
+  en `SENDING` con su referencia: el dinero solo se da por devuelto cuando llega un `refund.succeeded` **verificado**
+  (el mismo principio que el cobro: la respuesta de una llamada no confirma dinero). `refunded_amount` solo lo
+  mueve ese hecho. Un `SENDING` que el proveedor no confirma en una hora se marca `attention_required`
+  (`refund_unconfirmed`). El evento se empareja por la referencia del proveedor o, si la respuesta de pedir la
+  devolución se perdió, por nuestro `refund_id` (la referencia de cliente que enviamos).
+- Un resultado desconocido de un reembolso **bloquea nuevos reembolsos del mismo cobro** (el veto del gate por
+  resultado desconocido, acotado a «sus» reembolsos) hasta reconciliarlo o resolverlo.
 - Ningún camino crea reembolsos automáticamente: siempre hay una orden humana explícita (plan maestro §33). Una
   automatización futura tendría que pasar por `REQUIRE_APPROVAL`.
 

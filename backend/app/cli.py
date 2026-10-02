@@ -32,6 +32,7 @@ signed event that goes through the same door and the same service as the webhook
 
     AMAZONA_BOOTSTRAP=1 python -m app.cli simulate-payment --order-id ID --outcome succeeded \
         [--payment-id ID] [--amount 50.00]
+    AMAZONA_BOOTSTRAP=1 python -m app.cli simulate-refund --refund-id ID --outcome succeeded [--amount 10.00]
     AMAZONA_BOOTSTRAP=1 python -m app.cli reconcile-payment-events [--older-than-minutes 5]
 
 Requires AMAZONA_BOOTSTRAP=1 in the environment so the command cannot be run by
@@ -269,6 +270,46 @@ def simulate_payment(
     return PaymentIngress(db, provider=provider).receive(provider.name, headers, raw)
 
 
+SIMULATED_REFUND_OUTCOMES = {
+    "succeeded": PaymentEventType.REFUND_SUCCEEDED,
+    "failed": PaymentEventType.REFUND_FAILED,
+}
+
+
+def simulate_refund(
+    db: Session, *, refund_id: str, outcome: str, amount: str | None = None, event_id: str | None = None
+):
+    """Emite el evento **simulado** con el que el proveedor confirma (o niega) un reembolso que pedimos, por la misma
+    puerta que un webhook real. No toca reembolsos ni cobros: `PaymentService` lo aplica."""
+    from app.core.config import get_settings
+    from app.core.errors import NotFoundError
+    from app.db.models.payment import Payment, Refund
+    from app.integrations.ports import IntegrationDomain
+    from app.integrations.registry import ProviderNotAvailableError, ProviderRegistry
+
+    try:
+        provider = ProviderRegistry(get_settings()).resolve(IntegrationDomain.PAYMENTS)
+    except ProviderNotAvailableError as exc:
+        raise BootstrapError(f"no payment provider to emit events: {exc}") from exc
+    if not isinstance(provider, SimulatedPaymentProvider):
+        raise BootstrapError("only the simulated payment provider can emit events: a real gateway sends its own")
+    refund = db.get(Refund, refund_id)
+    if refund is None:
+        raise NotFoundError("no such refund")
+    payment = db.get(Payment, refund.payment_id)
+    assert payment is not None
+    headers, raw = provider.simulate_event(
+        SIMULATED_REFUND_OUTCOMES[outcome],
+        provider_payment_ref=payment.provider_payment_ref,
+        provider_refund_ref=refund.provider_refund_ref,
+        client_reference=refund.id,
+        amount=Money.of(amount if amount is not None else str(refund.amount), refund.currency),
+        failure_code="simulated" if outcome == "failed" else None,
+        event_id=event_id,
+    )
+    return PaymentIngress(db, provider=provider).receive(provider.name, headers, raw)
+
+
 def reconcile_payment_events(db: Session, *, older_than_minutes: int) -> dict[str, int]:
     """Aplica de nuevo los eventos que se guardaron y no se aplicaron (el proceso cayó entre las dos transacciones).
     Nunca aplica uno reciente: podría estar aplicándose ahora mismo."""
@@ -344,6 +385,13 @@ def build_parser() -> argparse.ArgumentParser:
     simulate.add_argument(
         "--event-id", help="a fixed provider event id; using it again with different content is refused as a conflict"
     )
+    sim_refund = commands.add_parser(
+        "simulate-refund", help="emit a signed simulated refund event through the same door as a real webhook"
+    )
+    sim_refund.add_argument("--refund-id", required=True)
+    sim_refund.add_argument("--outcome", required=True, choices=sorted(SIMULATED_REFUND_OUTCOMES))
+    sim_refund.add_argument("--amount", help="the refunded amount (default: the amount of the refund)")
+    sim_refund.add_argument("--event-id", help="a fixed provider event id")
     stuck = commands.add_parser("reconcile-payment-events", help="apply the events that were stored and never applied")
     stuck.add_argument("--older-than-minutes", type=int, default=5)
     return parser
@@ -419,6 +467,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             repeated = " (a repeated delivery)" if result.duplicate else ""
             print(f"event {result.event_id}: {result.outcome}{repeated}")
+        elif args.command == "simulate-refund":
+            _require_bootstrap_flag("payments")
+            refund_result = simulate_refund(
+                db, refund_id=args.refund_id, outcome=args.outcome, amount=args.amount, event_id=args.event_id
+            )
+            repeated = " (a repeated delivery)" if refund_result.duplicate else ""
+            print(f"event {refund_result.event_id}: {refund_result.outcome}{repeated}")
         elif args.command == "reconcile-payment-events":
             _require_bootstrap_flag("payments")
             applied = reconcile_payment_events(db, older_than_minutes=args.older_than_minutes)

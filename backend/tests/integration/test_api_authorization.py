@@ -77,6 +77,13 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     # Milestone 44: cancelar un pedido sin cobrar, y abrir un intento de cobro (una acción externa gobernada).
     ("POST", "/api/orders/ord-1/cancel", {}, ApiAction.ORDER_WRITE),
     ("POST", "/api/orders/ord-1/payments", {}, ApiAction.PAYMENT_WRITE),
+    # Devolver dinero: solo OWNER y ADMIN.
+    (
+        "POST",
+        "/api/orders/ord-1/refunds",
+        {"payment_id": "pay-1", "amount": {"amount": "1.00", "currency": "EUR"}, "reason": "other"},
+        ApiAction.REFUND_WRITE,
+    ),
     ("POST", "/api/suppliers/sup-1/quotes", {"product_id": "p-1"}, ApiAction.SUPPLIER_WRITE),
     (
         "POST",
@@ -303,6 +310,7 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/orders"),
         ("POST", "/api/orders/{order_id}/cancel"),
         ("POST", "/api/orders/{order_id}/payments"),
+        ("POST", "/api/orders/{order_id}/refunds"),
         ("POST", "/api/suppliers/{supplier_id}/quotes"),
         ("POST", "/api/suppliers/{supplier_id}/capabilities"),
         ("POST", "/api/exchange-rates"),

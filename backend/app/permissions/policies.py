@@ -100,6 +100,9 @@ class ApiAction(StrEnum):
     #: Abrir un intento de cobro de un pedido (Milestone 44). Es una acción externa con consecuencias, aunque no
     #: gaste presupuesto: pasa por el ActionGate (`COLLECT_PAYMENT`) y por `ExternalAction`.
     PAYMENT_WRITE = "payment.write"
+    #: Devolver dinero cobrado (Milestone 44). Solo OWNER y ADMIN: es dinero que sale, y ningún camino automático lo
+    #: pide. Pasa por el ActionGate (`REFUND`: permiso, kill switch, resultado desconocido) y por `ExternalAction`.
+    REFUND_WRITE = "refund.write"
 
 
 #: Who may do what over HTTP. Deny by default: an action absent from a role's

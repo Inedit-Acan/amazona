@@ -51,6 +51,8 @@ from app.payments.port import PaymentEventType
 
 PAYMENTS_ACTOR = "payments"
 
+_REFUND_EVENTS = frozenset({PaymentEventType.REFUND_SUCCEEDED, PaymentEventType.REFUND_FAILED})
+
 
 def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC)
@@ -121,6 +123,8 @@ class PaymentService:
             self._audit(event, "payment_event.refund_of_another_payment", {"refund_id": refund.id}, payment)
             return EventProcessing.CONFLICT, "the refund belongs to another payment", payment, refund
         self._attach_provider_ref(event, payment)
+        if refund is not None:
+            self._attach_provider_refund_ref(event, refund)
 
         if kind is PaymentEventType.PAYMENT_ATTEMPT_FAILED:
             outcome, note = self._attempt_failed(event, payment)
@@ -140,13 +144,21 @@ class PaymentService:
     # --- Emparejar --------------------------------------------------------------------------------
 
     def _find_refund(self, event: PaymentEvent) -> Refund | None:
-        if not event.provider_refund_ref:
-            return None
-        return self._db.scalars(
-            select(Refund).where(
-                Refund.provider == event.provider, Refund.provider_refund_ref == event.provider_refund_ref
-            )
-        ).one_or_none()
+        if event.provider_refund_ref:
+            found = self._db.scalars(
+                select(Refund).where(
+                    Refund.provider == event.provider, Refund.provider_refund_ref == event.provider_refund_ref
+                )
+            ).one_or_none()
+            if found is not None:
+                return found
+        if event.client_reference and PaymentEventType(event.event_type) in _REFUND_EVENTS:
+            # Nuestro `refund_id`, que le enviamos al pedir la devolución: empareja el evento aunque la respuesta de
+            # pedirla se perdiera y no guardáramos la referencia del proveedor.
+            candidate = self._db.get(Refund, event.client_reference)
+            if candidate is not None and candidate.provider == event.provider:
+                return candidate
+        return None
 
     def _find_payment(self, event: PaymentEvent, refund: Refund | None) -> Payment | None:
         if refund is not None:
@@ -179,6 +191,20 @@ class PaymentService:
                 self._db.refresh(payment)
             except IntegrityError:
                 pass  # la referencia ya es de otro cobro: no se enlaza, y el evento se tratará por su cuenta
+
+    def _attach_provider_refund_ref(self, event: PaymentEvent, refund: Refund) -> None:
+        """Lo mismo para un reembolso cuya respuesta se perdió: el evento trae la referencia y se enlaza."""
+        if refund.provider_refund_ref is None and event.provider_refund_ref:
+            try:
+                with self._db.begin_nested():
+                    self._execute(
+                        update(Refund)
+                        .where(Refund.id == refund.id, Refund.provider_refund_ref.is_(None))
+                        .values(provider_refund_ref=event.provider_refund_ref)
+                    )
+                self._db.refresh(refund)
+            except IntegrityError:
+                pass  # la referencia ya es de otro reembolso: no se enlaza
 
     def _lock_order(self, order_id: str) -> Order:
         return self._db.scalars(

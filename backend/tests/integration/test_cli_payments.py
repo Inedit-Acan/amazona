@@ -156,3 +156,70 @@ def test_an_event_stored_and_never_applied_is_applied_by_the_reconciliation(
 def test_the_reconciliation_needs_a_sensible_threshold(db: Session):
     with pytest.raises(ValidationError):
         cli.reconcile_payment_events(db, older_than_minutes=0)
+
+
+# --- Reembolsos simulados --------------------------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def refund(db: Session, order: Order, payment: Payment):
+    from app.money.money import Money
+    from app.orders.refunds import RefundService
+
+    cli.simulate_payment(db, order_id=order.id, outcome="succeeded")
+    return RefundService(db, settings=SIMULATION).request(
+        payment.id, amount=Money.of("10.00", "EUR"), reason="customer_request", requester=REQUESTER
+    )
+
+
+def test_a_simulated_refund_confirmation_goes_through_the_door_and_settles_the_refund(
+    db: Session, payment: Payment, refund
+):
+    assert refund.status == "SENDING"
+
+    result = cli.simulate_refund(db, refund_id=refund.id, outcome="succeeded")
+
+    assert result.outcome == "applied" and result.duplicate is False
+    assert reload(db, refund).status == "SUCCEEDED"
+    paid = reload(db, payment)
+    assert (paid.refund_committed_amount, paid.refunded_amount) == (10, 10)
+
+
+def test_a_simulated_refund_failure_releases_the_amount(db: Session, payment: Payment, refund):
+    cli.simulate_refund(db, refund_id=refund.id, outcome="failed")
+
+    assert reload(db, refund).status == "FAILED"
+    assert (reload(db, payment).refund_committed_amount, reload(db, payment).refunded_amount) == (0, 0)
+
+
+def test_a_simulated_refund_of_another_amount_is_a_conflict_that_changes_no_total(
+    db: Session, payment: Payment, refund
+):
+    result = cli.simulate_refund(db, refund_id=refund.id, outcome="succeeded", amount="9.00")
+
+    assert result.outcome == "conflict" and reload(db, refund).status == "SENDING"
+
+
+def test_an_unknown_refund_is_not_found_and_only_the_simulated_provider_emits(db: Session, refund, monkeypatch):
+    with pytest.raises(NotFoundError):
+        cli.simulate_refund(db, refund_id="missing", outcome="succeeded")
+    monkeypatch.setattr(
+        "app.core.config.get_settings", lambda: Settings(_env_file=None, payments_provider=ProviderKind.REAL)
+    )
+
+    with pytest.raises(cli.BootstrapError, match="no payment provider"):
+        cli.simulate_refund(db, refund_id=refund.id, outcome="succeeded")
+
+
+def test_the_refund_command_needs_the_bootstrap_flag(monkeypatch, capsys):
+    monkeypatch.delenv(cli.BOOTSTRAP_ENV, raising=False)
+
+    assert cli.main(["simulate-refund", "--refund-id", "x", "--outcome", "succeeded"]) == 2
+    assert "AMAZONA_BOOTSTRAP=1" in capsys.readouterr().err
+
+
+def test_the_refund_outcome_must_be_one_the_simulator_knows():
+    parser = cli.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["simulate-refund", "--refund-id", "x", "--outcome", "refunded"])

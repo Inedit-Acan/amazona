@@ -6,7 +6,6 @@ orden en que se intercalen, un pago se confirma **una vez**, un pedido tiene **u
 existió queda registrado, y un pedido no se cancela y se cobra a la vez.
 """
 
-import threading
 from decimal import Decimal
 
 from order_test_support import add_product
@@ -17,6 +16,7 @@ from payment_test_support import (
     add_order,
     deliver,
     ingress,
+    run_together,
     start_attempt,
 )
 from pg_test_support import ephemeral_postgres
@@ -32,29 +32,6 @@ from app.orders.service import OrderService
 from app.payments.port import PaymentEventType
 
 SUCCEEDED = PaymentEventType.PAYMENT_SUCCEEDED
-
-
-def run_together(engine, jobs: list) -> list:
-    barrier = threading.Barrier(len(jobs))
-    results: list = []
-    lock = threading.Lock()
-
-    def worker(job) -> None:
-        with Session(engine) as session:
-            try:
-                barrier.wait(timeout=10)
-                outcome = job(session)
-            except Exception as exc:  # noqa: BLE001 - lo que le pasó a cada tarea es el dato
-                outcome = exc
-        with lock:
-            results.append(outcome)
-
-    threads = [threading.Thread(target=worker, args=(job,)) for job in jobs]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=120)
-    return results
 
 
 def capture(provider, payment_id: str, ref: str | None, event_id: str, amount: str = "50.00"):
