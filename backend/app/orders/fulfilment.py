@@ -36,7 +36,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
-from app.actions.service import ExternalActionService
+from app.actions.service import ExternalActionService, ExternalActionStateError
 from app.core.config import Settings, get_settings
 from app.core.errors import (
     ConflictError,
@@ -69,7 +69,7 @@ from app.orders.fulfilment_port import (
     FulfilmentLine,
     FulfilmentProvider,
 )
-from app.orders.fulfilment_projection import fulfilment_reference
+from app.orders.fulfilment_projection import FulfilmentMovedError, fulfilment_reference
 from app.orders.gate_inputs import recommendations_for, require_legal_analysis_outside_simulation
 from app.orders.payment_attempts import Requester
 
@@ -246,6 +246,22 @@ class FulfilmentService:
         except PipelineDisabledError as exc:
             self._actions.finish_unstarted(action)  # el kill switch se apagó justo antes: no salió nada
             raise OperationNotAllowedError(str(exc), reasons=["the pipeline kill switch is off"]) from exc
+        except FulfilmentMovedError:
+            # Se canceló (o se movió) entre confirmar la operación y empezar la llamada: nada salió. La acción vuelve a
+            # cerrarse sin efecto y su reserva se libera.
+            self._db.rollback()
+            self._actions.finish_unstarted(action)
+            raise
+        except ExternalActionStateError as exc:
+            # La referencia de la acción es la del fulfillment y la fase, así que dos peticiones simultáneas comparten
+            # la misma acción `PENDING`: gana quien la pasa a `CALLING` y la otra la encuentra ya movida. No es un
+            # fallo ni un resultado desconocido de esta petición: otra está llevando a cabo la operación, y el estado
+            # del fulfillment (no esta respuesta) cuenta lo que pasó.
+            self._db.rollback()
+            raise ConflictError(
+                f"fulfillment {fulfillment_id}: another request is already carrying out the {phase}; "
+                "look at the state of the fulfillment"
+            ) from exc
         self._db.refresh(fulfillment)
         return fulfillment
 

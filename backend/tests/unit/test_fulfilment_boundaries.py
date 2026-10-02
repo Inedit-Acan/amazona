@@ -63,9 +63,12 @@ def test_only_release_allocation_reduces_the_allocation():
 
 def test_only_release_allocation_closes_a_fulfillment_as_cancelled_or_failed():
     projection = (APP / "orders" / "fulfilment_projection.py").read_text(encoding="utf-8")
-    assert not re.search(r"FulfillmentStatus\.(?:FAILED|CANCELLED)", projection), (
-        "the observer of an action never abandons a fulfillment: that is a decision of a person"
-    )
+    mentions = [m.start() for m in re.finditer(r"FulfillmentStatus\.(?:FAILED|CANCELLED)", projection)]
+    for position in mentions:
+        # Solo se **leen**, en la regla de «nada salió» (`fulfillment.status not in (...)`): nunca se escriben.
+        assert "fulfillment.status not in (" in projection[max(0, position - 250) : position], (
+            "the observer of an action never abandons a fulfillment: that is a decision of a person"
+        )
     service = (APP / "orders" / "fulfilment.py").read_text(encoding="utf-8")
     assert service.count("update(Fulfillment)") == 1, "the service writes a fulfillment in one place: the delivery"
     assert "SHIPPED.value" in service.split("update(Fulfillment)")[1].split(")")[0]

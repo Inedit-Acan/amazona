@@ -176,7 +176,9 @@ def test_buying_and_cancelling_at_once_never_both_win():
             else:
                 outcomes["cancelled"] += 1
                 assert went_out == 0 and held == 0, "cancelled: nothing was bought and the units went back"
-                assert any(isinstance(r, Exception) for r in results), "the purchase did not go out"
+                assert any(isinstance(r, ConflictError) for r in results), (
+                    "the purchase was refused with a 409, not an error"
+                )
             assert assigned_in_fulfillments(engine, order_id)[0] == held
             assert calls_for(engine, fulfillment_id, "purchase") <= 1
         assert sum(outcomes.values()) == ROUNDS

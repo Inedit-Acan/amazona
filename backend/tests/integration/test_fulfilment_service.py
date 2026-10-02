@@ -39,7 +39,7 @@ from app.money.money import Money
 from app.orders import attention
 from app.orders.errors import OperationNotAllowedError, OutcomeUnknownBlockError
 from app.orders.fulfilment import FulfilmentRequestLine
-from app.orders.fulfilment_projection import fulfilment_reference
+from app.orders.fulfilment_projection import FulfilmentMovedError, fulfilment_reference
 from app.orders.payment_attempts import Requester
 from app.orders.refunds import RefundService
 from app.pipeline.kill_switch import PipelineKillSwitchService
@@ -811,7 +811,7 @@ def test_a_purchase_that_starts_on_a_cancelled_fulfillment_never_leaves(db: Sess
 
     ExternalActionService.begin_call = cancel_then_begin  # type: ignore[method-assign]
     try:
-        with pytest.raises(RuntimeError, match="not READY"):
+        with pytest.raises(FulfilmentMovedError, match="not READY"):
             service(db, provider).purchase(fulfillment.id, requester=REQUESTER)
     finally:
         ExternalActionService.begin_call = original  # type: ignore[method-assign]
@@ -819,3 +819,33 @@ def test_a_purchase_that_starts_on_a_cancelled_fulfillment_never_leaves(db: Sess
 
     assert provider.calls == [], "the observer refused: nothing was sent for a fulfillment that was cancelled"
     assert reload(db, fulfillment).status == "CANCELLED" and allocated(db, order) == [0, 0]
+    action = action_of(db, fulfillment, "purchase")
+    assert action.status == ActionStatus.FAILED_CONFIRMED.value, "the operation is closed without effect"
+    assert not db.scalars(select(AuditLog).where(AuditLog.action.like("fulfillment.anomaly.%"))).all(), (
+        "a cancelled fulfillment is a place where nothing was sent: not an anomaly"
+    )
+
+
+def test_a_request_that_finds_the_operation_already_started_by_another_is_a_409_not_an_internal_error(
+    db: Session, order: Order
+):
+    """Dos peticiones comparten la misma acción `PENDING` (su referencia es la del fulfillment y la fase): gana quien
+    la pasa a `CALLING`. La que pierde no es un fallo ni un resultado desconocido: es un 409 y no sale nada de ella."""
+    provider = ScriptedFulfilmentProvider()
+    fulfillment = create_fulfillment(db, order, provider)
+    original = ExternalActionService.execute
+
+    def another_request_started_first(self, action, adapter, payload):
+        self.begin_call(action)  # la otra petición pasa la acción a CALLING antes que esta
+        return original(self, action, adapter, payload)
+
+    ExternalActionService.execute = another_request_started_first  # type: ignore[method-assign]
+    try:
+        with pytest.raises(ConflictError, match="already carrying out the purchase"):
+            service(db, provider).purchase(fulfillment.id, requester=REQUESTER)
+    finally:
+        ExternalActionService.execute = original  # type: ignore[method-assign]
+    db.rollback()
+
+    assert provider.calls == [], "the request that lost sent nothing"
+    assert reload(db, fulfillment).status == "PURCHASING", "the state is the one the other request left"

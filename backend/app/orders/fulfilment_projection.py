@@ -33,11 +33,18 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.actions.contract import ActionResponse, ActionStatus
+from app.core.errors import ConflictError
 from app.db.models.audit import AuditLog
 from app.db.models.external_action import ExternalAction
 from app.db.models.fulfillment import Fulfillment
 from app.orders.fulfilment_domain import PHASE_FOR_OPERATION, FulfillmentStatus
 from app.orders.fulfilment_port import PHASE_PURCHASE, PHASE_SHIP
+
+
+class FulfilmentMovedError(ConflictError):
+    """La operación iba a empezar y el fulfillment ya no está donde debía (se canceló justo antes). La acción se aborta
+    antes de que la petición salga: no es un fallo ni un resultado desconocido, es un 409."""
+
 
 FULFILMENT_REFERENCE_PREFIX = "order_fulfilment:"
 PROJECTION_ACTOR = "fulfilment"
@@ -96,7 +103,7 @@ class FulfilmentActionObserver:
         if not self._move(db, fulfillment, action, {start}, going):
             # Una acción que empieza sobre un fulfillment que no está donde debe (por ejemplo, se canceló justo
             # antes) se aborta antes de que la petición salga: la excepción deshace la transición de la acción.
-            raise RuntimeError(
+            raise FulfilmentMovedError(
                 f"fulfillment {fulfillment.id} is {fulfillment.status}, not {start.value}: the {phase} must not start"
             )
 
@@ -142,7 +149,13 @@ class FulfilmentActionObserver:
     def _failed(self, db: Session, fulfillment: Fulfillment, action: ExternalAction, phase: str, previous: str) -> None:
         if previous == ActionStatus.PENDING.value:
             # La petición nunca salió: no hubo intento que contar. El fulfillment sigue donde estaba.
-            if fulfillment.status not in (FulfillmentStatus.READY.value, FulfillmentStatus.PURCHASED.value):
+            # Un fulfillment que se canceló justo antes de empezar también es un sitio donde «nada salió» es verdad.
+            if fulfillment.status not in (
+                FulfillmentStatus.READY.value,
+                FulfillmentStatus.PURCHASED.value,
+                FulfillmentStatus.CANCELLED.value,
+                FulfillmentStatus.FAILED.value,
+            ):
                 self._anomaly(db, fulfillment, action, f"{phase}_never_sent_but_the_fulfillment_moved_on")
             return
         code = "provider_rejected" if previous == ActionStatus.CALLING.value else "resolved_failed"
