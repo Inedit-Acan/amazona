@@ -94,6 +94,9 @@ class ApiAction(StrEnum):
     #: BUSINESS_READ: seeing what the system is doing is not the same as
     #: making it do something.
     JOB_WRITE = "job.write"
+    #: Crear un pedido (Milestone 44, ADR 0028). Lo crea una persona con permiso, o el CLI en una simulación;
+    #: cuando exista la web pública lo creará una identidad de sistema. Distinto de cobrar, devolver o enviar.
+    ORDER_WRITE = "order.write"
 
 
 #: Who may do what over HTTP. Deny by default: an action absent from a role's
@@ -115,6 +118,7 @@ API_ROLE_ACTIONS: dict[RoleName, frozenset[ApiAction]] = {
             ApiAction.INCIDENT_WRITE,
             ApiAction.JOB_WRITE,
             ApiAction.SUPPLIER_WRITE,
+            ApiAction.ORDER_WRITE,
             ApiAction.BUSINESS_READ,
             ApiAction.DIAGNOSTICS_READ,
         }

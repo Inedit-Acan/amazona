@@ -28,6 +28,9 @@ EXPECTED: dict[RoleName, set[ApiAction]] = {
         # Milestone 39: dar de alta un proveedor real a mano. SYSTEM no lo tiene
         # a propósito: ningún proceso automático afirma hechos sobre una empresa.
         ApiAction.SUPPLIER_WRITE,
+        # Milestone 44: crear un pedido. SYSTEM tampoco lo tiene todavía: cuando exista la web pública, su
+        # identidad de sistema será una decisión explícita.
+        ApiAction.ORDER_WRITE,
     },
     RoleName.ANALYST: READS | {ApiAction.AGENT_RUN},
     RoleName.REVIEWER: READS

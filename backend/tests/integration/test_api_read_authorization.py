@@ -63,6 +63,9 @@ BUSINESS_ROUTES = [
     "/api/jobs/types",
     "/api/jobs/job-1",
     "/api/legal/runs/cid-1",
+    # Milestone 44: los pedidos son dato de negocio; los siete roles los leen.
+    "/api/orders",
+    "/api/orders/ord-1",
     # Milestone 41: lo declarado y la evidencia son dato de negocio; los siete
     # roles lo leen y solo OWNER y ADMIN lo escriben.
     "/api/regulatory-requirements",
@@ -254,6 +257,8 @@ def test_the_inventory_covers_every_read_route():
         "/api/products/{product_id}/operations",
         "/api/products/{product_id}/storefronts",
         "/api/products/{product_id}/suppliers",
+        "/api/orders",
+        "/api/orders/{order_id}",
         "/api/projects",
         "/api/projects/{project_id}",
         "/api/research/comparisons",

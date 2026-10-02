@@ -30,6 +30,8 @@ CLASSIFICATION: dict[str, str] = {
     "/api/legal/runs": GENERIC,
     "/api/national-transpositions/{transposition_id}/verify": GENERIC,
     "/api/objectives/{objective_id}/run": GENERIC,
+    # Un pedido (Milestone 44): la clave es obligatoria siempre, también en simulación.
+    "/api/orders": GENERIC,
     "/api/regulatory-requirements/{requirement_id}/verify": GENERIC,
     "/api/research/comparisons": GENERIC,
     "/api/research/runs": GENERIC,

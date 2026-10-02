@@ -63,6 +63,17 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     # No es `AGENT_RUN`: correr el agente es pedirle datos a un directorio, y
     # esto es afirmar un hecho sobre una empresa real.
     ("POST", "/api/suppliers", {"name": "N"}, ApiAction.SUPPLIER_WRITE),
+    # Milestone 44: crear un pedido. Acción propia: no es `AGENT_RUN` ni `PIPELINE_RUN`.
+    (
+        "POST",
+        "/api/orders",
+        {
+            "customer_ref": "sim_x",
+            "market": "eu",
+            "lines": [{"product_id": "p-1", "quantity": 1, "unit_price": {"amount": "1.00", "currency": "EUR"}}],
+        },
+        ApiAction.ORDER_WRITE,
+    ),
     ("POST", "/api/suppliers/sup-1/quotes", {"product_id": "p-1"}, ApiAction.SUPPLIER_WRITE),
     (
         "POST",
@@ -278,6 +289,7 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/incidents"),
         ("POST", "/api/incidents/{incident_id}/resolve"),
         ("POST", "/api/suppliers"),
+        ("POST", "/api/orders"),
         ("POST", "/api/suppliers/{supplier_id}/quotes"),
         ("POST", "/api/suppliers/{supplier_id}/capabilities"),
         ("POST", "/api/exchange-rates"),

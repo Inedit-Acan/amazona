@@ -20,6 +20,12 @@ never closed by the system on a guess. A person checks it, then says what happen
     AMAZONA_BOOTSTRAP=1 python -m app.cli reconcile-actions [--older-than-minutes 60]
     AMAZONA_BOOTSTRAP=1 python -m app.cli resolve-action --id ID (--succeeded | --failed) --reason "..."
 
+A test order is created from the console too (Milestone 44, ADR 0028). It carries no personal data: the customer is
+an opaque reference that starts with `sim_` in a simulation.
+
+    AMAZONA_BOOTSTRAP=1 python -m app.cli create-test-order --product-id ID --quantity 2 --unit-price 19.99 \
+        [--currency EUR] [--market eu] [--customer-ref sim_demo] [--quote-id ID] [--unit-cost 8.50]
+
 Requires AMAZONA_BOOTSTRAP=1 in the environment so the command cannot be run by
 accident, and writes an audit entry for every grant.
 """
@@ -27,6 +33,7 @@ accident, and writes an audit entry for every grant.
 import argparse
 import datetime
 import os
+import secrets
 import sys
 
 from sqlalchemy.orm import Session
@@ -43,6 +50,8 @@ from app.db.models.external_action import ExternalAction
 from app.db.models.role import Role
 from app.db.models.user import User
 from app.db.session import get_session_factory
+from app.money.money import Money
+from app.orders.service import NewOrderLine, OrderService
 
 BOOTSTRAP_ENV = "AMAZONA_BOOTSTRAP"
 
@@ -157,6 +166,39 @@ def role_name_of(db: Session, user: User) -> str | None:
     return role.name if role else None
 
 
+def create_test_order(
+    db: Session,
+    *,
+    product_id: str,
+    quantity: int,
+    unit_price: str,
+    currency: str = "EUR",
+    market: str = "eu",
+    customer_ref: str | None = None,
+    quote_id: str | None = None,
+    unit_cost: str | None = None,
+):
+    """Un pedido de prueba con una línea. Pasa por `OrderService`, como el de la API: mismas reglas, mismas
+    validaciones. En una simulación la referencia de cliente se genera sola (`sim_…`); fuera de ella hay que dar
+    una y no puede empezar por `sim_`."""
+    from app.core.config import get_settings
+
+    if customer_ref is None:
+        if not get_settings().operating_in_simulation:
+            raise BootstrapError("outside a simulation a test order needs an explicit --customer-ref")
+        customer_ref = f"sim_{secrets.token_hex(6)}"
+    line = NewOrderLine(
+        product_id=product_id,
+        quantity=quantity,
+        unit_price=Money.of(unit_price, currency),
+        supplier_quote_id=quote_id,
+        declared_unit_cost=Money.of(unit_cost, currency) if unit_cost is not None else None,
+    )
+    return OrderService(db).create(
+        customer_ref=customer_ref, market=market, lines=[line], actor=cli_actor(), correlation_id=new_correlation_id()
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -187,6 +229,16 @@ def build_parser() -> argparse.ArgumentParser:
     outcome.add_argument("--succeeded", action="store_true", help="the effect did happen: commit the reservation")
     outcome.add_argument("--failed", action="store_true", help="the effect did not happen: release the reservation")
     resolve.add_argument("--reason", required=True, help="what you checked and where")
+
+    order = commands.add_parser("create-test-order", help="create an order with one line, with no personal data")
+    order.add_argument("--product-id", required=True)
+    order.add_argument("--quantity", required=True, type=int)
+    order.add_argument("--unit-price", required=True, help="a decimal such as 19.99, never a float literal in code")
+    order.add_argument("--currency", default="EUR")
+    order.add_argument("--market", default="eu")
+    order.add_argument("--customer-ref", help="an opaque reference; sim_… is generated in a simulation")
+    order.add_argument("--quote-id", help="the supplier quote the line would be bought from")
+    order.add_argument("--unit-cost", help="the supplier cost per unit, if you know it; otherwise it stays unknown")
     return parser
 
 
@@ -234,6 +286,20 @@ def main(argv: list[str] | None = None) -> int:
             _require_bootstrap_flag("external actions")
             closed = resolve_action(db, action_id=args.id, succeeded=args.succeeded, reason=args.reason)
             print(f"{closed.id} is now {closed.status}")
+        elif args.command == "create-test-order":
+            _require_bootstrap_flag("orders")
+            created = create_test_order(
+                db,
+                product_id=args.product_id,
+                quantity=args.quantity,
+                unit_price=args.unit_price,
+                currency=args.currency,
+                market=args.market,
+                customer_ref=args.customer_ref,
+                quote_id=args.quote_id,
+                unit_cost=args.unit_cost,
+            )
+            print(f"order {created.id} created for {created.customer_ref}: {created.amount_due} {created.currency}")
         elif args.command == "list-users":
             users = db.query(User).order_by(User.email).all()
             if not users:

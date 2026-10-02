@@ -67,11 +67,12 @@ def actor_scope(identity: Actor) -> str:
     return hashlib.sha256(identity.subject.encode("utf-8")).hexdigest()[:16]
 
 
-def validated_key(client_key: str | None, settings: Settings) -> str | None:
+def validated_key(client_key: str | None, settings: Settings, *, always_required: bool = False) -> str | None:
     """La clave del cliente, validada, o `None` si no hay y no es obligatoria. Obligatoria siempre que la operación
-    pueda tener un efecto fuera del sistema (`Settings.idempotency_key_required`)."""
+    pueda tener un efecto fuera del sistema (`Settings.idempotency_key_required`), y **siempre** —también en una
+    simulación— si la ruta mueve dinero (`always_required`, ADR 0028 §9)."""
     if client_key is None or client_key.strip() == "":
-        if settings.idempotency_key_required:
+        if always_required or settings.idempotency_key_required:
             raise IdempotencyKeyRequiredError(
                 "this operation can have an effect outside the system: send an Idempotency-Key header "
                 "so that retrying it after a timeout cannot run it twice"
@@ -187,11 +188,12 @@ def run_idempotent(
     status_code: int,
     response_model: type[BaseModel],
     work: Callable[[], T],
+    always_required: bool = False,
 ) -> T | Any:
     """Ejecuta `work` una sola vez por `(scope, actor, key)` y devuelve lo mismo a quien repita la petición.
 
     Sin clave (y solo cuando no es obligatoria) la operación se ejecuta como siempre: no se inventa una."""
-    key = validated_key(client_key, settings)
+    key = validated_key(client_key, settings, always_required=always_required)
     if key is None:
         return work()
 

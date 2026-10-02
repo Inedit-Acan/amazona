@@ -21,6 +21,7 @@ from app.api import (
     monitoring,
     objectives,
     operations,
+    orders,
     pipeline,
     products,
     projects,
@@ -33,6 +34,7 @@ from app.approvals.service import ApprovalNotPendingError
 from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
 from app.core.errors import (
+    ConflictError,
     IdempotencyConflictError,
     IdempotencyInProgressError,
     IdempotencyKeyRequiredError,
@@ -108,6 +110,13 @@ async def comparison_not_allowed_handler(
 
 @app.exception_handler(PipelineRunStateError)
 async def pipeline_run_state_handler(request: Request, exc: PipelineRunStateError) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(ConflictError)
+async def conflict_handler(request: Request, exc: ConflictError) -> JSONResponse:
+    # 409: la petición es válida pero lo que toca no está en un estado que lo permita (otro lo movió antes, o ya
+    # está hecho). No se cambió nada.
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
@@ -253,3 +262,4 @@ app.include_router(cfo.router, dependencies=BUSINESS)
 app.include_router(pipeline.router, dependencies=BUSINESS)
 app.include_router(incidents.router, dependencies=BUSINESS)
 app.include_router(jobs.router, dependencies=BUSINESS)
+app.include_router(orders.router, dependencies=BUSINESS)
