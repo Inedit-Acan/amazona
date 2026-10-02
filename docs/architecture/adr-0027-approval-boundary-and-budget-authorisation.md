@@ -4,6 +4,7 @@
 - **Fecha:** 2026-10-01
 - **Depende de:** [ADR 0007](adr-0007-production-security.md) (seguridad de producción: los roles y el primer propietario no se conceden por HTTP), [ADR 0011](adr-0011-action-gate.md), [ADR 0023](adr-0023-single-budget-source-and-absence-is-not-permission.md), [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md)
 - **Milestone:** hardening pre-M44, fase 2 (fases 6 y 7)
+- **Enmendada por:** [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (Milestone 44: nuevos espacios de referencias de las acciones externas; sigue sin haber bandeja de aprobación de pedidos; ver «Enmienda (Milestone 44)» al final)
 
 ## Contexto
 
@@ -119,3 +120,18 @@ una cota superior que no se pueda saltar desde la propia petición. La opción C
 - **Eliminar `ApprovalService` ahora**: es un refactor sin riesgo funcional pero con coste de revisión; la protección que
   importa (que nadie lo use por error) ya la dan el docstring y la prueba.
 - **Un endpoint o una pantalla para el presupuesto «por si acaso»**: superficie de ataque sin una necesidad que la justifique.
+
+## Enmienda (Milestone 44): nuevos espacios de referencias, y la bandeja que sigue sin existir
+
+La [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) añade tres espacios de nombres de las **acciones externas** (no del libro de presupuesto): `order_payment:`,
+`order_refund:` y `order_fulfilment:`, cada uno dueño de un observador que mueve su parte del dominio (ver la enmienda de la
+[ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md)). La frontera de esta ADR no cambia: el libro sigue
+escribiéndose con `approval:` (solo el CEO), `action:` (solo el modelo de la acción externa) y `pipeline_step:` (solo el
+pipeline), y la prueba de frontera lo sigue fijando. Una compra a un proveedor con coste conocido gasta el presupuesto que el
+propietario autorizó en la consola, y por el mismo libro; un reembolso **no** es gasto y no lo toca.
+
+Ninguna operación de un pedido crea una `Approval` ni una `PipelineReview`. Cuando el gate responde `REQUIRE_APPROVAL` para
+una operación de un pedido, M44 devuelve 409 con los motivos y **no ejecuta nada**: una bandeja de aprobación de pedidos
+sería la tercera clase de autorización de un solo uso, que es el disparador que la sección «Lo que cambiaría la decisión»
+prevé para unificar el *mecanismo* de las dos bandejas. Queda para el Milestone 45. La autorización del presupuesto sigue siendo un comando de consola
+del propietario.

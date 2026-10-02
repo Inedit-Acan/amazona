@@ -4,6 +4,7 @@
 - **Fecha:** 2026-10-01
 - **Depende de:** [ADR 0011](adr-0011-action-gate.md), [ADR 0022](adr-0022-idempotent-pipeline-run-creation.md), [ADR 0023](adr-0023-single-budget-source-and-absence-is-not-permission.md)
 - **Milestone:** hardening pre-M44, fase 2 (reservas huérfanas, clave de idempotencia hacia el proveedor, `UNKNOWN_OUTCOME`)
+- **Enmendada por:** [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (Milestone 44: observadores de transición y tres espacios de referencias; ver «Enmienda (Milestone 44)» al final)
 
 ## Contexto
 
@@ -191,3 +192,27 @@ acción: `begin_call`, `finish` (incluida la respuesta tardía), `mark_interrupt
 `finish_unstarted`, `reconcile` (con la respuesta de la consulta) y `resolve`. Si un observador falla, la excepción
 sube antes del commit y la transición no se confirma: una acción nunca queda movida con su dominio sin mover.
 El pipeline no registra ninguno y su comportamiento no cambia.
+
+### Qué añadió el cierre del Milestone 44
+
+Tres observadores, y solo tres, están registrados (`app/actions/observers.py`; una guarda de arquitectura lo comprueba):
+cada uno es dueño de un prefijo de referencia y de la parte del dominio que la acción mueve.
+
+| Prefijo de la referencia | Observador | Operación |
+|---|---|---|
+| `order_payment:{payment_id}` | `PaymentOpenObserver` | `payment.open` |
+| `order_refund:{refund_id}` | `RefundActionObserver` | `payment.refund` |
+| `order_fulfilment:{fulfillment_id}:purchase` y `…:ship` | `FulfilmentActionObserver` | `fulfillment.purchase`, `fulfillment.ship` |
+
+Cada «sitio» es una referencia propia, así que una compra y un envío del mismo fulfillment son acciones distintas, cada una
+con su clave estable hacia el proveedor `(referencia, sequence)`. Lo que el cierre del milestone precisó, con el detalle en
+la [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (E1 a E3):
+
+- Un observador que falla **aborta** la transición: nada sale y la acción no queda movida con su dominio sin mover.
+- **Perder una carrera por una acción es un 409**, nunca un error interno. Esa traducción vive hoy solo en el servicio de
+  fulfillment; los de cobros y reembolsos no atrapan `ExternalActionStateError` (**P2-1**, abierto: inalcanzable con el
+  umbral del barrido por encima del arriendo que este ADR exige, un 500 si se configura por debajo).
+- La reconciliación y `resolve-action` no toman el bloqueo del pedido, y por eso un evento verificado puede coincidir con
+  ellos: el evento se conserva como evidencia (E3).
+- Sigue sin existir un reconciliador programado: `reconcile-actions`, `reconcile-payment-events` y `resolve-action` son
+  comandos manuales de la consola (**P1-1**, a resolver en M45 antes de conectar nada real).

@@ -15,8 +15,11 @@ deterministas (sin LLM en el camino de decisión): desde detectar una
 oportunidad de producto hasta operarlo y controlar su salud financiera
 agregada — con controles humanos obligatorios en los puntos donde el
 sistema decide algo de riesgo o gasta presupuesto. **No hay dinero real,
-pedidos, proveedores, ni impuestos reales** — todo dato de negocio es
-simulado y está documentado como tal en el propio código de cada agente.
+proveedores, ni impuestos reales** — todo dato de negocio es simulado y
+está documentado como tal en el propio código de cada agente. Desde el
+Milestone 44 existe además un núcleo de **pedidos, cobros, reembolsos y
+fulfillment, completamente simulado** (sin pasarela, proveedor ni
+transportista reales; §25).
 
 ## 2. Las dos capas de orquestación (la idea arquitectónica central)
 
@@ -145,6 +148,10 @@ aborda, debe pasar por un software certificado Verifactu externo.
   `BudgetEngine` en memoria (que solo autoriza).
 - **Pipeline (Milestone 12/14):** `pipeline_runs`, `pipeline_reviews`,
   `pipeline_kill_switch`.
+- **Pedidos, cobros y fulfillment (Milestone 44):** `orders`, `order_items`,
+  `payments`, `payment_events`, `refunds`, `fulfillments`,
+  `fulfillment_items` (§25). Las migraciones de M44 no están aplicadas en
+  Supabase.
 - **Transversal:** `audit_log` (append-only, toda transición relevante
   del sistema pasa por aquí), `agent_execution_log`, `users`/`roles`
   (auth opcional), `memory_records`, `events`, `incidents`,
@@ -254,7 +261,7 @@ separados, colas) — no se usa activamente hoy.
 | [0025](adr-0025-generic-idempotency-for-synchronous-routes.md) | Idempotencia genérica de las rutas síncronas con efecto: una fila por `(operación, quien pide, clave)` con índice único, misma clave y contenido devuelven la respuesta original, otro contenido o una petición sin terminar es 409, una negativa del dominio libera la clave y un fallo sin veredicto la bloquea, sin caducidad, obligatoria cuando algo puede salir del sistema; con la clasificación de todas las rutas `POST` |
 | [0026](adr-0026-database-identity-guards.md) | La identidad de lo que es único la garantiza la base de datos: un presupuesto por nombre, un saldo por presupuesto, un interruptor por nombre, una reserva y una liquidación por referencia, una pregunta pendiente por paso; una referencia se reserva una sola vez; el techo es finito, en céntimos y acotado; la migración nunca borra ni fusiona filas y se niega si ya hay duplicados |
 | [0027](adr-0027-approval-boundary-and-budget-authorisation.md) | `Approval` (decisión del CEO, con su dinero reservado y caducidad) y `PipelineReview` (permiso de un efecto de un paso, de un solo uso, o revisión a posteriori) son dos conceptos distintos con una frontera que hacen cumplir las pruebas, no una convención; y la autorización del presupuesto sigue siendo un comando de consola con auditoría de importe, moneda y ámbito, porque un endpoint que fije el techo de gasto es un endpoint que puede subirlo |
-| [0028](adr-0028-orders-payments-fulfilment-core.md) | Núcleo de pedido, pago y fulfillment: el pago solo lo confirma un evento verificado por una única puerta (simulado o real), un pedido tiene varios intentos de cobro, la evidencia financiera nunca se descarta (`DUPLICATE_CAPTURE`) y una unidad comprada no vuelve al pool |
+| [0028](adr-0028-orders-payments-fulfilment-core.md) | Núcleo de pedido, pago y fulfillment: el pago solo lo confirma un evento verificado por una única puerta (simulado o real), un pedido tiene varios intentos de cobro, la evidencia financiera nunca se descarta (`DUPLICATE_CAPTURE`) y una unidad comprada no vuelve al pool; enmendada al cierre del milestone (bloqueo `FOR NO KEY UPDATE`, perder una carrera es un 409, el evento de reembolso que coincide con un cierre es evidencia, intenciones del frontend sin caducidad, `code` de idempotencia y la deuda de los tres paneles) y enmienda a las ADR 0011, 0024, 0025 y 0027 |
 
 Las frases que tienen que seguir siendo ciertas tras el hardening pre-M44 y la prueba que fija cada una (doce invariantes y veinte escenarios de caos) están en [`pre-m44-invariants-and-chaos-tests.md`](pre-m44-invariants-and-chaos-tests.md).
 
@@ -294,6 +301,7 @@ Las frases que tienen que seguir siendo ciertas tras el hardening pre-M44 y la p
 | [41](../milestones/milestone-41-demo.md) | Legal con requisitos declarados y anclados en EUR-Lex (§22) |
 | [42](../milestones/milestone-42-demo.md) | Tipos de cambio de referencia del BCE: refresco explícito, fecha efectiva intacta y ventana propia (§23) |
 | [43](../milestones/milestone-43-demo.md) | Transposición nacional de directivas anclada en el BOE: declarada por una persona, verificada, corroborada de forma determinista y siempre marcada como informativa (§24) |
+| [44](../milestones/milestone-44-demo.md) | Pedidos, cobros, reembolsos y fulfillment, simulados y desde el backend: el dinero lo confirma un evento verificado, la evidencia financiera nunca se descarta, una unidad comprada no vuelve al pool y Operaciones lee pedidos reales (§25) |
 
 ## 10. Cómo verlo funcionar
 
@@ -307,6 +315,11 @@ cd apps/control-center && npm run dev   # http://localhost:3000
 - **Un objetivo de Milestone 1:** Control Center → **CEO** → crear
   objetivo → ejecutar → si llega a `HUMAN_APPROVAL`, resolverlo en
   **Approvals**.
+- **Un pedido simulado de principio a fin (Milestone 44):** crear un
+  pedido con `python -m app.cli create-test-order`, abrir el cobro, simular
+  su captura, comprar, enviar, entregar y reembolsar; verlo en Control
+  Center → **Operaciones**. Paso a paso, en
+  [`milestone-44-demo.md`](../milestones/milestone-44-demo.md).
 - **Trazabilidad de cualquier ejecución:** cada paso (Milestone 1 o
   Fase 3/Pipeline) tiene su propio `correlation_id` — reconstruible vía
   `GET /api/audit?correlation_id=` o la página **Audit**.
@@ -365,6 +378,10 @@ verificado reclama la fila.
 | `business.read` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `diagnostics.read` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `audit.read` | ✅ | ✅ | — | — | ✅ | — | — |
+| `order.write` (M44) | ✅ | ✅ | ✅ | — | — | — | — |
+| `payment.write` (M44) | ✅ | ✅ | ✅ | — | — | — | — |
+| `fulfilment.write` (M44) | ✅ | ✅ | ✅ | — | — | — | — |
+| `refund.write` (M44) | ✅ | ✅ | — | — | — | — | — |
 
 Convive con el `PermissionEngine`/`ActionType` de Milestone 1, que resuelve otro
 eje: qué puede hacer un **agente** mientras se ejecuta, y cuya respuesta puede
@@ -981,7 +998,7 @@ opere sobre datos reales.
 
 | Pendiente | De dónde viene | Qué lo cierra |
 |---|---|---|
-| **Migraciones sobre PostgreSQL/Supabase real.** La cadena completa (`alembic upgrade head`) no se puede aplicar sobre SQLite: la migración de RLS del Milestone 3 emite `DO $$` de PostgreSQL sin guardia de dialecto. Cada migración nueva sí se ejecuta aislada y con datos en `tests/unit/test_migration_*.py`. | Milestones 29, 31, 32 | CI la aplica sobre PostgreSQL limpio en cada push; falta ejecutarla una vez contra la base real antes de desplegar |
+| **Migraciones sobre PostgreSQL/Supabase real.** La cadena completa (`alembic upgrade head`) no se puede aplicar sobre SQLite: la migración de RLS del Milestone 3 emite `DO $$` de PostgreSQL sin guardia de dialecto. Cada migración nueva sí se ejecuta aislada y con datos en `tests/unit/test_migration_*.py`. | Milestones 29, 31, 32 | CI la aplica sobre PostgreSQL limpio en cada push; falta ejecutarla una vez contra la base real antes de desplegar. **Las tres migraciones del Milestone 44 (`f6a1c8d3e925`, `a9d2e7b4c136`, `b3c8f1a5d742`) no están aplicadas en Supabase** y solo se han ejercido sobre PostgreSQL local y el de CI |
 | **Conversión del JSON histórico (`pipeline_runs.steps` → `pipeline_steps`) sobre datos reales.** Probada ida y vuelta sobre SQLite con ejecuciones completas y `PARTIAL`; nunca ejecutada sobre las filas que haya en Supabase. | Milestone 32 ([ADR 0010](adr-0010-async-resumable-pipeline.md) §2) | Aplicar la migración sobre una copia de la base real y comparar el `steps` reconstruido con el original antes de tocar producción |
 | **Concurrencia real de `SELECT … FOR UPDATE SKIP LOCKED`.** SQLite lo ignora sin error, así que el reclamo único está probado por construcción y por los tests, pero no contra PostgreSQL con varios workers a la vez. | Milestone 31 ([ADR 0009](adr-0009-async-job-runtime.md) §1) | Dos o más `python -m app.jobs.worker` contra la misma base PostgreSQL, comprobando que ningún trabajo se ejecuta dos veces |
 | **Login, refresco y cierre de sesión reales.** El flujo de sesión del Control Center está construido y probado con tokens fabricados; falta ejercerlo contra Supabase con credenciales de prueba. | Milestone 29.1 ([ADR 0007](adr-0007-production-security.md)) | Un usuario de prueba en Supabase: entrar, dejar caducar el token para ver el refresco del middleware, y salir |
@@ -1012,6 +1029,11 @@ en el milestone donde se descubrieron.
 | **Derogaciones parciales de una norma nacional** | Las banderas del BOE son de la norma entera. Una derogación parcial solo aparece como relación posterior, y el sistema solo eleva a revisión las de anulación o suspensión (`220`, `221`, `230`, `231`) sin interpretar su efecto | Que una persona las lea; el sistema no decide su efecto jurídico |
 | **Ancla nacional para otros países y fuentes** | El BOE es el único adaptador de Derecho nacional. Otros países, Safety Gate y ECHA quedan fuera | Un adaptador por fuente tras `NationalNormSource`, cada uno con sus derechos y coste (ADR 0015) |
 | **~~Coste de adquisición (CAC) en Economics~~** *(cerrada en el Milestone 40)* | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |
+| **Reconciliadores programados (M44)** | `reconcile-actions`, `reconcile-payment-events` y `resolve-action` solo existen como comandos manuales. Sin ellos se quedan atascados: acciones `PENDING` (reserva retenida), cobros `OPENING` o `UNKNOWN_OUTCOME` (bloquean cobros nuevos), eventos `RECEIVED`, reembolsos y fulfillments en `UNKNOWN_OUTCOME` | Trabajos del runtime asíncrono (§13), antes de conectar ningún proveedor real. Propuesto para el Milestone 45 |
+| **Dashboard, CFO y Proyectos con pedidos reales (M44)** | Siguen mostrando pedidos inventados (`buildOrders`), etiquetados como demostración; Operaciones ya no coincide con ellos | Convertirlos a `GET /api/orders` y al libro económico de ingresos. Decidido por el propietario para el Milestone 45 |
+| **Libro económico de ingresos** | El dinero cobrado y reembolsado vive en `payments`, pero ninguna cifra económica (CFO, márgenes) lo usa: el presupuesto tiene una sola fuente de verdad y los ingresos todavía no | Un libro alimentado por capturas y reembolsos verificados. Propuesto para el Milestone 45 |
+| **Cierre de un cobro `OPEN` sin evento del proveedor** | No existe `payment.cancel` ni caducidad: un intento abierto que el proveedor nunca cierra bloquea nuevos intentos de ese pedido | Antes de una pasarela real |
+| **Corregir P2-1 y P2-2 (M44)** | `ExternalActionStateError` no tiene tratamiento HTTP en cobros y reembolsos; Operaciones lee como máximo 500 pedidos sin avisar de que trunca | Decidido por el propietario: Milestone 45, con `fix:` propios |
 
 ## 22. Requisitos legales declarados y anclados en una fuente (Milestone 41)
 
@@ -1147,3 +1169,123 @@ publicada. `User-Agent` neutro del proyecto, sin ningún dato personal. Derechos
 escritos antes de la primera llamada; `AI_INGESTION` denegado. `NATIONAL_LAW_PROVIDER=mock`
 (por defecto) no llama a nadie. Escribir es `REGULATORY_WRITE`. Detalle y límites, en
 [`milestone-43-demo.md`](../milestones/milestone-43-demo.md).
+
+---
+
+## 25. Pedidos, cobros, reembolsos y fulfillment, simulados (Milestone 44)
+
+Hasta el Milestone 43 AMAZONA analizaba y decidía, pero no tenía dónde ocurre una venta. El Milestone 44 construye ese
+lugar: **el núcleo de pedido, pago y fulfillment, completamente simulado y pensado desde el backend**. No hay pasarela,
+proveedor ni transportista reales, ni cliente final, ni carrito, ni web pública; lo que se construyó es lo que un proveedor
+real tendrá que cumplir después. El razonamiento completo y las enmiendas del cierre, en la
+[ADR 0028](adr-0028-orders-payments-fulfilment-core.md); la demo, la verificación y los límites, en
+[`milestone-44-demo.md`](../milestones/milestone-44-demo.md).
+
+**La regla que lo gobierna:** el dinero lo confirma un evento verificado, y la evidencia financiera nunca se descarta. Ninguna ruta
+acepta un campo «pagado»; el navegador no confirma nada; un cobro tardío o duplicado se registra aunque contradiga al pedido.
+
+### 25.1 Qué hay
+
+```text
+HTTP (13 rutas) ─► ApiAction (RBAC) ─► run_idempotent (Idempotency-Key obligatoria: 428 si falta)
+                                    │
+     OrderService · PaymentAttemptService · RefundService · FulfilmentService
+                                    │      ActionGateService (permiso, kill switch, coste por operación, veto por desconocido)
+                                    ▼
+                 ExternalActionService (open · reserve · begin_call · execute · finish · reconcile · resolve · sweep)
+                                    │  observadores por prefijo de referencia, dentro de la MISMA transacción
+        order_payment:{id} ─► PaymentOpenObserver        order_refund:{id} ─► RefundActionObserver
+        order_fulfilment:{id}:{purchase|ship} ─► FulfilmentActionObserver
+
+ hechos entrantes:  POST /api/payments/webhooks/{provider}  y  CLI simulate-payment / simulate-refund
+        └► PaymentIngress.receive: 1) verifica (HMAC-SHA256, tiempo constante, ±300 s) · 2) guarda el evento `RECEIVED`
+           (hash y lista blanca, jamás el cuerpo) · 3) lo aplica en otra transacción (única vía que cambia un cobro o paga un pedido)
+```
+
+**Tablas** (7, migraciones `f6a1c8d3e925`, `a9d2e7b4c136`, `b3c8f1a5d742`, con RLS deny-by-default como el resto):
+`orders`, `order_items`, `payments`, `payment_events`, `refunds`, `fulfillments`, `fulfillment_items`. Un pedido tiene N
+líneas, N intentos de cobro y N fulfillments; un cobro, N reembolsos; un fulfillment, N líneas. Diez columnas de dinero,
+todas `Numeric(18,4)` con su moneda; en la API el dinero viaja como cadena.
+
+**Máquinas de estado.**
+
+| Entidad | Estados |
+|---|---|
+| `Order` | `AWAITING_PAYMENT → {PAID, CANCELLED}` · `PAID → COMPLETED`. Solo `PaymentService` escribe `PAID` y solo el servicio de fulfillment escribe `COMPLETED` |
+| `Payment` (un intento) | `REQUESTED → OPENING → OPEN \| FAILED \| UNKNOWN_OUTCOME`; `OPEN → SUCCEEDED \| FAILED \| EXPIRED` solo por evento verificado; un segundo cobro real es `DUPLICATE_CAPTURE`, uno de otro importe `CAPTURE_MISMATCH` |
+| `Refund` | `REQUESTED → SENDING → SUCCEEDED` (solo por `refund.succeeded` verificado) · `UNKNOWN_OUTCOME` conserva la reserva · `FAILED` la libera |
+| `Fulfillment` | `READY → PURCHASING → PURCHASED → SHIPPING → SHIPPED → COMPLETED`; `UNKNOWN_OUTCOME` desde comprar o enviar; `CANCELLED` y `FAILED` solo antes de comprar |
+| `ExternalAction` | `PENDING → CALLING → {SUCCEEDED, FAILED_CONFIRMED, UNKNOWN_OUTCOME}` (ADR 0024) |
+
+Cada entidad con una operación externa distingue **nada enviado**, **posiblemente enviado** y **resultado desconocido**; el
+segundo se escribe en la misma transacción que `begin_call`. Un `UNKNOWN_OUTCOME` no se repite a ciegas, no libera
+reservas y solo sale por reconciliación, respuesta tardía o resolución humana.
+
+### 25.2 Las rutas y quién puede
+
+| Ruta | Clave | Permiso |
+|---|---|---|
+| `POST /api/orders` · `POST /api/orders/{id}/fulfillments` | `Idempotency-Key` | `order.write` · `fulfilment.write` |
+| `POST /api/orders/{id}/payments` | `Idempotency-Key` + `ExternalAction` | `payment.write` |
+| `POST /api/orders/{id}/refunds` | `Idempotency-Key` + `ExternalAction` | `refund.write` (solo OWNER y ADMIN) |
+| `POST /api/fulfillments/{id}/purchase` · `…/ship` | `Idempotency-Key` + `ExternalAction` | `fulfilment.write` |
+| `POST /api/orders/{id}/cancel` · `POST /api/fulfillments/{id}/{complete,cancel,fail}` | por estado (repetir es 409) | `order.write` · `fulfilment.write` |
+| `POST /api/payments/webhooks/{provider}` | firma del proveedor | sin identidad: se autentica la firma |
+| `GET /api/orders` (`status`, `limit` ≤ 500, `offset`) · `GET /api/orders/{id}` | — | `business.read` |
+
+No hay `GET` de un cobro, reembolso o fulfillment suelto: se leen dentro del pedido, con su `attention_required` y sus motivos,
+que **se calculan al leer** y nunca se escriben en un `GET`. Un `POST` sin `Idempotency-Key` es un 428 (también en
+simulación). Un reembolso solo lo pide una persona con permiso: ningún camino los crea solo.
+
+### 25.3 Lo que sigue siendo cierto en cualquier circunstancia
+
+- **El pago solo lo confirma un evento autenticado.** El simulador usa la misma puerta que un webhook real, con una clave
+  efímera por proceso que nunca se guarda.
+- **Nunca se pierde dinero cobrado:** un cobro tardío, uno duplicado o uno de otro importe se registra y deja el pedido
+  `attention_required`; un pedido cancelado no vuelve a `PAID`.
+- **El reembolso lo acota la base de datos**, no el código: `0 ≤ reembolsado ≤ reservado ≤ cobrado`.
+- **Una unidad comprada no vuelve al pool** (`release_allocation` es un compare-and-set con la compra sin hacer).
+- **El bloqueo del pedido es siempre `FOR NO KEY UPDATE`** y el orden es pedido → cobro o fulfillment (un interbloqueo real lo exigió).
+- **Perder una carrera por comprar o enviar es un 409**, nunca un 500.
+- **Sin datos personales:** un pedido solo lleva una `customer_ref` opaca (`sim_…` en simulación, sin `@`, con `CHECK`
+  en la base de datos); el cuerpo bruto de un webhook no se guarda en ninguna columna.
+- **Desconocido no es cero:** una compra cuyo coste no se conoce se deniega (es lo que ocurre si se crea el pedido sin
+  `--unit-cost`).
+
+### 25.4 La consola (`python -m app.cli`)
+
+Todos los comandos que cambian algo exigen `AMAZONA_BOOTSTRAP=1`.
+
+| Comando | Qué hace |
+|---|---|
+| `create-test-order` | crea un pedido de una línea sin datos personales (`--product-id`, `--quantity`, `--unit-price`; `--unit-cost` si se conoce) |
+| `simulate-payment` | emite un evento de pago simulado (`succeeded`, `failed`, `expired`, `attempt-failed`) por la misma puerta que un webhook |
+| `simulate-refund` | emite el evento con que el proveedor confirma (`succeeded`) o niega (`failed`) un reembolso |
+| `reconcile-payment-events` | aplica los eventos `RECEIVED` que no llegaron a aplicarse |
+| `reconcile-actions` | libera reservas cuya petición nunca salió y marca las demás como desconocidas |
+| `resolve-action` | cierra una acción de resultado desconocido, con su motivo, tras comprobarla a mano |
+| `show-actions` | lista las acciones externas y en qué punto está cada una (`--open`: solo las abiertas) |
+
+**Ninguno de estos reconciliadores está programado:** son comandos manuales (P1-1, ver el milestone).
+
+### 25.5 Qué ve el Control Center
+
+**Operaciones lee pedidos reales** (`GET /api/orders`) y deja de inventarlos: pedidos por estado, dinero realmente cobrado y
+reembolsado (suma exacta por moneda), el pipeline de fulfillment, los pedidos que requieren atención con los motivos del
+backend, el detalle de cada uno, y una tarjeta «Lo que esta pantalla todavía no puede mostrar» (transportistas, devoluciones
+físicas, SLA, rendimiento por proveedor, clientes y canal, automatizaciones) con «Sin datos». **Dashboard, CFO y Proyectos
+siguen mostrando pedidos inventados**, etiquetados como demostración (P1-2). Todavía **no hay formularios** para crear un
+pedido, un cobro o un fulfillment desde la pantalla; las funciones de `api.ts` ya existen y exigen la clave de intención
+como parámetro obligatorio.
+
+### 25.6 Qué es real y qué es simulado
+
+| | Hoy |
+|---|---|
+| Dominio (pedidos, cobros, reembolsos, fulfillment), reglas, base de datos, API, permisos, auditoría, idempotencia | **Real**, probado sobre PostgreSQL |
+| Pasarela de pago, proveedor de abastecimiento y transportista | **Simulados** (`simulated-payments`, `simulated-fulfilment`); no existe ningún adaptador real |
+| Clientes, carrito, checkout, IVA/OSS, facturas, contabilidad, devoluciones físicas, seguimiento de envíos | **No existen** |
+| Migraciones de M44 en Supabase | **No aplicadas** (Supabase tiene 12; requiere autorización y procedimiento aparte) |
+
+`staging` y `production` **no arrancan** hasta que existan adaptadores no simulados de pago y fulfillment (§12.2): es
+intencionado.

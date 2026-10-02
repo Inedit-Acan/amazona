@@ -5,6 +5,7 @@
 - **Depende de:** [ADR 0005](adr-0005-fase-3-pipeline-orchestrator.md), [ADR 0006](adr-0006-pipeline-human-controls.md), [ADR 0007](adr-0007-production-security.md), [ADR 0009](adr-0009-async-job-runtime.md), [ADR 0010](adr-0010-async-resumable-pipeline.md)
 - **Milestone:** 33
 - **Reabre:** ADR 0005 §Decisión y ADR 0006 §1 (la cadena no se detiene), exactamente en el caso que ambas dejaron previsto
+- **Enmendada por:** [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (Milestone 44: el gate gobierna por operación; ver «Enmienda (Milestone 44)» al final)
 
 ## Contexto
 
@@ -216,7 +217,7 @@ no pueda duplicarse aunque se autorice dos veces.
 
 ## Enmienda (Milestone 44): el gate gobierna por operación
 
-Cuatro ajustes, todos de la ADR 0028, para que las operaciones de un pedido (abrir un cobro, comprar al proveedor,
+Cuatro ajustes, todos de la [ADR 0028](adr-0028-orders-payments-fulfilment-core.md), para que las operaciones de un pedido (abrir un cobro, comprar al proveedor,
 enviar, reembolsar) pasen por el mismo gate sin quedar fuera de él ni bloqueadas por reglas pensadas para otra cosa.
 
 1. **`COLLECT_PAYMENT`.** Una décima acción: abrir un cobro en una pasarela no es un pago nuestro (no sale dinero),

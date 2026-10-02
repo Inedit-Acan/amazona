@@ -4,6 +4,7 @@
 - **Fecha:** 2026-10-01
 - **Depende de:** [ADR 0022](adr-0022-idempotent-pipeline-run-creation.md), [ADR 0023](adr-0023-single-budget-source-and-absence-is-not-permission.md), [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md)
 - **Milestone:** hardening pre-M44, fase 2 (idempotencia de las rutas síncronas)
+- **Enmendada por:** [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (Milestone 44: clave siempre obligatoria en las rutas de pedidos, el `code` de sus errores, las claves por intención del frontend y las rutas de M44 en la clasificación; ver «Enmienda (Milestone 44)» al final)
 
 ## Contexto
 
@@ -116,3 +117,38 @@ presupuesto. La activación (la acción que gasta) es el paso `marketing` del pi
   de la primera cayó. El 409 es inmediato y honesto.
 - **Aplicarla a todos los `POST`**: es indiscriminada. Un duplicado de una fila de borrador no es un efecto, y una clave
   bloqueada por un fallo imprevisto sí tiene coste.
+
+## Enmienda (Milestone 44): lo que cambió con los pedidos
+
+La [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) aplica esta ADR a las rutas de pedidos, cobros, reembolsos y fulfillment, y precisa cuatro cosas.
+
+1. **La clave es siempre obligatoria en esas rutas**, también en simulación. El §4 la hacía obligatoria solo si el
+   despliegue puede tocar algo fuera del sistema; en M44 un pedido simulado se trata como uno real (`always_required`):
+   sin `Idempotency-Key` la respuesta es 428.
+2. **Los errores de idempotencia llevan un `code`** legible por máquina, para que un cliente no clasifique por el texto del
+   mensaje:
+
+   | Estado | `code` |
+   |---|---|
+   | 428 | `idempotency_key_required` |
+   | 409 | `idempotency_conflict` (misma clave, otro contenido) |
+   | 409 | `idempotency_in_progress` |
+   | 409 | `idempotency_outcome_unknown` |
+
+   Un 409 de **negocio** (otra petición ya hizo la operación, el estado no la permite) no lleva `code`: es una respuesta
+   definitiva, no un problema de la clave.
+3. **Lo que el §4 dejaba pendiente en el frontend está hecho** (`lib/intent-key.ts`, `lib/use-intent.ts`): una clave por
+   **intención** (operación, objetivo y parámetros canónicos), conservada ante timeout, red, 5xx, un 409 «en curso» y un
+   resultado desconocido, y nueva tras un éxito, con otros parámetros o con un `discard` humano. Sin caducidad por tiempo,
+   igual que aquí (§3), y persistida solo en `sessionStorage`. Está cableada en legal, investigación, CEO y la comprobación de
+   requisitos y de transposiciones; **todavía no hay formularios de M44** (las funciones de `api.ts` esperan la clave como
+   parámetro obligatorio). Detalle en la [ADR 0028](adr-0028-orders-payments-fulfilment-core.md), E4.
+4. **La clasificación del §6 cambia.** `EXTERNAL_WRITE` ya no está vacía: son `POST /api/orders/{id}/payments`,
+   `POST /api/orders/{id}/refunds`, `POST /api/fulfillments/{id}/purchase` y `POST /api/fulfillments/{id}/ship`
+   (idempotencia genérica **y** `ExternalAction`). `POST /api/orders`, `POST /api/orders/{id}/fulfillments` son idempotencia
+   genérica; las decisiones de una persona (`cancel` de pedido y de fulfillment, `complete`, `fail`) son por estado; y el
+   webhook de pagos es una clase propia (`WEBHOOK`), que se deduplica por `(proveedor, id del evento)` y se autentica por firma, no por clave.
+   `tests/unit/test_post_route_classification.py` sigue fallando si aparece una `POST` sin clasificar.
+
+Lo demás de esta ADR sigue como estaba. En particular, **no hay comando para listar las claves bloqueadas** ni retención de
+`idempotency_records` (P3-6).

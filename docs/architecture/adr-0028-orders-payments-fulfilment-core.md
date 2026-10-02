@@ -5,6 +5,7 @@
 - **Depende de:** [ADR 0003](adr-0003-rls-deny-by-default.md), [ADR 0011](adr-0011-action-gate.md), [ADR 0015](adr-0015-multiple-real-sources-cost-and-usage-rights.md), [ADR 0018](adr-0018-money-conversion-and-not-evaluable.md), [ADR 0022](adr-0022-idempotent-pipeline-run-creation.md), [ADR 0023](adr-0023-single-budget-source-and-absence-is-not-permission.md), [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md), [ADR 0025](adr-0025-generic-idempotency-for-synchronous-routes.md), [ADR 0026](adr-0026-database-identity-guards.md), [ADR 0027](adr-0027-approval-boundary-and-budget-authorisation.md)
 - **Enmienda a:** [ADR 0011](adr-0011-action-gate.md) (coste por operación, permiso por acción, `COLLECT_PAYMENT`, `REFUND` fuera del presupuesto), [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md) (observadores de transición) y [ADR 0027](adr-0027-approval-boundary-and-budget-authorisation.md) (nuevos espacios de nombres de referencias del libro y de las acciones externas)
 - **Milestone:** 44
+- **Enmendada al cierre del Milestone 44** (2026-10-02): lo que la construcción y las pruebas de invariantes y caos corrigieron o decidieron después de aceptarla está en «Enmiendas» al final. El texto de arriba no se ha reescrito: cuando una enmienda lo contradice o lo precisa, manda la enmienda.
 
 ## Contexto
 
@@ -273,3 +274,146 @@ multi-proveedor y envíos parciales avanzados; bandeja de aprobación de pedidos
 - **Proyectar el resultado de una acción externa al dominio con un barrido:** deja un estado intermedio tras
   `reconcile-actions` o `resolve-action`.
 - **Registrar el cuerpo bruto del webhook:** incorpora datos personales que no necesitamos.
+
+## Enmiendas (cierre del Milestone 44, 2026-10-02)
+
+Lo que sigue se decidió, o se descubrió, después de aceptar este ADR: unas veces porque una prueba de carrera sobre
+PostgreSQL encontró un defecto real, otras porque el propietario resolvió una pregunta que el texto dejaba abierta. No
+se crea una ADR nueva porque ninguna enmienda cambia el modelo: precisan cómo se cumple.
+
+### E1. El bloqueo del pedido es siempre `FOR NO KEY UPDATE`, y el orden es pedido → cobro/fulfillment
+
+Toda transacción que va a mover algo que cuelga de un pedido (un cobro, un reembolso, un fulfillment, una línea)
+bloquea **primero la fila del pedido** y lo hace con `FOR NO KEY UPDATE` (`with_for_update(key_share=True)` en
+SQLAlchemy), nunca con `FOR UPDATE`. El orden de bloqueo es siempre **pedido → cobro o fulfillment**; ningún camino
+bloquea un cobro o un fulfillment y después el pedido.
+
+**Por qué.** Fue un interbloqueo real, no una precaución. El observador de la compra actualiza dos veces la misma fila de
+`fulfillments`; PostgreSQL repite entonces la comprobación de su clave foránea tomando `FOR KEY SHARE` sobre la fila del
+pedido, y eso choca con el `FOR UPDATE` de quien cancela el pedido a la vez: cada una espera a la otra y ninguna avanza. `FOR NO KEY UPDATE` sigue serializando a quienes bloquean el pedido entre sí, pero no
+choca con `FOR KEY SHARE`, que es lo único que toma la comprobación de la clave. Lo encontró la primera prueba de carrera
+(comprar contra cancelar) y se corrigió en el Commit 8.
+
+**Cómo se mantiene.** Una guarda de arquitectura (`tests/unit/test_fulfilment_boundaries.py`) falla si algún bloqueo
+del pedido no lleva `key_share=True` (hoy cinco sitios: pedidos, cobros, reembolsos, fulfillment y aplicación de eventos
+de pago). El orden no lo comprueba una guarda sino las pruebas de concurrencia sobre PostgreSQL. SQLite ignora los
+bloqueos de fila: en una base SQLite estas pruebas no prueban nada, y la suite las omite.
+
+### E2. Una petición que pierde una carrera de compra o envío es un 409, nunca un error interno
+
+La sección 3 decía que un estado «posiblemente enviado» se escribe en la transición de `begin_call`. Faltaba decir qué
+pasa con la petición que **pierde** la carrera por la misma operación. Dos peticiones simultáneas por comprar el mismo
+fulfillment, o una cancelación que gana entre el momento de confirmar y el de llamar, no son un fallo del sistema:
+
+Son dos casos distintos y los dos terminan en **409** con un mensaje claro:
+
+- **Dos peticiones por la misma operación.** La referencia de la acción es la del fulfillment y la fase, así que las dos
+  comparten la misma acción `PENDING`: gana quien la pasa a `CALLING` y la otra la encuentra ya movida. La que llega
+  tarde recibe `ConflictError` («otra petición ya lleva a cabo la operación; mira el estado del fulfillment»). No toca la
+  acción, que está en manos de la otra, ni cuenta como fallo ni como resultado desconocido de esta petición.
+- **El fulfillment se movió** (por ejemplo, se canceló) entre confirmar la operación y empezar la llamada. Se lanza
+  `FulfilmentMovedError` (subclase de `ConflictError`) antes de que salga nada, la transición de la acción se deshace, y
+  la acción que no salió se cierra sin efecto (`finish_unstarted`) y **libera su reserva**. Una cancelación que ganó la
+  carrera ya no se audita como anomalía.
+
+Antes era un `ExternalActionStateError` sin tratar (un 500) o un `RuntimeError`, y dejaba además la clave de idempotencia
+en `UNKNOWN_OUTCOME` (ADR 0025). Falló una vez en el CI del Commit 8 y no se reproducía en local (25 intentos); se corrigió
+en `cb58efb`.
+
+**Límite conocido (P2-1).** Esta traducción está en el servicio de fulfillment. Los servicios de **cobros**
+(`PaymentAttemptService.start`) y de **reembolsos** (`RefundService.request`) atrapan los fallos de la operación y del
+proveedor, pero **no** `ExternalActionStateError`, y la API no tiene un manejador global para ella: una carrera entre el
+barrido de huérfanas y el ejecutor de un cobro sería un 500 y dejaría la clave en `UNKNOWN_OUTCOME`. Es inalcanzable con
+el uso documentado (el umbral del barrido debe superar el arriendo, ADR 0024) y solo ocurriría con un umbral mal puesto.
+No se ha corregido; ver E7.
+
+### E3. Un evento de reembolso verificado que coincide con el cierre del reembolso es evidencia, no un error
+
+La sección 5 dice que un reembolso solo se da por devuelto con un `refund.succeeded` verificado. Pero un reembolso
+`SENDING` o `UNKNOWN_OUTCOME` también lo pueden cerrar la reconciliación de acciones o una persona con `resolve-action`,
+y esos caminos **no toman el bloqueo del pedido**. Si el evento verificado llega en el mismo instante, el cierre
+condicional del reembolso (`UPDATE … WHERE status IN (pendientes)`) no encuentra fila. El código inicial lo trataba como
+imposible y lanzaba un `RuntimeError`: un 500 en el webhook (lo encontró la tormenta concurrente del Commit 11, en
+~1 de cada 4 ejecuciones; corregido en `cca1472`).
+
+Ahora el predicado de estados cerrables es explícito y, si el cierre no se aplica, el evento se **relee y se decide con el
+estado real**, igual que si hubiera llegado un instante después:
+
+| El evento dice | El reembolso ya estaba | Resultado del evento | Auditoría |
+|---|---|---|---|
+| `refund.succeeded` | `SUCCEEDED` | `STALE` (ya estaba registrado) | — |
+| `refund.succeeded` | `FAILED` | `CONFLICT` (el proveedor devolvió lo que se registró como fallido) | `refund.success_after_failure` |
+| `refund.failed` | `FAILED` | `STALE` | — |
+| `refund.failed` | `SUCCEEDED` | `CONFLICT` (contradice un reembolso hecho) | `refund.failure_after_success` |
+
+Un evento `CONFLICT` o `STALE` **no se descarta**: se conserva con su importe y su moneda (sección 4: la evidencia
+financiera nunca se descarta) y el pedido queda `attention_required` cuando corresponde. El caso opuesto está protegido por
+una invariante: un reembolso `SUCCEEDED` cuya acción una persona cerró como fallida **exige** una anomalía auditada
+(`refund.anomaly.refund_failed_after_the_refund_moved_on`). La prueba determinista del arreglo usa dos sesiones y falla con el código
+anterior.
+
+### E4. Las intenciones del frontend no caducan y solo una persona las descarta
+
+La sección 9 dice que el frontend conserva la clave por intención. Precisión sobre su vida:
+
+- **No caducan por tiempo.** Igual que en el backend (ADR 0025 §3): un temporizador confundiría «hace mucho» con «no
+  ocurrió» y renovaría una clave cuya operación quizá sí se ejecutó.
+- **Solo una persona las descarta** (`discard`), y solo tras comprobar qué pasó con la operación anterior. Una intención
+  ambigua (timeout, red, 5xx, 408/425/429, `409 idempotency_in_progress`, `409 idempotency_outcome_unknown`, o un 2xx con
+  `status: "UNKNOWN_OUTCOME"`, que no se trata como éxito) se conserva; también se conserva ante un rechazo de negocio,
+  porque el backend libera la clave en ese caso. La clave solo cambia tras un éxito, con otros parámetros, objetivo u
+  operación, o con `discard`.
+- **Persistencia solo en `sessionStorage`**, nunca en `localStorage`, y lo que se guarda es la clave (un UUID opaco) y una
+  huella SHA-256 de los parámetros canónicos, nunca los parámetros. La operación y el objetivo deben ser identificadores
+  opacos: un correo o un nombre se rechazan.
+- **Alcance: una pestaña.** Otra pestaña u otro dispositivo genera otra clave. El backend sigue siendo idempotente por
+  clave, pero no por intención entre pestañas. Hoy no hay formularios de M44 que lo sufran (P3-11).
+- 20 clics con la misma intención hacen **una** petición; 20 intenciones distintas, veinte. Está probado contra el backend
+  real con el módulo de Node.
+
+### E5. El código legible por máquina de los errores de idempotencia
+
+Los errores de idempotencia llevan un campo `code` en el cuerpo, para que ningún cliente clasifique por el texto del
+mensaje (el frontend lo usa para decidir si conserva la clave):
+
+| Estado | `code` | Cuándo |
+|---|---|---|
+| 428 | `idempotency_key_required` | falta el `Idempotency-Key` en una ruta que lo exige (en M44, siempre, también en simulación) |
+| 409 | `idempotency_conflict` | la misma clave con otro contenido |
+| 409 | `idempotency_in_progress` | la petición de esa clave no ha terminado (o su proceso cayó); no se repite por reloj |
+| 409 | `idempotency_outcome_unknown` | la petición falló sin decir si tuvo efecto; la clave no vuelve a servir |
+
+Un conflicto de **negocio** (una compra que otra petición ya hizo, un estado que no lo permite) es también un 409 pero
+**no** lleva `code`: es una respuesta definitiva, no un problema de la clave. La ADR 0025 recoge la parte de ella.
+
+### E6. Operaciones muestra datos reales, y lo que sigue inventado se dice
+
+La sección 10 se cumple en Operaciones y **no** en el resto del Control Center:
+
+- **Operaciones** lee `GET /api/orders` y los nombres de producto de `GET /api/products`, y muestra pedidos por estado, dinero
+  realmente cobrado y reembolsado (suma exacta por moneda, con enteros; lo pedido y sin confirmar, aparte), el pipeline de
+  fulfillment, los pedidos que requieren atención con los motivos del backend, y el detalle de cada pedido. Lo que M44 no
+  puede representar (transportistas y seguimiento, devoluciones físicas, SLA, rendimiento por proveedor, clientes y canal,
+  automatizaciones) aparece como «Sin datos». Ya no importa `lib/demo`.
+- **Dashboard, CFO y Proyectos siguen inventando pedidos** (`buildOrders`, `lib/operations-view.ts`, `lib/demo/operations.ts`),
+  etiquetados como demostración. El principio «dato real o vacío» **no** se cumple todavía en esos tres paneles (P1-2).
+  Los generadores se conservan a propósito porque esos paneles se apoyan en ellos.
+- **Se retiró** de Operaciones el informe del agente de operaciones (política de devoluciones y ticket de ejemplo). Sigue
+  en `GET /api/products/{id}/operations`.
+- **Límite sin avisar (P2-2).** Operaciones lee como máximo 500 pedidos (`ORDERS_LIMIT`) y no avisa de que trunca.
+- **Un matiz sobre el seguimiento.** El fulfillment guarda una `tracking_reference`: es la referencia que devuelve el proveedor
+  simulado al enviar. No hay transportista, estado de seguimiento ni plazos; «entregado» es una confirmación humana con actor.
+
+### E7. Decisiones del propietario al cierre del milestone
+
+Preguntadas el 2026-10-02, antes de escribir la documentación del cierre:
+
+1. **Sin umbral automático de fallos.** `FAILED` sigue siendo una decisión humana posible tras ≥ 1 fallo confirmado de
+   compra (sección 6): el contrato aprobado no tenía umbral y no se añade uno. Tres fallos confirmados dejan el fulfillment
+   en `READY` con `failed_attempts = 3`; está probado. Un umbral exigiría una ADR propia (0029 es el siguiente número libre).
+2. **P2-1 y P2-2 no se corrigen antes de cerrar M44**: quedan documentados como defectos conocidos y se atienden en M45.
+3. **El informe del agente de operaciones no se repone** en Operaciones; queda fuera, sin milestone comprometido.
+4. **Dashboard, CFO y Proyectos pasan a pedidos reales en M45**, junto con el libro económico de ingresos (una sola fuente de
+   verdad del dinero, como el presupuesto ya lo es).
+5. **Sin decidir:** cuándo y con qué procedimiento se aplican las migraciones de M44 a Supabase. Hoy **no están aplicadas**
+   (Supabase tiene 12 migraciones, la última `20260917114106`); requiere una autorización expresa y un procedimiento aparte.
