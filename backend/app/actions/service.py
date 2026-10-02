@@ -32,6 +32,7 @@ from app.actions.contract import (
     derive_idempotency_key,
     request_fingerprint,
 )
+from app.actions.observers import ActionObserver, observers_for
 from app.budgets.service import BudgetLedgerService
 from app.core.errors import (
     AmazonaError,
@@ -64,8 +65,11 @@ class ExternalActionService:
         ledger: BudgetLedgerService | None = None,
         kill_switch: PipelineKillSwitchService | None = None,
         clock: Callable[[], datetime.datetime] = _utcnow,
+        observers: list[tuple[str, ActionObserver]] | None = None,
     ) -> None:
         self._db = db
+        #: `None` = los observadores registrados del producto (`app.actions.observers.REGISTERED`).
+        self._observers = observers
         self._ledger = ledger or BudgetLedgerService(db)
         self._kill_switch = kill_switch or PipelineKillSwitchService(db)
         self._clock = clock
@@ -155,6 +159,8 @@ class ExternalActionService:
         ):
             raise ExternalActionStateError(f"action {action.id} was moved by someone else before the call")
         self._audit(action, "call_started", before={"status": "PENDING"}, after={"status": "CALLING"})
+        # La frontera de durabilidad: el dominio también pasa a «posiblemente enviado» en esta misma transacción.
+        self._notify(action, ActionStatus.PENDING.value, ActionStatus.CALLING.value)
         self._db.commit()
 
     def execute(self, action: ExternalAction, adapter: ExternalActionAdapter, payload: dict) -> ActionResponse:
@@ -188,10 +194,17 @@ class ExternalActionService:
                 f"the outcome of {action.operation} on {action.provider} is unknown ({type(exc).__name__}): "
                 "it may have been executed"
             ) from exc
-        self.finish(action, ActionStatus.SUCCEEDED)
+        self.finish(action, ActionStatus.SUCCEEDED, response=response)
         return response
 
-    def finish(self, action: ExternalAction, status: ActionStatus, *, error: str | None = None) -> None:
+    def finish(
+        self,
+        action: ExternalAction,
+        status: ActionStatus,
+        *,
+        error: str | None = None,
+        response: ActionResponse | None = None,
+    ) -> None:
         """Cierra una operación con la **respuesta de la llamada que la hizo** y mueve el libro como corresponde:
         `SUCCEEDED` compromete, `FAILED_CONFIRMED` libera, `UNKNOWN_OUTCOME` no toca nada (la reserva se queda hasta
         que se sepa).
@@ -224,6 +237,7 @@ class ExternalActionService:
             before={"status": was} if late else None,
             after={"status": status.value, "error": error, **({"late_response": True} if late else {})},
         )
+        self._notify(action, was, status.value, response)
         self._db.commit()
 
     def mark_applied(self, action: ExternalAction) -> None:
@@ -251,6 +265,7 @@ class ExternalActionService:
                 updated_at=self._clock(),
             )
             self._audit(latest, "unknown_outcome", before={"status": "CALLING"}, after={"status": "UNKNOWN_OUTCOME"})
+            self._notify(latest, ActionStatus.CALLING.value, ActionStatus.UNKNOWN_OUTCOME.value)
             self._db.commit()
         return latest if latest.status == ActionStatus.UNKNOWN_OUTCOME.value else None
 
@@ -291,6 +306,7 @@ class ExternalActionService:
                     self._audit(
                         action, "unknown_outcome", before={"status": "CALLING"}, after={"status": "UNKNOWN_OUTCOME"}
                     )
+                    self._notify(action, ActionStatus.CALLING.value, ActionStatus.UNKNOWN_OUTCOME.value)
                     unknown.append(action.id)
         self._db.commit()
         return {"released": released, "unknown": unknown}
@@ -311,6 +327,7 @@ class ExternalActionService:
             raise ExternalActionStateError(f"action {action.id} started before it could be released")
         self._move_ledger(action, commit=False)
         self._audit(action, "release_unstarted", before={"status": "PENDING"}, after={"status": "FAILED_CONFIRMED"})
+        self._notify(action, ActionStatus.PENDING.value, ActionStatus.FAILED_CONFIRMED.value)
         self._db.commit()
 
     # --- Resolver un resultado desconocido --------------------------------------------
@@ -337,6 +354,7 @@ class ExternalActionService:
                     "the provider confirmed the operation"
                     if found is not None
                     else "the provider has no such operation",
+                    response=found,
                 )
             elif adapter.supports_idempotency:
                 request = ActionRequest(
@@ -368,7 +386,15 @@ class ExternalActionService:
             action, ActionStatus.SUCCEEDED if succeeded else ActionStatus.FAILED_CONFIRMED, actor, reason
         )
 
-    def _close_unknown(self, action: ExternalAction, status: ActionStatus, by: str, why: str) -> None:
+    def _close_unknown(
+        self,
+        action: ExternalAction,
+        status: ActionStatus,
+        by: str,
+        why: str,
+        *,
+        response: ActionResponse | None = None,
+    ) -> None:
         now = self._clock()
         if not self._transition(
             action,
@@ -389,6 +415,7 @@ class ExternalActionService:
             after={"status": status.value, "by": by, "why": why},
             actor=by,
         )
+        self._notify(action, ActionStatus.UNKNOWN_OUTCOME.value, status.value, response)
         self._db.commit()
 
     # --- Interno -----------------------------------------------------------------------
@@ -454,6 +481,14 @@ class ExternalActionService:
                 correlation_id=action.correlation_id,
             )
         )
+
+    def _notify(
+        self, action: ExternalAction, previous: str, current: str, response: ActionResponse | None = None
+    ) -> None:
+        """Avisa a los observadores de esta referencia, dentro de la transacción que está a punto de confirmarse.
+        Si uno falla, la excepción sube antes del commit: la transición no se confirma."""
+        for observer in observers_for(action.reference, self._observers):
+            observer.on_transition(self._db, action, previous=previous, current=current, response=response)
 
     def _serialise(self, key: str) -> None:
         if self._db.get_bind().dialect.name == "postgresql":

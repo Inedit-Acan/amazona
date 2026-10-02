@@ -176,3 +176,18 @@ Los adaptadores de los tests son falsos y cuentan los efectos que habrían tenid
 - **Un estado nuevo de paso (`UNKNOWN`)**: el paso solo necesita saber que falló; quien sabe qué pasó con el efecto
   es la acción, y el veto del gate lo impide sin tocar la máquina de estados del pipeline.
 - **TTL que libera reservas viejas**: confunde «hace mucho» con «no ocurrió».
+
+## Enmienda (Milestone 44): el dominio se refleja en la misma transacción
+
+Una acción dice **qué se hizo hacia fuera**; un cobro, un reembolso o un envío dicen **qué significa eso para el
+negocio**. Si el dominio se actualiza después, en otra transacción, queda una ventana en la que la acción dice
+«posiblemente enviada» y el dominio sigue diciendo «nada enviado»: la ambigüedad que este ADR quitó de la acción
+volvería a entrar por el dominio, y `reconcile-actions` o `resolve-action` (que no saben nada de pedidos) la
+dejarían sin cerrar.
+
+`ExternalActionService` admite ahora **observadores por prefijo de referencia** (`app/actions/observers.py`). Se
+llaman **dentro de la transacción de cada transición**, antes del `commit`, en todos los caminos que mueven una
+acción: `begin_call`, `finish` (incluida la respuesta tardía), `mark_interrupted`, el barrido de huérfanas,
+`finish_unstarted`, `reconcile` (con la respuesta de la consulta) y `resolve`. Si un observador falla, la excepción
+sube antes del commit y la transición no se confirma: una acción nunca queda movida con su dominio sin mover.
+El pipeline no registra ninguno y su comportamiento no cambia.
