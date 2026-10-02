@@ -23,7 +23,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.actions.service import ExternalActionService
+from app.actions.service import ExternalActionService, ExternalActionStateError
 from app.core.config import Settings, get_settings
 from app.core.errors import (
     ConflictError,
@@ -34,6 +34,7 @@ from app.core.errors import (
     ValidationError,
 )
 from app.core.ids import new_correlation_id
+from app.db.models.external_action import ExternalAction
 from app.db.models.order import Order
 from app.db.models.payment import Payment
 from app.gates.action_gate import GateOutcome, SideEffectAction
@@ -60,6 +61,15 @@ class Requester:
 
 def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC)
+
+
+def close_unsent_action(db: Session, actions: ExternalActionService, action: ExternalAction) -> None:
+    """Cierra sin efecto una operación cuya petición no llegó a salir (la libera). Si el barrido de huérfanas ya la
+    cerró como «nunca salió», no queda nada que hacer: el resultado es el mismo y no es un error de esta petición."""
+    try:
+        actions.finish_unstarted(action)
+    except ExternalActionStateError:
+        db.rollback()
 
 
 class PaymentAttemptService:
@@ -137,6 +147,7 @@ class PaymentAttemptService:
         )
         self._db.commit()  # el cobro `REQUESTED` y su acción `PENDING`: todavía no ha salido nada
 
+        payment_id = payment.id
         try:
             self._actions.execute(action, provider, payload)
         except ExternalActionFailedError:
@@ -144,8 +155,18 @@ class PaymentAttemptService:
         except ExternalOutcomeUnknownError:
             pass  # pudo ejecutarse: el intento queda UNKNOWN_OUTCOME y bloquea los nuevos
         except PipelineDisabledError as exc:
-            self._actions.finish_unstarted(action)  # el kill switch se apagó justo antes: no salió nada
+            close_unsent_action(self._db, self._actions, action)  # el kill switch se apagó justo antes: no salió nada
             raise OperationNotAllowedError(str(exc), reasons=["the pipeline kill switch is off"]) from exc
+        except ExternalActionStateError as exc:
+            # La referencia de la acción es la de **este** intento (`order_payment:{id}`), que solo esta petición
+            # conoce: quien se la pudo mover es el barrido de huérfanas (la cerró como «nunca salió» entre confirmarla y
+            # empezar la llamada) o una persona. No es un fallo de esta petición ni un resultado desconocido: el
+            # estado del cobro, y no esta respuesta, cuenta lo que pasó.
+            self._db.rollback()
+            raise ConflictError(
+                f"payment {payment_id}: another process already moved the operation that opens it "
+                "(for example the reconciler released it before it was sent); look at the state of the payment"
+            ) from exc
         self._db.refresh(payment)
         return payment
 

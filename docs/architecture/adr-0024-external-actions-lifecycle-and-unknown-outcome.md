@@ -209,9 +209,9 @@ con su clave estable hacia el proveedor `(referencia, sequence)`. Lo que el cier
 la [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (E1 a E3):
 
 - Un observador que falla **aborta** la transición: nada sale y la acción no queda movida con su dominio sin mover.
-- **Perder una carrera por una acción es un 409**, nunca un error interno. Esa traducción vive hoy solo en el servicio de
-  fulfillment; los de cobros y reembolsos no atrapan `ExternalActionStateError` (**P2-1**, abierto: inalcanzable con el
-  umbral del barrido por encima del arriendo que este ADR exige, un 500 si se configura por debajo).
+- **Perder una carrera por una acción es un 409**, nunca un error interno. Esa traducción vive en los servicios de
+  fulfillment, cobros y reembolsos (en estos dos desde M45, **P2-1**; ver la ADR 0028). Antes, una carrera barrido-contra-ejecutor
+  en un cobro o un reembolso era un 500 si el umbral del barrido se configuraba por debajo del arriendo que este ADR exige.
 - La reconciliación y `resolve-action` no toman el bloqueo del pedido, y por eso un evento verificado puede coincidir con
   ellos: el evento se conserva como evidencia (E3).
 - Sigue sin existir un reconciliador programado: `reconcile-actions`, `reconcile-payment-events` y `resolve-action` son

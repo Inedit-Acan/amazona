@@ -327,6 +327,14 @@ barrido de huérfanas y el ejecutor de un cobro sería un 500 y dejaría la clav
 el uso documentado (el umbral del barrido debe superar el arriendo, ADR 0024) y solo ocurriría con un umbral mal puesto.
 No se ha corregido; ver E7.
 
+**Resuelto en M45 (P2-1).** `PaymentAttemptService.start` y `RefundService.request` traducen ahora `ExternalActionStateError`
+a un `ConflictError` (409) que dice que otro proceso ya movió la operación y que el estado del cobro o del reembolso es lo que
+cuenta; la petición hace `rollback` y no oculta ningún otro error (un `RuntimeError` sigue siéndolo). Si el kill switch se
+apaga justo antes de la llamada y el barrido ya había cerrado la operación sin enviar, la respuesta sigue siendo la del kill
+switch. Una corrección a lo escrito arriba: `ExternalActionStateError` es un `AmazonaError`, así que la idempotencia
+(ADR 0025) **libera** la clave —no queda `UNKNOWN_OUTCOME`—; lo que era un defecto es solo el 500. La carrera se reproduce sin
+azar en `tests/integration/test_action_race_is_a_conflict.py` (SQLite y PostgreSQL, y por HTTP).
+
 ### E3. Un evento de reembolso verificado que coincide con el cierre del reembolso es evidencia, no un error
 
 La sección 5 dice que un reembolso solo se da por devuelto con un `refund.succeeded` verificado. Pero un reembolso

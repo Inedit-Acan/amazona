@@ -29,7 +29,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.actions.service import ExternalActionService
+from app.actions.service import ExternalActionService, ExternalActionStateError
 from app.core.config import Settings, get_settings
 from app.core.errors import (
     ConflictError,
@@ -50,7 +50,7 @@ from app.integrations.registry import ProviderRegistry
 from app.money.money import Money
 from app.orders.domain import require_cents
 from app.orders.errors import OperationNotAllowedError, OutcomeUnknownBlockError
-from app.orders.payment_attempts import Requester
+from app.orders.payment_attempts import Requester, close_unsent_action
 from app.payments import ledger
 from app.payments.domain import (
     CAPTURED_PAYMENT_STATUSES,
@@ -166,6 +166,7 @@ class RefundService:
         )
         self._db.commit()  # el reembolso `REQUESTED`, su importe apartado y su acción `PENDING`: no ha salido nada
 
+        refund_id = refund.id
         try:
             self._actions.execute(action, provider, payload)
         except ExternalActionFailedError:
@@ -173,8 +174,18 @@ class RefundService:
         except ExternalOutcomeUnknownError:
             pass  # pudo ejecutarse: el reembolso queda UNKNOWN_OUTCOME y su importe, apartado
         except PipelineDisabledError as exc:
-            self._actions.finish_unstarted(action)  # el kill switch se apagó justo antes: no salió nada
+            close_unsent_action(self._db, self._actions, action)  # el kill switch se apagó justo antes: no salió nada
             raise OperationNotAllowedError(str(exc), reasons=["the pipeline kill switch is off"]) from exc
+        except ExternalActionStateError as exc:
+            # La referencia de la acción es la de **este** reembolso (`order_refund:{id}`), que solo esta petición
+            # conoce: quien se la pudo mover es el barrido de huérfanas (la cerró como «nunca salió» y liberó el importe
+            # apartado) o una persona. No es un fallo de esta petición ni un resultado desconocido: el estado del
+            # reembolso, y no esta respuesta, cuenta lo que pasó.
+            self._db.rollback()
+            raise ConflictError(
+                f"refund {refund_id}: another process already moved the operation that sends it "
+                "(for example the reconciler released it before it was sent); look at the state of the refund"
+            ) from exc
         self._db.refresh(refund)
         return refund
 
