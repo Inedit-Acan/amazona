@@ -23,6 +23,8 @@ import {
   ordersInPeriod,
   toMinor,
   type MoneyTotals,
+  PAYMENT_STATUS,
+  REFUND_STATUS,
 } from "./orders-view.ts";
 
 // --- Datos de ejemplo: lo que devolvería `GET /api/orders` (nada aleatorio) ---------------------------------------------
@@ -361,3 +363,106 @@ test("el panel lee los pedidos del backend y no escribe nada desde esta pantalla
     assertAbsent(source, /api\.(create|open|request|purchase|ship|complete|cancel|fail)\w*\(/, `${file} calls an effectful operation`);
   }
 });
+
+// --- B9: lo que el panel tiene que aguantar --------------------------------------------------------------------------
+
+test("un importe de catorce cifras enteras y cuatro decimales se suma y se muestra exacto", () => {
+  const huge = "12345678901234.5678";
+  const totals: MoneyTotals = new Map();
+  addTo(totals, eur(huge));
+  addTo(totals, eur("0.0001"));
+
+  assert.equal(totals.get("EUR"), toMinor("12345678901234.5679"));
+  const text = formatTotals(totals)!;
+  assert.match(text, /^12\.345\.678\.901\.234,5679\s€$/, "no digit was rounded away by a float on the way to the screen");
+  assert.equal(toMinor("99999999999999.9999") + toMinor("0.0001"), toMinor("100000000000000"));
+});
+
+test("quinientos pedidos se suman exactos y el panel no se atasca", () => {
+  const orders = Array.from({ length: 500 }, (_, i) =>
+    order({ id: `o-${i}`, created_at: `2026-10-02T10:${String(i % 60).padStart(2, "0")}:00Z`, payments: [payment({ id: `p-${i}`, captured_amount: eur("50.0100") })] }),
+  );
+
+  const kpis = orderKpis(orders);
+
+  assert.equal(kpis.total, 500);
+  assert.equal(kpis.captured.get("EUR"), toMinor("25005"), "500 × 50,01 with no accumulated error");
+  assert.equal(newestFirst(orders).length, 500);
+  assert.equal(ordersInPeriod(orders, "2026-10-02", 1).length, 500);
+  assert.equal(attentionList(orders).length, 0);
+});
+
+test("un estado de pedido, de cobro o de reembolso que el backend añada mañana se muestra tal cual y no rompe nada", () => {
+  const future = order({
+    id: "future",
+    status: "ON_HOLD",
+    payments: [payment({ status: "CHARGEBACK" as never })],
+    refunds: [refund({ status: "DISPUTED" })],
+    fulfillments: [fulfillment({ status: "QUARANTINED" as never })],
+  });
+
+  const kpis = orderKpis([order({ id: "ok" }), future]);
+
+  assert.equal(kpis.total, 2, "an order in a state this screen does not know still counts as an order");
+  assert.equal(kpis.completed, 1, "…and is not mistaken for one of the four it knows");
+  assert.deepEqual([kpis.awaitingPayment, kpis.paid, kpis.cancelled], [0, 0, 0]);
+  assert.ok(TABS.find((t) => t.key === "todos")!.match(future));
+  assert.deepEqual(describe(ORDER_STATUS, "ON_HOLD"), { label: "ON_HOLD", tone: "neutral" });
+  assert.deepEqual(describe(PAYMENT_STATUS, "CHARGEBACK"), { label: "CHARGEBACK", tone: "neutral" });
+  assert.deepEqual(describe(REFUND_STATUS, "DISPUTED"), { label: "DISPUTED", tone: "neutral" });
+  const events = orderEvents(future);
+  assert.ok(events.some((e) => e.label.includes("Reembolso")), "its refund is told in its history");
+  assert.ok(fulfilmentPipeline([future]).some((stage) => stage.status === "QUARANTINED" && stage.count === 1));
+});
+
+test("un cobro duplicado cuenta como dinero cobrado, aparece en atención y su historia lo cuenta", () => {
+  const duplicate = order({
+    id: "dup",
+    attention_required: true,
+    attention_reasons: ["duplicate_capture"],
+    payments: [
+      payment({ id: "p1" }),
+      payment({ id: "p2", attempt_number: 2, status: "DUPLICATE_CAPTURE", duplicate_of_payment_id: "p1", succeeded_at: "2026-10-02T10:05:00Z" }),
+    ],
+  });
+
+  const kpis = orderKpis([duplicate]);
+
+  assert.equal(kpis.captured.get("EUR"), toMinor("100"), "both captures moved real money");
+  assert.deepEqual(attentionList([duplicate]).map((o) => o.id), ["dup"]);
+  assert.ok(orderEvents(duplicate).some((e) => e.label === "Cobro 2 confirmado"), "the second capture is in the history");
+  assert.equal(describe(PAYMENT_STATUS, "DUPLICATE_CAPTURE").tone, "bad");
+});
+
+test("un reembolso en curso se ve como dinero apartado y no como devuelto, y uno desconocido se ve como grave", () => {
+  const orders = [
+    order({
+      payments: [payment({ refund_committed_amount: eur("30.0000"), refunded_amount: eur("10.0000") })],
+      refunds: [refund({ id: "r1", status: "SUCCEEDED", amount: eur("10.0000") }), refund({ id: "r2", status: "UNKNOWN_OUTCOME", amount: eur("20.0000"), finished_at: null })],
+    }),
+  ];
+
+  const kpis = orderKpis(orders);
+
+  assert.equal(kpis.refunded.get("EUR"), toMinor("10"), "only what a verified fact confirmed");
+  assert.equal(kpis.refundInProgress.get("EUR"), toMinor("20"), "the unknown outcome keeps its 20 set aside");
+  assert.equal(describe(REFUND_STATUS, "UNKNOWN_OUTCOME").tone, "bad");
+  assert.equal(describe(FULFILLMENT_STATUS, "UNKNOWN_OUTCOME").tone, "bad");
+});
+
+test("los pedidos de varias monedas no se mezclan en ninguna cifra", () => {
+  const usd = (amount: string): MoneyAmount => ({ amount, currency: "USD" });
+  const orders = [
+    order({ id: "e", payments: [payment({ captured_amount: eur("50.0000") })] }),
+    order({ id: "u", amount_due: usd("20.0000"), payments: [payment({ id: "pu", amount: usd("20.0000"), captured_amount: usd("20.0000"), refunded_amount: usd("5.0000"), refund_committed_amount: usd("5.0000") })] }),
+  ];
+
+  const kpis = orderKpis(orders);
+
+  assert.equal(kpis.captured.size, 2);
+  assert.equal(kpis.captured.get("EUR"), toMinor("50"));
+  assert.equal(kpis.captured.get("USD"), toMinor("20"));
+  assert.equal(kpis.refunded.get("USD"), toMinor("5"));
+  assert.equal(kpis.refunded.get("EUR") ?? BigInt(0), BigInt(0));
+});
+
