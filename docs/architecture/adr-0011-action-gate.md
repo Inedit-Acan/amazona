@@ -213,3 +213,24 @@ reintenta solo con la autorización anterior.
 Sigue pendiente, antes del primer adaptador que ejecute acciones reales: una clave
 idempotente **hacia el proveedor**, estable entre reintentos, para que una acción remota
 no pueda duplicarse aunque se autorice dos veces.
+
+## Enmienda (Milestone 44): el gate gobierna por operación
+
+Cuatro ajustes, todos de la ADR 0028, para que las operaciones de un pedido (abrir un cobro, comprar al proveedor,
+enviar, reembolsar) pasen por el mismo gate sin quedar fuera de él ni bloqueadas por reglas pensadas para otra cosa.
+
+1. **`COLLECT_PAYMENT`.** Una décima acción: abrir un cobro en una pasarela no es un pago nuestro (no sale dinero),
+   pero sí una acción externa con consecuencias. Un `NO_GO` legal la veta; la economía del producto no se vuelve a
+   juzgar cuando el pedido ya existe.
+2. **`REFUND` deja de ser gasto.** Devolver a un cliente lo que pagó no es un gasto discrecional ni sale del
+   presupuesto de anuncios y compras, y no se juzga por el producto: la función pura **ignora** la recomendación legal
+   y la económica para `REFUND`, de modo que un llamador descuidado no pueda vetarlo. Se mantienen el kill switch, el
+   veto por resultado desconocido y el permiso.
+3. **Permiso por acción.** Todas consultaban `EXTERNAL_SPEND`, cuya política por defecto pide aprobación humana:
+   correcto para gastar y un bloqueo permanente para cobrar o devolver. `COLLECT_PAYMENT` consulta `PAYMENT_COLLECT` y
+   `REFUND` consulta `MONEY_REFUND` (ambos permitidos por defecto; quien los pide ya pasó el RBAC de la ruta). El
+   resto sigue consultando `EXTERNAL_SPEND`.
+4. **Coste por operación (`ActionCost`).** `ZERO` (cero declarado, con procedencia), `KNOWN` y `UNKNOWN`. Una
+   operación de un tipo que no gasta pero cuyo coste es conocido y positivo, o desconocido, se trata como gasto: el
+   desconocido se deniega siempre (nunca es cero) y el conocido pasa por la misma disciplina de siempre (evaluar,
+   reservar, comprometer). Sin coste declarado manda el tipo de acción, como hasta ahora: el pipeline no cambia.

@@ -17,6 +17,12 @@ class ActionType(StrEnum):
     EXTERNAL_SPEND = "external.spend"
     POLICY_EDIT = "policy.edit"
     PERMISSION_GRANT = "permission.grant"
+    #: Abrir un cobro en una pasarela (Milestone 44): una cobranza no es un gasto, así que no pide la
+    #: aprobación que pide `EXTERNAL_SPEND`.
+    PAYMENT_COLLECT = "payment.collect"
+    #: Devolver dinero cobrado (Milestone 44). Tampoco es gasto del presupuesto operativo. Lo pide siempre una
+    #: persona con permiso (`REFUND_WRITE`); ningún camino automático crea reembolsos.
+    MONEY_REFUND = "money.refund"
 
 
 class PermissionResult(StrEnum):
@@ -33,6 +39,8 @@ DEFAULT_POLICY: dict[ActionType, PermissionResult] = {
     ActionType.EXTERNAL_SPEND: PermissionResult.HUMAN_APPROVAL_REQUIRED,
     ActionType.POLICY_EDIT: PermissionResult.ALLOWED,
     ActionType.PERMISSION_GRANT: PermissionResult.ALLOWED,
+    ActionType.PAYMENT_COLLECT: PermissionResult.ALLOWED,
+    ActionType.MONEY_REFUND: PermissionResult.ALLOWED,
 }
 
 

@@ -118,10 +118,10 @@ def test_the_kill_switch_denies_everything():
     assert any("kill switch" in reason for reason in decision.reasons)
 
 
-@pytest.mark.parametrize("action", list(SideEffectAction))
+@pytest.mark.parametrize("action", [a for a in SideEffectAction if a is not SideEffectAction.REFUND])
 def test_a_legal_no_go_denies_every_side_effect(action: SideEffectAction):
     """El ejemplo literal del plan maestro §7: legal NO_GO deniega publicar,
-    anunciar y comprar. Aquí, las nueve."""
+    anunciar y comprar. Aquí, todas salvo devolver dinero ya cobrado (ADR 0028 §5), que no se juzga por el producto."""
     decision = evaluate_action(gate(action=action, legal_recommendation="NO_GO"))
 
     assert decision.outcome is GateOutcome.DENY
@@ -269,7 +269,7 @@ def test_no_signature_can_lift_a_veto(veto: dict):
 # --- El catálogo -----------------------------------------------------------
 
 
-def test_the_catalogue_is_the_nine_actions_of_the_plan():
+def test_the_catalogue_is_the_nine_actions_of_the_plan_plus_collecting_a_payment():
     assert {action.value for action in SideEffectAction} == {
         "publish_product",
         "activate_ads",
@@ -280,6 +280,7 @@ def test_the_catalogue_is_the_nine_actions_of_the_plan():
         "refund",
         "change_price",
         "send_contract_communication",
+        "collect_payment",
     }
 
 
@@ -289,5 +290,5 @@ def test_only_the_actions_that_move_money_count_as_spending():
         SideEffectAction.SPEND_MONEY,
         SideEffectAction.PURCHASE_SUPPLIER,
         SideEffectAction.MAKE_PAYMENT,
-        SideEffectAction.REFUND,
     }
+    assert SideEffectAction.REFUND not in SPENDING_ACTIONS, "returning a customer's payment is not budget spend"

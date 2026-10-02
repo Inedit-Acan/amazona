@@ -27,7 +27,10 @@ from app.permissions.policies import PermissionResult
 
 
 class SideEffectAction(StrEnum):
-    """Las nueve acciones con efecto del plan maestro §7.
+    """Las nueve acciones con efecto del plan maestro §7, más `COLLECT_PAYMENT` (Milestone 44).
+
+    `COLLECT_PAYMENT` es la décima: abrir un cobro en una pasarela no es un pago nuestro (no sale dinero), pero sí
+    una acción externa con consecuencias, y por eso se gobierna con el mismo gate en vez de quedar fuera de él.
 
     Todo lo que no está aquí es análisis y no pasa por el gate: investigar,
     cotizar, calcular márgenes, comprobar requisitos legales, prever, simular y
@@ -43,19 +46,83 @@ class SideEffectAction(StrEnum):
     REFUND = "refund"
     CHANGE_PRICE = "change_price"
     SEND_CONTRACT_COMMUNICATION = "send_contract_communication"
+    COLLECT_PAYMENT = "collect_payment"
 
 
-#: Las que mueven dinero. Se distinguen porque el presupuesto y la autonomía
-#: económica solo tienen sentido sobre ellas: publicar un producto no gasta.
+#: Las que gastan del presupuesto operativo. Se distinguen porque el presupuesto y la autonomía económica solo
+#: tienen sentido sobre ellas: publicar un producto no gasta.
+#:
+#: `REFUND` ya no está aquí (Milestone 44, ADR 0028 §5): devolver a un cliente lo que cobró no es un gasto
+#: discrecional ni sale del presupuesto de anuncios y compras. Una operación cuyo coste depende de la propia
+#: operación (un envío) declara su `ActionCost` en vez de depender solo del tipo de acción.
 SPENDING_ACTIONS: frozenset[SideEffectAction] = frozenset(
     {
         SideEffectAction.ACTIVATE_ADS,
         SideEffectAction.SPEND_MONEY,
         SideEffectAction.PURCHASE_SUPPLIER,
         SideEffectAction.MAKE_PAYMENT,
-        SideEffectAction.REFUND,
     }
 )
+
+#: Acciones que **no se juzgan por el producto**: un `NO_GO` legal no impide devolver dinero cobrado, y la
+#: economía de un producto no decide si se le devuelve el pago a quien ya lo hizo. Es una obligación, no una
+#: decisión comercial. Se aplica en la función pura para que un llamador descuidado no pueda vetarlo.
+LEGAL_NOT_CONSULTED: frozenset[SideEffectAction] = frozenset({SideEffectAction.REFUND})
+ECONOMICS_NOT_CONSULTED: frozenset[SideEffectAction] = frozenset(
+    {SideEffectAction.REFUND, SideEffectAction.COLLECT_PAYMENT}
+)
+
+
+class CostKind(StrEnum):
+    #: Cero **declarado**, con su procedencia (el adaptador simulado dice «0 € simulado»).
+    ZERO = "ZERO"
+    KNOWN = "KNOWN"
+    #: No se sabe lo que cuesta. **Nunca significa cero.**
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class ActionCost:
+    """Lo que cuesta **esta operación**, declarado por quien sabe (el adaptador o el servicio de dominio).
+
+    El tipo de acción dice si una clase de acción suele gastar; esto dice lo que gasta una operación concreta:
+    un envío puede costar cero en un adaptador simulado y un importe en uno real. `UNKNOWN` se trata como gasto y
+    se deniega (no se inventa un coste ni se ejecuta un gasto real a ciegas); `KNOWN` mayor que cero pasa por la
+    misma disciplina económica de siempre (evaluar, reservar, comprometer)."""
+
+    kind: CostKind
+    #: Solo con `KNOWN`. En `float` porque el libro de presupuesto lo es (frontera legada, `legacy_float`).
+    amount: float | None = None
+    provenance: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind is CostKind.KNOWN and (self.amount is None or self.amount <= 0):
+            raise ValueError("a KNOWN cost needs a positive amount: use ZERO for a declared zero")
+        if self.kind is not CostKind.KNOWN and self.amount is not None:
+            raise ValueError(f"a {self.kind} cost carries no amount")
+
+    @classmethod
+    def zero(cls, provenance: str) -> "ActionCost":
+        return cls(kind=CostKind.ZERO, provenance=provenance)
+
+    @classmethod
+    def known(cls, amount: float, provenance: str | None = None) -> "ActionCost":
+        return cls(kind=CostKind.KNOWN, amount=amount, provenance=provenance)
+
+    @classmethod
+    def unknown(cls) -> "ActionCost":
+        return cls(kind=CostKind.UNKNOWN)
+
+    @property
+    def spends(self) -> bool:
+        """Si la operación se trata como gasto: coste desconocido o conocido y positivo."""
+        return self.kind is CostKind.UNKNOWN or self.kind is CostKind.KNOWN
+
+    def as_amount(self) -> float | None:
+        """El importe que se le pregunta al presupuesto: `0.0` si es cero declarado, `None` si no se sabe."""
+        if self.kind is CostKind.ZERO:
+            return 0.0
+        return self.amount
 
 
 class GateOutcome(StrEnum):
@@ -115,10 +182,12 @@ class GateInput:
     #: desarrollo).
     permission: PermissionResult | None = None
     environment: Environment = Environment.DEVELOPMENT
+    #: El coste declarado de esta operación (Milestone 44). `None` = el que corresponde al tipo de acción.
+    cost: ActionCost | None = None
 
     @property
     def is_spending(self) -> bool:
-        return self.action in SPENDING_ACTIONS
+        return self.action in SPENDING_ACTIONS or (self.cost is not None and self.cost.spends)
 
 
 @dataclass(frozen=True)
@@ -149,6 +218,8 @@ def evaluate_action(gate_input: GateInput) -> GateDecision:
     4. Si no queda nada que objetar, `ALLOW`.
     """
     reasons: list[str] = []
+    legal = None if gate_input.action in LEGAL_NOT_CONSULTED else gate_input.legal_recommendation
+    economics = None if gate_input.action in ECONOMICS_NOT_CONSULTED else gate_input.economics_recommendation
 
     # --- 1. Vetos ---------------------------------------------------------
     if not gate_input.kill_switch_enabled:
@@ -157,9 +228,9 @@ def evaluate_action(gate_input: GateInput) -> GateDecision:
         reasons.append(
             "an earlier external action of this step has an unknown outcome: reconcile it before acting again"
         )
-    if gate_input.legal_recommendation == "NO_GO":
+    if legal == "NO_GO":
         reasons.append("legal recommendation is NO_GO")
-    if gate_input.economics_recommendation == "NO_GO" and gate_input.is_spending:
+    if economics == "NO_GO" and gate_input.is_spending:
         reasons.append("economics recommendation is NO_GO and this action spends money")
     if gate_input.is_spending and not gate_input.budget.approved:
         reasons.append(gate_input.budget.reason or "the budget does not cover this action")
@@ -176,13 +247,13 @@ def evaluate_action(gate_input: GateInput) -> GateDecision:
         return GateDecision(outcome=GateOutcome.ALLOW, reasons=["a human authorized this action"])
 
     # --- 3. Dudas ---------------------------------------------------------
-    if gate_input.economics_recommendation == "NO_GO":
+    if economics == "NO_GO":
         # No gasta, así que no es un veto — pero publicar algo que las cuentas
         # desaconsejan no lo decide el sistema solo.
         reasons.append("economics recommendation is NO_GO")
-    if gate_input.legal_recommendation == "REVIEW":
+    if legal == "REVIEW":
         reasons.append("legal recommendation is REVIEW")
-    if gate_input.economics_recommendation == "REVIEW":
+    if economics == "REVIEW":
         reasons.append("economics recommendation is REVIEW")
     if gate_input.permission is PermissionResult.HUMAN_APPROVAL_REQUIRED:
         reasons.append("the actor's role requires human approval for external spend")
