@@ -54,6 +54,14 @@ PAYMENTS_ACTOR = "payments"
 _REFUND_EVENTS = frozenset({PaymentEventType.REFUND_SUCCEEDED, PaymentEventType.REFUND_FAILED})
 
 
+#: Un reembolso que aún puede cerrarse: ni confirmado ni fallido. Es la condición de todo `UPDATE` que lo cierra.
+_PENDING_REFUND_STATUSES = [
+    RefundStatus.REQUESTED.value,
+    RefundStatus.SENDING.value,
+    RefundStatus.UNKNOWN_OUTCOME.value,
+]
+
+
 def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.UTC)
 
@@ -347,7 +355,7 @@ class PaymentService:
     # --- Eventos de reembolso ---------------------------------------------------------------------
 
     def _refund_succeeded(
-        self, event: PaymentEvent, payment: Payment, refund: Refund | None
+        self, event: PaymentEvent, payment: Payment, refund: Refund | None, *, _reread: bool = False
     ) -> tuple[EventProcessing, str | None, Refund | None]:
         if event.amount is None or event.currency != payment.currency:
             return EventProcessing.CONFLICT, "a refund without an amount, or in another currency, is only kept", refund
@@ -363,12 +371,18 @@ class PaymentService:
             return EventProcessing.CONFLICT, "the refunded amount differs from the one requested", refund
         moved = self._execute(
             update(Refund)
-            .where(Refund.id == refund.id, Refund.status != RefundStatus.SUCCEEDED.value)
+            .where(Refund.id == refund.id, Refund.status.in_(_PENDING_REFUND_STATUSES))
             .values(status=RefundStatus.SUCCEEDED.value, finished_at=self._clock())
         )
         if moved.rowcount == 1 and ledger.settle(self._db, payment.id, amount):
             self._audit(event, "refund.succeeded", {"refund_id": refund.id, "amount": str(amount)}, payment)
             return EventProcessing.APPLIED, None, refund
+        if moved.rowcount != 1 and not _reread:
+            # El observador de la acción (la reconciliación, una persona) no toma el bloqueo del pedido: pudo cerrar el
+            # reembolso entre que se leyó y que se iba a escribir. Se decide con lo que hay ahora, igual que si el
+            # evento hubiera llegado un instante después: el hecho verificado se conserva como evidencia.
+            self._db.refresh(refund)
+            return self._refund_succeeded(event, payment, refund, _reread=True)
         raise RuntimeError(f"refund {refund.id} could not be settled against payment {payment.id}")
 
     def _provider_refund(
@@ -401,7 +415,7 @@ class PaymentService:
         return EventProcessing.APPLIED, "a refund started by the provider was recorded", refund
 
     def _refund_failed(
-        self, event: PaymentEvent, payment: Payment, refund: Refund | None
+        self, event: PaymentEvent, payment: Payment, refund: Refund | None, *, _reread: bool = False
     ) -> tuple[EventProcessing, str | None]:
         if refund is None:
             return EventProcessing.UNMATCHED, "no refund of ours matches this event"
@@ -412,17 +426,15 @@ class PaymentService:
             return EventProcessing.CONFLICT, "the event contradicts a refund already recorded as done"
         moved = self._execute(
             update(Refund)
-            .where(
-                Refund.id == refund.id,
-                Refund.status.in_(
-                    [RefundStatus.REQUESTED.value, RefundStatus.SENDING.value, RefundStatus.UNKNOWN_OUTCOME.value]
-                ),
-            )
+            .where(Refund.id == refund.id, Refund.status.in_(_PENDING_REFUND_STATUSES))
             .values(status=RefundStatus.FAILED.value, finished_at=self._clock(), failure_code=self._failure_code(event))
         )
         if moved.rowcount == 1 and ledger.release(self._db, payment.id, _dec(refund.amount)):
             self._audit(event, "refund.failed", {"refund_id": refund.id}, payment)
             return EventProcessing.APPLIED, None
+        if moved.rowcount != 1 and not _reread:
+            self._db.refresh(refund)  # lo mismo que en `_refund_succeeded`: otro lo cerró antes de que se escribiera
+            return self._refund_failed(event, payment, refund, _reread=True)
         raise RuntimeError(f"refund {refund.id} could not be released from payment {payment.id}")
 
     # --- Interno ------------------------------------------------------------------------------------
