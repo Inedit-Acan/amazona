@@ -41,6 +41,10 @@ class IntegrationDomain(StrEnum):
     REGULATORY = "regulatory"
     ADS = "ads"
     MARKETPLACES = "marketplaces"
+    #: Quien cobra y devuelve dinero, y certifica lo que pasó (Milestone 44, ADR 0028).
+    PAYMENTS = "payments"
+    #: Quien compra al proveedor y manda el envío (Milestone 44, ADR 0028).
+    FULFILMENT = "fulfilment"
 
 
 class ProviderKind(StrEnum):
@@ -629,6 +633,9 @@ class MarketplaceDirectory(Protocol):
     def get_marketplace_data(self, *, category: str, platform: str) -> dict | None: ...
 
 
+from app.orders.fulfilment_port import FulfilmentProvider  # noqa: E402 - al final: evita ciclos de importación
+from app.payments.port import PaymentProvider  # noqa: E402
+
 #: The Protocol each domain expects. Used by the registry to document what a
 #: future adapter has to implement.
 PORT_FOR_DOMAIN: dict[IntegrationDomain, type] = {
@@ -637,4 +644,6 @@ PORT_FOR_DOMAIN: dict[IntegrationDomain, type] = {
     IntegrationDomain.REGULATORY: RegulatoryDirectory,
     IntegrationDomain.ADS: AdPerformanceDirectory,
     IntegrationDomain.MARKETPLACES: MarketplaceDirectory,
+    IntegrationDomain.PAYMENTS: PaymentProvider,
+    IntegrationDomain.FULFILMENT: FulfilmentProvider,
 }

@@ -38,6 +38,8 @@ from app.integrations.product_intelligence.ebay import (
 )
 from app.integrations.product_intelligence.langlinks import LanglinkResolver
 from app.integrations.regulatory.eur_lex import EurLexCellarSource
+from app.orders.simulated_fulfilment import SimulatedFulfilmentAdapter
+from app.payments.providers.simulated import SimulatedPaymentProvider
 
 
 class ProviderNotAvailableError(RuntimeError):
@@ -195,6 +197,10 @@ IMPLEMENTATIONS: dict[IntegrationDomain, dict[ProviderKind, Callable[..., object
     },
     IntegrationDomain.ADS: {ProviderKind.MOCK: MockAdPerformanceDirectory},
     IntegrationDomain.MARKETPLACES: {ProviderKind.MOCK: MockMarketplaceDirectory},
+    # Los simuladores de M44 (ADR 0028): no hay todavía ningún proveedor real de pagos ni de fulfillment, y pedir
+    # uno falla en vez de caer al simulado en silencio.
+    IntegrationDomain.PAYMENTS: {ProviderKind.MOCK: SimulatedPaymentProvider},
+    IntegrationDomain.FULFILMENT: {ProviderKind.MOCK: SimulatedFulfilmentAdapter},
 }
 
 

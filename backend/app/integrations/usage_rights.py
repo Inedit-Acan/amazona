@@ -486,8 +486,28 @@ _BOE_OPEN_DATA = ProviderRights(
 #: Registro por proveedor. Un proveedor que no esté aquí **no tiene permisos**,
 #: no porque se le presuma nada, sino porque nadie ha leído su licencia. Hay un
 #: test que falla si un adaptador real se registra sin su entrada.
+#: Los simuladores de pagos y de fulfillment (Milestone 44, ADR 0028): los datos que devuelven los generamos
+#: nosotros, así que, como con el mock, no hay un tercero a quien pedir permiso. Qué operaciones declaran
+#: soportar **no** se dice aquí sino en `operating_policy`: son dos preguntas distintas.
+_SIMULATED_PAYMENTS = ProviderRights(
+    provider="simulated-payments",
+    source="app/payments/providers/simulated.py — datos propios del repositorio",
+    verified_on=datetime.date(2026, 10, 2),
+    rights=_all(RightStatus.ALLOWED),
+    attribution=AttributionRequirement.NOT_REQUIRED,
+)
+_SIMULATED_FULFILMENT = ProviderRights(
+    provider="simulated-fulfilment",
+    source="app/orders/simulated_fulfilment.py — datos propios del repositorio",
+    verified_on=datetime.date(2026, 10, 2),
+    rights=_all(RightStatus.ALLOWED),
+    attribution=AttributionRequirement.NOT_REQUIRED,
+)
+
 USAGE_RIGHTS: dict[str, ProviderRights] = {
     _FIXTURES.provider: _FIXTURES,
+    _SIMULATED_PAYMENTS.provider: _SIMULATED_PAYMENTS,
+    _SIMULATED_FULFILMENT.provider: _SIMULATED_FULFILMENT,
     _WIKIMEDIA.provider: _WIKIMEDIA,
     _WIKIMEDIA_LANGLINKS.provider: _WIKIMEDIA_LANGLINKS,
     _EBAY_BROWSE.provider: _EBAY_BROWSE,

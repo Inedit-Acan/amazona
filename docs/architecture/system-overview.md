@@ -441,6 +441,8 @@ Agent → Port (Protocol) → Adapter → External API
 | `regulatory` | `RegulatoryDirectory` | `LegalComplianceAgent` |
 | `ads` | `AdPerformanceDirectory` | `MarketingCampaignAgent` |
 | `marketplaces` | `MarketplaceDirectory` | `MarketplaceListingAgent` |
+| `payments` (Milestone 44) | `PaymentProvider` | `PaymentService` / `RefundService` |
+| `fulfilment` (Milestone 44) | `FulfilmentProvider` | `FulfilmentService` |
 
 ### 12.2 Quién está activo
 

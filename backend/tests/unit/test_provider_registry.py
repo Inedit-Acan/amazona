@@ -40,7 +40,8 @@ def test_development_resolves_to_the_mock_provider():
     for binding in bindings.values():
         assert binding.kind is ProviderKind.MOCK
         assert binding.is_simulated is True
-        assert binding.name.startswith("Mock")
+        # Los fixtures de datos se llaman `Mock…`; los simuladores de acciones de M44, `Simulated…`.
+        assert binding.name.startswith(("Mock", "Simulated"))
 
 
 def test_a_provider_that_does_not_exist_yet_is_an_error_not_a_fallback():
@@ -65,8 +66,8 @@ def test_enforcing_environments_refuse_to_start_on_mock_data(environment: Enviro
         validate_providers(settings)
 
     message = str(error.value)
-    # The three the plan maestro names by hand, plus the two it does not.
-    for domain in ("product_intelligence", "suppliers", "regulatory", "ads", "marketplaces"):
+    # The three the plan maestro names by hand, plus the two it does not, plus the two M44 adds.
+    for domain in ("product_intelligence", "suppliers", "regulatory", "ads", "marketplaces", "payments", "fulfilment"):
         assert domain in message
 
 
@@ -96,9 +97,9 @@ def test_local_environments_may_run_on_mock_data(environment: Environment):
 
 def test_a_production_asking_for_real_data_is_no_longer_simulated_but_still_cannot_start():
     """El estado honesto del proyecto: desde el Milestone 34 existe un adaptador
-    real para Product Intelligence, y para los otros cuatro dominios todavía no.
+    real para Product Intelligence, y para los otros seis dominios todavía no.
     Una producción configurada entera en real deja de ser simulada y falla por
-    el motivo correcto: nadie ha escrito esos cuatro."""
+    el motivo correcto: nadie ha escrito esos seis."""
     settings = settings_for(
         Environment.PRODUCTION,
         cors_origins=["https://kova.example"],
@@ -107,6 +108,8 @@ def test_a_production_asking_for_real_data_is_no_longer_simulated_but_still_cann
         regulatory_provider=ProviderKind.REAL,
         ads_provider=ProviderKind.REAL,
         marketplaces_provider=ProviderKind.REAL,
+        payments_provider=ProviderKind.REAL,
+        fulfilment_provider=ProviderKind.REAL,
         **CONFIGURED,
     )
 
@@ -181,6 +184,8 @@ def test_product_intelligence_has_a_real_adapter_now():
         IntegrationDomain.REGULATORY,
         IntegrationDomain.ADS,
         IntegrationDomain.MARKETPLACES,
+        IntegrationDomain.PAYMENTS,
+        IntegrationDomain.FULFILMENT,
     ]
 
 

@@ -155,6 +155,11 @@ class Settings(BaseSettings):
     national_law_provider: ProviderKind = ProviderKind.MOCK
     ads_provider: ProviderKind = ProviderKind.MOCK
     marketplaces_provider: ProviderKind = ProviderKind.MOCK
+    #: Quién cobra y devuelve dinero (Milestone 44). `mock` es el simulador: no mueve dinero. No existe todavía
+    #: ningún proveedor real, y pedirlo falla al arrancar.
+    payments_provider: ProviderKind = ProviderKind.MOCK
+    #: Quién compra al proveedor y manda el envío (Milestone 44). Igual que `payments_provider`.
+    fulfilment_provider: ProviderKind = ProviderKind.MOCK
 
     #: `aud` claim Supabase puts in the access tokens it issues. Configurable
     #: because a self-hosted GoTrue can be told to use another one.
@@ -197,6 +202,8 @@ class Settings(BaseSettings):
             IntegrationDomain.REGULATORY: self.regulatory_provider,
             IntegrationDomain.ADS: self.ads_provider,
             IntegrationDomain.MARKETPLACES: self.marketplaces_provider,
+            IntegrationDomain.PAYMENTS: self.payments_provider,
+            IntegrationDomain.FULFILMENT: self.fulfilment_provider,
         }
 
     @property
