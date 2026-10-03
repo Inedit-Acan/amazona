@@ -149,7 +149,7 @@ def test_the_route_returns_the_same_photograph_in_the_published_shape(db: Sessio
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert set(body) == {"enabled", "settings", "actions", "events", "runs"}
+    assert set(body) == {"enabled", "settings", "actions", "events", "runs", "revenue"}
     assert body["actions"]["open"]["UNKNOWN_OUTCOME"]["count"] == 1
     assert body["events"]["capped"]["count"] == 1
     assert body["settings"]["external_call_max_seconds_is_provisional"] is True

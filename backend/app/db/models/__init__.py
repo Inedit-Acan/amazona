@@ -39,6 +39,7 @@ from app.db.models.project import Project
 from app.db.models.regulatory_anchor import RegulatoryAnchor
 from app.db.models.regulatory_requirement import RegulatoryRequirement
 from app.db.models.research_comparison import ResearchComparison
+from app.db.models.revenue import RevenueLedgerEntry
 from app.db.models.role import Role
 from app.db.models.storefront import Storefront
 from app.db.models.supplier import Supplier
@@ -58,6 +59,7 @@ __all__ = [
     "FinancialEvent",
     "CFOReport",
     "ComplianceEvidence",
+    "RevenueLedgerEntry",
     "ExternalAction",
     "Fulfillment",
     "FulfillmentItem",

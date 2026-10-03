@@ -48,6 +48,7 @@ from app.payments.domain import (
     RefundStatus,
 )
 from app.payments.port import PaymentEventType
+from app.revenue.ledger import RevenueLedger
 
 PAYMENTS_ACTOR = "payments"
 
@@ -79,6 +80,7 @@ class PaymentService:
     def __init__(self, db: Session, *, clock: Callable[[], datetime.datetime] = _utcnow) -> None:
         self._db = db
         self._clock = clock
+        self._revenue = RevenueLedger(db, clock=clock)
 
     # --- Aplicar un evento verificado ----------------------------------------------------------
 
@@ -288,6 +290,9 @@ class PaymentService:
             except IntegrityError:
                 # Otro cobro del pedido se hizo canónico entre medias: la evidencia no se descarta, se registra aquí.
                 canonical = self._canonical_payment(payment)
+                if canonical is None:
+                    # No era esa carrera (ADR 0030 §7): nada se registró y el pedido no puede darse por cobrado.
+                    raise
         if canonical is not None:
             status = PaymentStatus.DUPLICATE_CAPTURE
             self._record_capture(payment, event, status, amount, duplicate_of=canonical.id)
@@ -351,6 +356,9 @@ class PaymentService:
             raise RuntimeError(f"payment {payment.id} changed while its capture was being recorded")
         self._db.flush()
         self._db.refresh(payment)
+        # La entrada del registro de ingresos (ADR 0030 §7): en la misma transacción y, cuando la captura va en un
+        # savepoint, en el mismo savepoint. Un fallo suyo no es la carrera de arriba: sube y deshace el evento.
+        self._revenue.record_capture(event=event, payment=payment, payment_status=status.value, amount=amount)
 
     # --- Eventos de reembolso ---------------------------------------------------------------------
 
@@ -375,6 +383,7 @@ class PaymentService:
             .values(status=RefundStatus.SUCCEEDED.value, finished_at=self._clock())
         )
         if moved.rowcount == 1 and ledger.settle(self._db, payment.id, amount):
+            self._project_refund(event, payment, refund, amount)
             self._audit(event, "refund.succeeded", {"refund_id": refund.id, "amount": str(amount)}, payment)
             return EventProcessing.APPLIED, None, refund
         if moved.rowcount != 1 and not _reread:
@@ -411,6 +420,7 @@ class PaymentService:
         )
         self._db.add(refund)
         self._db.flush()
+        self._project_refund(event, payment, refund, amount)
         self._audit(event, "refund.provider_initiated", {"refund_id": refund.id, "amount": str(amount)}, payment)
         return EventProcessing.APPLIED, "a refund started by the provider was recorded", refund
 
@@ -438,6 +448,17 @@ class PaymentService:
         raise RuntimeError(f"refund {refund.id} could not be released from payment {payment.id}")
 
     # --- Interno ------------------------------------------------------------------------------------
+
+    def _project_refund(self, event: PaymentEvent, payment: Payment, refund: Refund, amount: Decimal) -> None:
+        """La entrada `REFUND` del registro de ingresos (ADR 0030 §5 y §13). Un cobro anterior al registro no tiene
+        captura a la que referirse (`outside_ledger`): el reembolso **se aplica igual** y queda auditado."""
+        if self._revenue.record_refund(event=event, payment=payment, refund=refund, amount=amount) is None:
+            self._audit(
+                event,
+                "revenue.refund_outside_ledger",
+                {"payment_id": payment.id, "refund_id": refund.id, "amount": str(amount)},
+                payment,
+            )
 
     @staticmethod
     def _failure_code(event: PaymentEvent) -> str | None:

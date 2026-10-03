@@ -161,6 +161,9 @@ def run_reconcile_report(payload: dict, context: JobContext, db: Session) -> Job
             "unknown_outcome_oldest_age_seconds": status["actions"]["open"]["UNKNOWN_OUTCOME"]["oldest_age_seconds"],
             "events_waiting": status["events"]["waiting"]["count"],
             "events_capped": status["events"]["capped"]["count"],
+            "revenue_ledger_divergences": status["revenue"]["ledger"]["divergences"]["count"],
+            "revenue_outside_ledger": status["revenue"]["ledger"]["outside_ledger"]["count"],
+            "pending_economic_evidence": status["revenue"]["pending_evidence"]["count"],
         },
     )
 

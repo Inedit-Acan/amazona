@@ -500,9 +500,9 @@ El estado de un cobro (`captured_amount`, `refunded_amount`) deja de ser lo úni
 [ADR 0030](adr-0030-verified-revenue-ledger.md) decide un **registro de ingresos verificados**, una proyección determinista e inmutable de
 los hechos de pago aplicados (una entrada por captura y por reembolso confirmado, con su `PaymentEvent`, cobro, pedido y reembolso).
 `PaymentEvent` sigue siendo un hecho inmutable salvo su estado de proceso, y `PaymentService` sigue siendo el único sitio donde un evento
-cambia dinero; **ganará** (Commit 7 de M45) tres puntos de escritura de la entrada, dentro de la misma transacción que el efecto:
+cambia dinero; **tiene**, desde el Commit 7 de M45, tres puntos de escritura de la entrada, dentro de la misma transacción que el efecto:
 `_record_capture`, `_refund_succeeded` y `_provider_refund`. Un `DUPLICATE_CAPTURE` y un `CAPTURE_MISMATCH` se proyectan como dinero en
 revisión (`DUPLICATE_RECEIPT`, `MISMATCH_RECEIPT`), nunca como ingreso normal; un reembolso hereda la clasificación de la captura que
 revierte; un evento `CONFLICT` o `UNMATCHED` con importe **no** genera entrada y se muestra como evidencia pendiente de revisión.
 La regla «la evidencia financiera nunca se descarta» (§4) no cambia. Este registro **no es** contabilidad ni fiscalidad oficial.
-*(Decidido en la ADR 0030; todavía no implementado.)*
+*(Decidido en la ADR 0030; implementado en el Commit 7 de M45.)*

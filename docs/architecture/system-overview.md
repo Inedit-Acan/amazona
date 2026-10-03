@@ -1232,7 +1232,7 @@ reservas y solo sale por reconciliación, respuesta tardía o resolución humana
 | `POST /api/orders/{id}/cancel` · `POST /api/fulfillments/{id}/{complete,cancel,fail}` | por estado (repetir es 409) | `order.write` · `fulfilment.write` |
 | `POST /api/payments/webhooks/{provider}` | firma del proveedor | sin identidad: se autentica la firma |
 | `GET /api/orders` (`status`, `limit` ≤ 200, `cursor`; devuelve una **página** `{items, limit, count, has_more, next_cursor}`) · `GET /api/orders/{id}` | — | `business.read` |
-| `GET /api/reconciliation/status` (solo lectura: lo abierto, lo desconocido, los eventos topados, la última ejecución de cada trabajo) | — | `business.read` |
+| `GET /api/reconciliation/status` (solo lectura: lo abierto, lo desconocido, los eventos topados, la última ejecución de cada trabajo y, desde el Commit 7, la reconciliación del registro de ingresos y la evidencia económica pendiente) | — | `business.read` |
 
 No hay `GET` de un cobro, reembolso o fulfillment suelto: se leen dentro del pedido, con su `attention_required` y sus motivos,
 que **se calculan al leer** y nunca se escriben en un `GET`. Un `POST` sin `Idempotency-Key` es un 428 (también en
@@ -1295,11 +1295,12 @@ como parámetro obligatorio.
 `staging` y `production` **no arrancan** hasta que existan adaptadores no simulados de pago y fulfillment (§12.2): es
 intencionado.
 
-## 26. Registro de ingresos verificados (Milestone 45, decidido; todavía no implementado)
+## 26. Registro de ingresos verificados (Milestone 45, ADR 0030, implementado en el Commit 7)
 
 La [ADR 0030](adr-0030-verified-revenue-ledger.md) decide cómo dejar de inventar el dinero que muestran Dashboard, CFO y Proyectos
-(P1-2). **Todavía no existe nada de esto en el código:** ni tabla, ni migración, ni módulo, ni ruta. Es la decisión que precede al
-Commit 7, como la ADR 0029 precedió al Commit 5.
+(P1-2). Decidido en el Commit 6 e implementado en el Commit 7: la tabla `revenue_ledger_entries` (migración `c4e8b1d9a273`), el
+módulo `app/revenue/` y los tres puntos de escritura de `PaymentService`. Todavía **no** hay agregados de lectura ni cambios en
+Dashboard, CFO o Proyectos: eso son los commits siguientes.
 
 - **Qué es.** Un *Verified Revenue Ledger* (*registro de ingresos verificados*; módulo `app/revenue/`, tabla `revenue_ledger_entries`):
   una lista **inmutable** de hechos monetarios operativos verificados, que es una **proyección determinista** de los hechos de pago

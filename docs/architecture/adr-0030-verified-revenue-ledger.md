@@ -1,6 +1,6 @@
 # ADR 0030: Registro de ingresos verificados — una proyección inmutable de hechos de pago verificados, no una segunda fuente de verdad
 
-- **Estado:** Aceptada (decisiones del propietario del 2026-10-03). **Decidida; todavía no implementada**: este ADR no crea tabla, migración, código ni ruta. La implementación es el Commit 7 de M45 (criterios en «Criterios de aceptación del Commit 7»).
+- **Estado:** Aceptada (decisiones del propietario del 2026-10-03). **Implementada en el Commit 7 de M45** (ver «Qué se implementó»); el Commit 6 solo la decidió, sin tabla, migración, código ni ruta.
 - **Fecha:** 2026-10-03
 - **Depende de:** [ADR 0003](adr-0003-rls-deny-by-default.md), [ADR 0023](adr-0023-single-budget-source-and-absence-is-not-permission.md), [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md), [ADR 0026](adr-0026-database-identity-guards.md), [ADR 0028](adr-0028-orders-payments-fulfilment-core.md), [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md)
 - **Enmienda a:** [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (anexo E10: el dinero verificado tiene una proyección inmutable) y [ADR 0023](adr-0023-single-budget-source-and-absence-is-not-permission.md) (anexo: el gasto sigue siendo del libro de presupuesto; el margen es una lectura)
@@ -438,8 +438,33 @@ El Commit 7 (`feat: verified revenue ledger`) se acepta solo si:
     protegidos del propietario y con Supabase intacta.
 11. **Sin alcance extra:** ni agregados `GET`, ni cambios de frontend, ni margen: eso son los commits siguientes.
 
-## Qué no es este commit (el ADR)
+## Qué no fue el Commit 6 (el ADR)
 
-Es **solo documentación**: no hay tabla, migración, código, ruta ni cambio de frontend. Los nombres `revenue_ledger_entries`,
-`app/revenue/`, `ORDER_PAYMENT`, `DUPLICATE_RECEIPT`, `MISMATCH_RECEIPT` y `outside_ledger` **todavía no existen en el código**; este
-ADR los decide para que el Commit 7 los cree.
+Fue **solo documentación**: ni tabla, ni migración, ni código, ni ruta, ni cambio de frontend. Los nombres `revenue_ledger_entries`,
+`app/revenue/`, `ORDER_PAYMENT`, `DUPLICATE_RECEIPT`, `MISMATCH_RECEIPT` y `outside_ledger` los decidió para que el Commit 7 los creara.
+
+## Qué se implementó (Commit 7 de M45)
+
+- **Modelo y migración.** `app/db/models/revenue.py` (`RevenueLedgerEntry`) y la migración `c4e8b1d9a273` (`down_revision = d7e2a9c4f1b8`):
+  todas las columnas, `CHECK`s, índices únicos parciales, la clave ajena compuesta de herencia, RLS (ADR 0003) y el trigger append-only
+  (PostgreSQL: función y dos triggers, `TRUNCATE` incluido; SQLite: un trigger por operación). El texto del trigger es el mismo en el
+  modelo (`after_create`, para las bases de las pruebas) y en la migración, y una prueba comprueba que no se separan. Sin retrorrelleno.
+- **Escritura.** `app/revenue/ledger.py` (`RevenueLedger`) es la única vía; solo la llama `PaymentService`, en `_record_capture`,
+  `_refund_succeeded` y `_provider_refund` (§7). Un `IntegrityError` del registro se convierte en `RevenueLedgerWriteError`, que no es un
+  `IntegrityError` y sube hasta deshacer el evento. Además `_capture` ya no continúa a «pedido cobrado» si el `IntegrityError` no es la
+  carrera del índice (nunca había una captura registrada en ese caso). Un reembolso de un cobro sin captura en el registro
+  (`outside_ledger`) se aplica y deja la auditoría `revenue.refund_outside_ledger`, sin entrada.
+- **Lectura.** `app/revenue/check.py` (C1–C4 y `outside_ledger`, §12 y §13) y `app/revenue/evidence.py` (evidencia pendiente, §4), solo
+  `SELECT`. Aparecen en `GET /api/reconciliation/status` (bloque `revenue`, sin cuerpos ni hashes) y en el resultado del trabajo
+  `reconcile.report` (contadores). Ninguna ruta nueva ni cambio de frontend.
+- **Pruebas.** Servicio (SQLite y PostgreSQL), carreras reales en PostgreSQL, reconciliación, migración (SQLite y PostgreSQL), herencia
+  con claves ajenas activas en SQLite, pruebas de arquitectura (quién escribe el registro, quién llama a su escritor, lecturas que no
+  escriben, sin `float`, sin depender del estado visible del pedido) y mutaciones.
+- **Precisiones de implementación** (no cambian ninguna decisión de este ADR):
+  1. La evidencia pendiente cuenta solo eventos `CONFLICT` o `UNMATCHED` de los tipos que mueven dinero (`payment.succeeded` y
+     `refund.succeeded`) **con importe**: un `payment.failed` o un `refund.failed` con importe no es dinero recibido ni devuelto.
+  2. `currency` es `varchar(3)` y además lleva `CHECK (length(currency) = 3)`: una moneda de más de tres letras la rechaza el tipo y una
+     de menos la rechaza el `CHECK`.
+  3. La reconciliación compara importes a la precisión de la columna (`round(…, 4)`), porque SQLite suma en coma flotante.
+  4. `outside_ledger` se decide por el instante en que se aplicó el evento de captura frente a la primera entrada del registro, tal como
+     describe §13, con su limitación declarada (registro vacío).

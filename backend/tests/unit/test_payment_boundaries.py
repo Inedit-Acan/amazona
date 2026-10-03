@@ -142,3 +142,55 @@ def test_no_route_or_console_command_creates_a_refund_without_a_person_behind_it
     assert files_matching(r"RefundService\(") == {"api/orders.py"}, (
         "only the route that a person calls (and the service itself) builds a RefundService"
     )
+
+
+# --- El registro de ingresos verificados (Milestone 45, ADR 0030 §8) -----------------------------------------------
+#
+# Una proyección solo es fiable si **una** pieza la escribe y esa pieza solo la llama quien aplica los hechos.
+
+
+def test_only_the_revenue_ledger_module_writes_the_revenue_ledger():
+    writers = files_matching(
+        r"(?<!class )RevenueLedgerEntry\(|(insert|update|delete)\(\s*RevenueLedgerEntry|"
+        r"(INSERT INTO|UPDATE|DELETE FROM)\s+revenue_ledger_entries"
+    )
+
+    assert writers == {"revenue/ledger.py"}, (
+        f"{sorted(writers)}: the revenue ledger is a projection of verified payment facts and has a single writer"
+    )
+
+
+def test_only_the_payment_service_calls_the_revenue_ledger_writer():
+    callers = files_matching(r"from app\.revenue\.ledger import|import app\.revenue\.ledger|RevenueLedger\(")
+
+    assert callers == {"payments/service.py"}, (
+        f"{sorted(callers)}: an entry exists because PaymentService applied a verified event, not because anything "
+        "else says money moved"
+    )
+
+
+def test_the_revenue_reads_never_write_anything():
+    for name in ("check.py", "evidence.py"):
+        source = (APP / "revenue" / name).read_text(encoding="utf-8")
+        forbidden = re.findall(r"\.(?:add|add_all|commit|flush|delete|merge)\(|\b(?:insert|update|delete)\(", source)
+
+        assert forbidden == [], f"revenue/{name} must only read: {forbidden}"
+
+
+def test_no_money_in_the_revenue_ledger_is_a_float():
+    import ast
+
+    for path in [*sorted((APP / "revenue").glob("*.py")), APP / "db" / "models" / "revenue.py"]:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        floats = [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "float"]
+
+        assert floats == [], f"{relative(path)} handles money: Decimal, never float (line {floats})"
+
+
+def test_the_ledger_never_decides_by_the_visible_state_of_an_order():
+    for path in sorted((APP / "revenue").glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+
+        assert "OrderStatus" not in source and "order.status" not in source, (
+            f"{relative(path)}: an entry is caused by a verified payment fact, never by an order showing PAID"
+        )

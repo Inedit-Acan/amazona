@@ -7,6 +7,8 @@ ninguna operación: las
 decisiones sobre un resultado desconocido son de una persona (`resolve-action`, `retry-payment-event`).
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -80,12 +82,60 @@ class SettingsView(BaseModel):
     external_call_max_seconds_is_provisional: bool
 
 
+class LedgerFindings(BaseModel):
+    count: int
+    #: Cada elemento dice qué comprobación (C1–C4) y de qué cobro o entrada; ni cuerpos ni hashes.
+    items: list[dict[str, Any]]
+
+
+class LedgerStatus(BaseModel):
+    entries: int
+    #: Divergencias entre el registro y el estado de pago: se informan, nunca se corrigen (ADR 0030 §12).
+    divergences: LedgerFindings
+    #: Cobros capturados antes del registro: informativo, no una divergencia (ADR 0030 §13).
+    outside_ledger: LedgerFindings
+
+
+class EvidenceTotal(BaseModel):
+    currency: str
+    event_type: str
+    count: int
+    amount: str
+
+
+class EvidenceItem(BaseModel):
+    id: str
+    status: str
+    event_type: str
+    provider: str
+    amount: str
+    currency: str
+    payment_id: str | None
+    refund_id: str | None
+    note: str | None
+    occurred_at: str
+    age_seconds: int
+
+
+class PendingEvidence(BaseModel):
+    count: int
+    by_currency: list[EvidenceTotal]
+    items: list[EvidenceItem]
+
+
+class RevenueStatus(BaseModel):
+    ledger: LedgerStatus
+    #: Dinero de eventos `CONFLICT` o `UNMATCHED`: visible, y **no** ingreso (ADR 0030 §4).
+    pending_evidence: PendingEvidence
+
+
 class ReconciliationStatus(BaseModel):
     enabled: bool
     settings: SettingsView
     actions: ActionsStatus
     events: EventsStatus
     runs: dict[str, LastRun | None]
+    revenue: RevenueStatus
 
 
 @router.get("/status", response_model=ReconciliationStatus)

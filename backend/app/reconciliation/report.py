@@ -24,6 +24,8 @@ from app.db.models.job import Job
 from app.db.models.payment import PaymentEvent
 from app.jobs.recurring import RECONCILE_JOB_TYPES, tick_prefix
 from app.payments.domain import EventProcessing
+from app.revenue.check import check_ledger
+from app.revenue.evidence import pending_economic_evidence
 
 #: Cuántos elementos concretos lista el estado (el resto se cuenta, no se lista).
 LISTED_UNKNOWN = 20
@@ -51,6 +53,12 @@ def build_status(db: Session, settings: Settings, *, now: datetime.datetime | No
         "actions": _actions(db, moment),
         "events": _events(db, settings, moment),
         "runs": _runs(db),
+        #: El registro de ingresos verificados (ADR 0030 §12): reconciliación con el estado de pago y la
+        #: evidencia económica pendiente de revisión. Solo lectura: no corrige nada.
+        "revenue": {
+            "ledger": check_ledger(db),
+            "pending_evidence": pending_economic_evidence(db, now=moment),
+        },
     }
 
 
