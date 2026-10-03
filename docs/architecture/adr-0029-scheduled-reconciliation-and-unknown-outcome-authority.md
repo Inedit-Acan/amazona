@@ -1,6 +1,6 @@
 # ADR 0029: Reconciliación programada — quién puede cerrar qué, y un resultado desconocido solo lo cierra información
 
-- **Estado:** Aceptada (decisiones del propietario del 2026-10-03). La implementación son los Commits 5 a 7 de M45; este ADR **no cambia código**.
+- **Estado:** Aceptada (decisiones del propietario del 2026-10-03). **Implementada en el Commit 5 de M45**: el propietario fusionó en un solo commit lo que el plan repartía entre los commits 5, 6 y 7 (servicios, disparador y pruebas).
 - **Fecha:** 2026-10-03
 - **Depende de:** [ADR 0003](adr-0003-rls-deny-by-default.md), [ADR 0009](adr-0009-async-job-runtime.md), [ADR 0010](adr-0010-async-resumable-pipeline.md), [ADR 0011](adr-0011-action-gate.md), [ADR 0023](adr-0023-single-budget-source-and-absence-is-not-permission.md), [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md), [ADR 0025](adr-0025-generic-idempotency-for-synchronous-routes.md), [ADR 0028](adr-0028-orders-payments-fulfilment-core.md)
 - **Enmienda a:** [ADR 0009](adr-0009-async-job-runtime.md) (trabajos recurrentes dentro del mantenimiento del worker), [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md) (el barrido deja de ser solo una orden del operador; `reconcile` solo con consulta autoritativa) y [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (campos de proceso de `PaymentEvent`)
@@ -143,7 +143,7 @@ El criterio de `reconcile_interrupted` no cambia (`PENDING` libera, `CALLING` pa
   2. **Solo actúa sobre un evento `RECEIVED`** (atascado o topado). Reinicia `reconcile_attempts` a 0 y `last_reconcile_error` a nulo (el valor anterior queda en la auditoría) y aplica el evento **una vez**.
   3. **Si el evento ya está `APPLIED`, `STALE`, `CONFLICT`, `REJECTED` o `UNMATCHED`, no hace nada**: informa del estado, sale y **no genera ningún efecto económico** (aplicar un evento ya aplicado no mueve dinero: ya probado en M44).
   4. **Respeta la unicidad:** `provider_event_id` y `payload_hash` no se tocan (siguen únicos por `(provider, provider_event_id)` y el mismo id con otro contenido sigue siendo un conflicto); el reintento procesa el evento tal como se guardó, no uno nuevo.
-  5. **Queda auditado**: `payment_event.reprocess_requested` con quién lo pidió (el actor de la consola), cuándo, el motivo, el estado y los intentos de antes y el resultado, **sin cuerpo ni datos del evento**; también cuando no hizo nada.
+  5. **Queda auditado**, **sin cuerpo ni datos del evento**: `payment_event.reprocess_requested` (quién lo pidió —el actor de la consola—, cuándo, el motivo, el estado y los intentos de antes, y si se llegó a intentar; también cuando no hizo nada) y, si se aplicó o falló, `payment_event.reprocess_result` con el resultado. Son dos entradas para que la petición quede registrada aunque el proceso caiga a mitad.
   6. Es el único camino que vuelve a poner un evento topado en manos del programador (su contador queda a 0).
 
 ### 7. `UNKNOWN_OUTCOME`: solo información autoritativa lo cierra
@@ -175,7 +175,7 @@ Un valor fuera de rango impide arrancar con un mensaje claro; no se corrige en s
 
 ## Invariantes
 
-Las comprobarán las pruebas de los Commits 5 a 7 (PostgreSQL real para todo lo que sea carrera, bloqueo o compare-and-set):
+Las comprueban las pruebas del Commit 5 (PostgreSQL real para todo lo que sea carrera, bloqueo o compare-and-set):
 
 1. **I1.** Ningún camino programado repite a ciegas una petición externa: el programador no llama a `execute` ni a `reconcile()` por repetición de clave.
 2. **I2.** Un `UNKNOWN_OUTCOME` solo sale por respuesta tardía, consulta autoritativa o persona; ningún barrido, tick, reintento ni paso del tiempo lo cierra, y mientras lo es **la reserva se mantiene**.
@@ -222,7 +222,7 @@ Las comprobarán las pruebas de los Commits 5 a 7 (PostgreSQL real para todo lo 
 - **Antes del primer proveedor real** (añadidas a las condiciones del handoff de M44): `external_call_max_seconds` se **define** a partir del timeout documentado del proveedor, el timeout efectivo del cliente HTTP, un margen operacional y la política de `UNKNOWN_OUTCOME`, y el arranque lo comprueba; el adaptador declara y aplica `max_call_seconds ≤ external_call_max_seconds`; declara `lookup_is_authoritative` y `lookup_settle_seconds` con honestidad y pasa la batería de conformidad; y se decide por separado si algo programado puede cerrar con su consulta.
 - `Payment.OPEN` sin cierre y `Refund.SENDING` sin confirmar siguen sin reconciliador (necesitan consulta de estado al proveedor: P2-3 y P2-4).
 - Sin infraestructura de métricas, la observabilidad es la auditoría, los eventos de trabajo y una ruta de estado; si hace falta más, será otra decisión.
-- El runtime gana un paso de mantenimiento y tres tipos de trabajo; la base gana tres columnas de proceso en `payment_events` (una migración, Commit 5) y ninguna tabla.
+- El runtime gana un paso de mantenimiento y tres tipos de trabajo; la base gana tres columnas de proceso en `payment_events` (una migración, `d7e2a9c4f1b8`) y ninguna tabla.
 
 ## Rollback
 
@@ -244,8 +244,11 @@ Las comprobarán las pruebas de los Commits 5 a 7 (PostgreSQL real para todo lo 
 
 Consulta de estado de cobros y reembolsos al proveedor, `payment.cancel` y caducidad de un cobro abierto (P2-3, P2-4); limitación de frecuencia del webhook (P2-5); bandeja de aprobación de pedidos; cualquier proveedor, pasarela o transportista real; y aplicar las migraciones de M44 y M45 a Supabase (trabajo aparte con inventario de revisiones, copia, ensayo local, procedimiento y autorización expresa).
 
-## Plan de implementación (M45)
+## Qué se implementó (Commit 5 de M45)
 
-- **Commit 5:** servicios de reconciliación por elemento (acciones y eventos), tope de intentos con su migración, `lookup_is_authoritative` y la negativa de `reconcile()`, `retry-payment-event`; la CLI pasa a usar los servicios.
-- **Commit 6:** el disparador en el worker, los tres tipos de trabajo, la purga, los ajustes con validación de arranque y la ruta de estado de solo lectura.
-- **Commit 7:** pruebas de arriendos, caídas, trabajadores concurrentes y mutaciones, sobre PostgreSQL real.
+- `app/reconciliation/` (`actions`, `events`, `report`, `config_check`); `app/jobs/recurring.py` (cubos, claves estables, purga) y el paso de mantenimiento en `Worker.run_once`; los tres manejadores `reconcile.actions`,
+  `reconcile.payment_events` y `reconcile.report`; `GET /api/reconciliation/status` (solo lectura); `retry-payment-event` y la consola sobre los servicios.
+- `ExternalActionService`: `stale_candidates`, `sweep_one` y `mark_calling_unknown` por elemento; `reconcile()` exige un `lookup` autoritativo declarado (`has_authoritative_lookup`); los adaptadores simulados declaran `lookup_is_authoritative = False`.
+- Ajustes (`reconciliation_enabled`, intervalos, umbrales, `reconcile_event_max_attempts`, retención y `external_call_max_seconds` sin valor por defecto fuera de la simulación) con validación de arranque en la API y en cada worker.
+- Migración `d7e2a9c4f1b8` (tres campos de proceso en `payment_events`).
+- Pruebas: `test_reconciliation_actions`, `test_reconciliation_events`, `test_recurring_scheduler`, `test_lookup_authority`, `test_reconciliation_config`, `test_reconciliation_status` y `test_migration_payment_event_reconcile`, sobre SQLite y PostgreSQL real, con mutaciones.

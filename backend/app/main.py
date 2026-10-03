@@ -27,6 +27,7 @@ from app.api import (
     pipeline,
     products,
     projects,
+    reconciliation,
     regulatory,
     research,
     sourcing,
@@ -53,6 +54,7 @@ from app.core.logging import configure_logging, set_correlation_id
 from app.db.session import get_db
 from app.integrations.registry import ProviderRegistry, validate_providers
 from app.permissions.policies import ApiAction
+from app.reconciliation.config_check import validate_reconciliation_for_startup
 from app.research.comparison_service import ComparisonNotAllowedError
 
 settings = get_settings()
@@ -62,6 +64,8 @@ configure_logging(settings.log_level)
 # would take real decisions on fixture data (Milestone 30, ADR 0008).
 settings.validate_for_startup()
 validate_providers(settings)
+# El techo de una llamada externa tiene que ser coherente con el proveedor y con el umbral del barrido (ADR 0029 §3).
+validate_reconciliation_for_startup(settings)
 
 app = FastAPI(title="AMAZONA Backend")
 
@@ -265,6 +269,7 @@ app.include_router(pipeline.router, dependencies=BUSINESS)
 app.include_router(incidents.router, dependencies=BUSINESS)
 app.include_router(jobs.router, dependencies=BUSINESS)
 app.include_router(orders.router, dependencies=BUSINESS)
+app.include_router(reconciliation.router, dependencies=BUSINESS)
 app.include_router(fulfillments.router, dependencies=BUSINESS)
 # El webhook de un proveedor de pagos no lleva el token de nadie: se autentica por la firma de su cuerpo (ADR 0028).
 app.include_router(payments.router)

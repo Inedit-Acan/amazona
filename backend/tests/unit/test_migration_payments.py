@@ -119,6 +119,9 @@ def test_it_can_be_applied_again_after_a_downgrade(connection):
 
 def test_the_migration_creates_what_the_model_declares(connection):
     migrate(connection)
+    # M45 (ADR 0029) añadió tres campos de proceso a `payment_events` con su propia migración: lo que declara el
+    # modelo es la cadena entera.
+    run(connection, load_migration("d7e2a9c4f1b8_payment_event_reconcile_fields.py"), "upgrade")
 
     assert_migration_matches_model(connection, TABLES)
 

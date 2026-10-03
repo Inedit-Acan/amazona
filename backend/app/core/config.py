@@ -41,6 +41,13 @@ class Environment(StrEnum):
 #: mutations and client-declared identity.
 _ENFORCING = frozenset({Environment.STAGING, Environment.PRODUCTION})
 
+#: **Valor provisional de simulación y desarrollo, NO contractual** (ADR 0029 §3). No es una cifra de producción, no
+#: se deriva de
+#: ningún proveedor y solo existe para poder implementar y probar el mecanismo mientras todo lo que escribe es
+#: simulado. Con un proveedor de
+#: escritura no simulado no se usa: hay que configurar `EXTERNAL_CALL_MAX_SECONDS` a partir del proveedor real.
+PROVISIONAL_EXTERNAL_CALL_MAX_SECONDS = 120
+
 
 class WikimediaSettings(BaseModel):
     """Ajustes del adaptador de Wikimedia Pageviews (Milestone 34).
@@ -161,6 +168,33 @@ class Settings(BaseSettings):
     #: Quién compra al proveedor y manda el envío (Milestone 44). Igual que `payments_provider`.
     fulfilment_provider: ProviderKind = ProviderKind.MOCK
 
+    # --- Reconciliación programada (Milestone 45, ADR 0029) ---------------------------------------------------------
+    #: Apaga **por completo** el disparador de reconciliación: ni encola ticks ni, si ya hay uno encolado, hace nada.
+    #: Apagado, el sistema
+    #: se comporta como M44 (las órdenes manuales de la consola siguen funcionando).
+    reconciliation_enabled: bool = True
+    #: Cada cuánto se barren las acciones externas abandonadas, y cuánto tiempo sin avanzar hace falta para darlas
+    #: por abandonadas.
+    reconcile_actions_interval_seconds: int = Field(default=300, ge=30)
+    reconcile_actions_older_than_minutes: int = Field(default=15, ge=1)
+    #: Cada cuánto se reanudan los eventos de pago guardados y no aplicados, y su antigüedad mínima.
+    reconcile_events_interval_seconds: int = Field(default=120, ge=30)
+    reconcile_events_older_than_minutes: int = Field(default=5, ge=1)
+    #: Intentos **automáticos** por evento. Superado, deja de reintentarse solo y queda visible para una persona;
+    #: sigue `RECEIVED`.
+    reconcile_event_max_attempts: int = Field(default=5, ge=1)
+    #: Cuántos días se conservan los trabajos recurrentes ya completados.
+    reconcile_tick_retention_days: int = Field(default=7, ge=1)
+    #: El techo que el operador **declara** para la duración de una llamada externa de escritura (ADR 0029 §3). **Sin
+    #: valor por
+    #: defecto**: no hay evidencia de ningún proveedor real de la que sacar una cifra. Solo mientras todos los
+    #: proveedores de
+    #: escritura son simulados se usa un valor provisional y **no contractual**
+    #: (`PROVISIONAL_EXTERNAL_CALL_MAX_SECONDS`) para poder
+    #: probar el mecanismo; con un proveedor de escritura no simulado, hay que configurarlo explícitamente o el
+    #: arranque falla.
+    external_call_max_seconds: int | None = Field(default=None, ge=1)
+
     #: `aud` claim Supabase puts in the access tokens it issues. Configurable
     #: because a self-hosted GoTrue can be told to use another one.
     jwt_audience: str = "authenticated"
@@ -246,6 +280,28 @@ class Settings(BaseSettings):
             )
             for provider, limit in self.api_spend_limits.items()
         }
+
+    @property
+    def write_providers_are_simulated(self) -> bool:
+        """True si **todos** los proveedores que pueden escribir fuera del sistema (cobros, fulfillment, anuncios y
+        marketplaces)
+        son simulados: ninguna llamada externa de escritura puede salir de aquí."""
+        write = (
+            IntegrationDomain.PAYMENTS,
+            IntegrationDomain.FULFILMENT,
+            IntegrationDomain.ADS,
+            IntegrationDomain.MARKETPLACES,
+        )
+        return all(self.provider_kinds[domain] is ProviderKind.MOCK for domain in write)
+
+    @property
+    def effective_external_call_max_seconds(self) -> int | None:
+        """El techo de una llamada externa que se usa de verdad: el configurado, o **solo si todo lo que escribe es
+        simulado**
+        el valor provisional de simulación. `None` = hace falta configurarlo y no se ha hecho (el arranque falla)."""
+        if self.external_call_max_seconds is not None:
+            return self.external_call_max_seconds
+        return PROVISIONAL_EXTERNAL_CALL_MAX_SECONDS if self.write_providers_are_simulated else None
 
     @property
     def allows_simulated_providers(self) -> bool:

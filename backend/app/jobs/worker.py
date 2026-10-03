@@ -3,27 +3,32 @@
     python -m app.jobs.worker
 
 Se puede levantar más de uno: el reclamo es `SKIP LOCKED`, así que dos workers
-nunca se llevan la misma fila. Cada vuelta hace tres cosas —liberar reintentos
-vencidos, segar arriendos muertos y reclamar— para que no haga falta ningún
-proceso de mantenimiento aparte que alguien pueda olvidar arrancar.
+nunca se llevan la misma fila. Cada vuelta hace cuatro cosas —liberar reintentos
+vencidos, segar arriendos muertos, encolar los trabajos recurrentes que toquen
+(Milestone 45, ADR 0029) y reclamar— para que no haga falta ningún proceso de
+mantenimiento aparte que alguien pueda olvidar arrancar.
 """
 
 import argparse
+import datetime
 import logging
 import os
 import signal
 import socket
 import time
 import types
+from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings, get_settings
 from app.core.ids import new_id
 from app.core.logging import configure_logging, set_correlation_id
 from app.db.models.job import Job
 from app.db.session import get_session_factory
 from app.jobs import handlers as _handlers  # noqa: F401 - importar registra los manejadores
 from app.jobs.queue import DEFAULT_LEASE_SECONDS, JobQueue
+from app.jobs.recurring import RecurringScheduler
 from app.jobs.registry import UnknownJobTypeError, resolve
 from app.jobs.schemas import JobAwaitingApprovalError, JobBlockedError, JobCancelledError, JobContext
 
@@ -42,10 +47,20 @@ def worker_name() -> str:
 
 
 class Worker:
-    def __init__(self, name: str | None = None, lease_seconds: int = DEFAULT_LEASE_SECONDS) -> None:
+    def __init__(
+        self,
+        name: str | None = None,
+        lease_seconds: int = DEFAULT_LEASE_SECONDS,
+        *,
+        settings: Settings | None = None,
+        clock: Callable[[], datetime.datetime] | None = None,
+    ) -> None:
         self.name = name or worker_name()
         self.lease_seconds = lease_seconds
         self._stopping = False
+        self._settings = settings if settings is not None else get_settings()
+        scheduler_clock = {"clock": clock} if clock is not None else {}
+        self._scheduler = RecurringScheduler(self._settings, **scheduler_clock)
 
     def stop(self) -> None:
         self._stopping = True
@@ -58,6 +73,7 @@ class Worker:
         queue = JobQueue(db)
         queue.release_due_retries()
         queue.reap_expired_leases()
+        self._maintain_recurring(db)
 
         job = queue.claim(worker=self.name, lease_seconds=self.lease_seconds)
         if job is None:
@@ -65,6 +81,19 @@ class Worker:
 
         self._execute(queue, db, job)
         return job
+
+    def _maintain_recurring(self, db: Session) -> None:
+        """Encola los trabajos recurrentes que toquen y purga los viejos (ADR 0029 §2). Con `reconciliation_enabled =
+        false` no hace nada. Un
+        fallo aquí no puede impedir que el worker reclame trabajo: se registra y la vuelta sigue."""
+        if not self._settings.reconciliation_enabled:
+            return
+        try:
+            self._scheduler.enqueue_due(db)
+            self._scheduler.purge(db)
+        except Exception:  # noqa: BLE001 - el mantenimiento no puede tumbar la vuelta
+            logger.exception("worker %s could not maintain the recurring jobs", self.name)
+            db.rollback()
 
     def _execute(self, queue: JobQueue, db: Session, job: Job) -> None:
         set_correlation_id(job.correlation_id)
@@ -162,6 +191,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     configure_logging("INFO")
+    # El techo de una llamada externa tiene que ser coherente también aquí: un worker con una configuración que no se
+    # sostiene no arranca.
+    from app.reconciliation.config_check import validate_reconciliation_for_startup
+
+    validate_reconciliation_for_startup(get_settings())
     worker = Worker(name=args.name, lease_seconds=args.lease_seconds)
 
     def shutdown(signum: int, frame: types.FrameType | None) -> None:

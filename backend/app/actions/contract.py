@@ -96,9 +96,41 @@ class LookupCapableAdapter(ExternalActionAdapter, Protocol):
 
     Es la única forma en que el sistema puede afirmar «no hubo efecto» tras un timeout sin que lo haga una
     persona: `lookup` devuelve la respuesta de la operación si existe y `None` si el proveedor asegura que no
-    existe. No es lo mismo que no poder alcanzar al proveedor: eso es un `ProviderError`, no un `None`."""
+    existe. No es lo mismo que no poder alcanzar al proveedor: eso es un `ProviderError`, no un `None`.
+
+    **Saber consultar no es ser autoritativo** (ADR 0029 §7). Que `lookup` pueda **cerrar** una operación desconocida
+    es una
+    capacidad que el adaptador **declara expresamente**, y por defecto no la tiene:
+
+    - `lookup_is_authoritative = True`: su respuesta es la del proveedor y vale entre procesos (la memoria de un
+    proceso no lo es: la
+      del simulador es `False`);
+    - `lookup_settle_seconds`: entero ≥ 0, el tiempo desde que empezó la llamada tras el cual un `None` significa de
+    verdad «no
+      existe». Antes, un `None` es «todavía no se sabe» (consistencia eventual del proveedor).
+
+    Se declaran como atributos y se leen con `has_authoritative_lookup` / `lookup_settle_seconds`: no forman parte
+    del `Protocol`
+    para que un adaptador que solo sabe consultar siga siendo un `LookupCapableAdapter`."""
 
     def lookup(self, idempotency_key: str) -> ActionResponse | None: ...
+
+
+def has_authoritative_lookup(adapter: object) -> bool:
+    """¿Declara el adaptador, **expresamente y completo**, que su `lookup` es autoritativo? La ausencia del atributo,
+    un valor que no sea
+    exactamente `True`, o una declaración sin `lookup_settle_seconds` válido, es **no** (seguro por defecto)."""
+    if getattr(adapter, "lookup_is_authoritative", False) is not True:
+        return False
+    settle = getattr(adapter, "lookup_settle_seconds", None)
+    return isinstance(settle, int) and not isinstance(settle, bool) and settle >= 0
+
+
+def lookup_settle_seconds(adapter: object) -> int:
+    """El tiempo de asentamiento declarado de un `lookup` autoritativo (solo tiene sentido si
+    `has_authoritative_lookup`)."""
+    settle = getattr(adapter, "lookup_settle_seconds", None)
+    return settle if isinstance(settle, int) and not isinstance(settle, bool) and settle >= 0 else 0
 
 
 def derive_idempotency_key(reference: str, sequence: int) -> str:

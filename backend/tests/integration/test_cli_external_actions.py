@@ -108,6 +108,8 @@ def test_reconcile_actions_releases_what_never_left_and_marks_the_rest_unknown(d
 
     old = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=3)
     db.query(ExternalAction).update({"updated_at": old})
+    # Una acción `CALLING` se mide desde que **empezó la llamada** (ADR 0029 §3), no desde su última escritura.
+    db.query(ExternalAction).filter(ExternalAction.status == "CALLING").update({"call_started_at": old})
     db.commit()
     swept = cli.reconcile_actions(db, older_than_minutes=60)
 

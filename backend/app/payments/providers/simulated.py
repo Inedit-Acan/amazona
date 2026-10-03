@@ -87,6 +87,11 @@ class SimulatedPaymentProvider:
         event_types=frozenset(PaymentEventType),
     )
 
+    #: Su `lookup` es la memoria de **este proceso** (`_shared_operations`): no vale entre procesos, así que **no es
+    #: autoritativo**
+    #: (ADR 0029 §7). Un worker nunca cerrará con ella una acción que la API «ejecutó».
+    lookup_is_authoritative = False
+
     #: Lo ejecutado «en el mundo», compartido por todo el proceso: dos instancias del registro ven lo mismo.
     _shared_operations: dict[str, ActionResponse] = {}
     _shared_lock = threading.Lock()

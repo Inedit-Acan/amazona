@@ -9,7 +9,7 @@ que un trabajo está reclamado pero nadie ha registrado quién.
 
 import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -321,6 +321,32 @@ class JobQueue:
         if due:
             self._db.commit()
         return len(due)
+
+    def purge_completed(self, *, key_prefix: str, older_than: datetime.datetime, limit: int = 500) -> int:
+        """Borra, con sus intentos y sus eventos, los trabajos **completados** cuya clave idempotente empieza por
+        `key_prefix` y que terminaron antes
+        de `older_than`. Solo los recurrentes (sus ticks son miles de filas al día): nada más se purga. Un trabajo
+        sin clave, fallido, cancelado o en
+        marcha no se toca nunca. Devuelve cuántos borró (a lo sumo `limit` por llamada)."""
+        ids = list(
+            self._db.scalars(
+                select(Job.id)
+                .where(
+                    Job.idempotency_key.like(f"{key_prefix}%"),
+                    Job.status == JobStatus.COMPLETED,
+                    Job.completed_at < older_than,
+                )
+                .order_by(Job.completed_at)
+                .limit(limit)
+            )
+        )
+        if not ids:
+            return 0
+        self._db.execute(delete(JobEvent).where(JobEvent.job_id.in_(ids)))
+        self._db.execute(delete(JobAttempt).where(JobAttempt.job_id.in_(ids)))
+        self._db.execute(delete(Job).where(Job.id.in_(ids)))
+        self._db.commit()
+        return len(ids)
 
     def requeue(self, job_id: str, *, actor: str | None = None) -> Job:
         """Devuelve a la cola un trabajo fallado o cancelado, reiniciando sus

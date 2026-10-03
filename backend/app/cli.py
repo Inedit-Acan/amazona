@@ -34,6 +34,15 @@ signed event that goes through the same door and the same service as the webhook
         [--payment-id ID] [--amount 50.00]
     AMAZONA_BOOTSTRAP=1 python -m app.cli simulate-refund --refund-id ID --outcome succeeded [--amount 10.00]
     AMAZONA_BOOTSTRAP=1 python -m app.cli reconcile-payment-events [--older-than-minutes 5]
+    AMAZONA_BOOTSTRAP=1 python -m app.cli retry-payment-event --id ID --reason "..."
+
+`retry-payment-event` is a human, operational action (ADR 0029 §6): it retries the *processing* of a payment event
+that was stored and never applied
+(it calls `PaymentService.apply`). It never charges again, never calls the payment provider and never touches the
+event's id or hash; on an event that is
+not `RECEIVED` it does nothing. Who asked, when and why is audited. It also resets the automatic attempt count, so
+the scheduled reconciler may take the
+event again.
 
 A provider event id is received once. Delivering it again with the *same content* is a repeated delivery and changes
 nothing; with *different content* it is refused as a conflict: the original event is kept, no payment, order or refund
@@ -70,11 +79,9 @@ from app.db.models.user import User
 from app.db.session import get_session_factory
 from app.money.money import Money
 from app.orders.service import NewOrderLine, OrderService
-from app.payments.domain import EventProcessing
 from app.payments.ingress import PaymentIngress, ProviderEventConflictError
 from app.payments.port import PaymentEventType
 from app.payments.providers.simulated import SimulatedPaymentProvider
-from app.payments.service import PaymentService
 
 BOOTSTRAP_ENV = "AMAZONA_BOOTSTRAP"
 
@@ -82,6 +89,9 @@ BOOTSTRAP_ENV = "AMAZONA_BOOTSTRAP"
 EXIT_REFUSED = 2
 #: The request was valid but what it acts on does not allow it: the CLI's 409. Nothing was changed.
 EXIT_CONFLICT = 3
+#: The command ran and the operation it asked for failed (for example, reprocessing a payment event raised): nothing
+#: was invented.
+EXIT_FAILED = 1
 
 
 class BootstrapError(RuntimeError):
@@ -350,25 +360,33 @@ def simulate_refund(
 def reconcile_payment_events(db: Session, *, older_than_minutes: int) -> dict[str, int]:
     """Aplica de nuevo los eventos que se guardaron y no se aplicaron (el proceso cayó entre las dos transacciones).
     Nunca aplica uno reciente: podría estar aplicándose ahora mismo."""
-    from sqlalchemy import select
 
-    from app.db.models.payment import PaymentEvent
+
+    from app.core.config import get_settings
+    from app.reconciliation.events import EventReconciler
 
     if older_than_minutes < 1:
         raise ValidationError("the threshold must be at least one minute")
-    limit = datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=older_than_minutes)
-    stuck = list(
-        db.scalars(
-            select(PaymentEvent)
-            .where(PaymentEvent.processing_status == EventProcessing.RECEIVED.value, PaymentEvent.received_at < limit)
-            .order_by(PaymentEvent.received_at)
-        )
-    )
-    counts: dict[str, int] = {}
-    for event in stuck:
-        outcome = PaymentService(db).apply(event.id)
-        counts[outcome.lower()] = counts.get(outcome.lower(), 0) + 1
+    report = EventReconciler(
+        db,
+        older_than=datetime.timedelta(minutes=older_than_minutes),
+        max_attempts=get_settings().reconcile_event_max_attempts,
+    ).sweep()
+    counts = dict(report.outcomes)
+    if report.failed:
+        counts["failed"] = len(report.failed)
     return counts
+
+
+def retry_payment_event(db: Session, *, event_id: str, reason: str):
+    """La salida humana de un evento atascado (ADR 0029 §6): reintenta su **procesamiento**, sin cobrar ni llamar al
+    proveedor."""
+    from app.reconciliation.events import retry_event
+
+    try:
+        return retry_event(db, event_id, actor=cli_actor(), reason=reason)
+    except ValidationError as exc:
+        raise BootstrapError(str(exc)) from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -439,6 +457,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     stuck = commands.add_parser("reconcile-payment-events", help="apply the events that were stored and never applied")
     stuck.add_argument("--older-than-minutes", type=int, default=5)
+    retry = commands.add_parser(
+        "retry-payment-event",
+        help="retry the processing of a stored, unapplied payment event (never charges, never calls the provider)",
+    )
+    retry.add_argument("--id", required=True, help="the id of the payment event")
+    retry.add_argument("--reason", required=True, help="why it is retried")
     return parser
 
 
@@ -529,6 +553,17 @@ def main(argv: list[str] | None = None) -> int:
             _require_bootstrap_flag("payments")
             applied = reconcile_payment_events(db, older_than_minutes=args.older_than_minutes)
             print("applied: " + (", ".join(f"{k} {v}" for k, v in sorted(applied.items())) or "nothing to apply"))
+        elif args.command == "retry-payment-event":
+            _require_bootstrap_flag("payments")
+            retried = retry_payment_event(db, event_id=args.id, reason=args.reason)
+            if not retried.performed:
+                print(f"event {retried.event_id} is {retried.status_before}: nothing was done")
+            elif retried.error is not None:
+                print(f"event {retried.event_id}: reprocessing failed ({retried.error}); it stays RECEIVED",
+                file=sys.stderr)
+                return EXIT_FAILED
+            else:
+                print(f"event {retried.event_id}: {retried.outcome}")
         elif args.command == "list-users":
             users = db.query(User).order_by(User.email).all()
             if not users:

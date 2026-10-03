@@ -76,7 +76,11 @@ def test_a_payment_event_is_built_only_by_the_door_and_never_by_a_route_or_the_c
     assert builders == {"payments/ingress.py"}, f"{sorted(builders)} build payment events outside PaymentIngress"
 
 
-def test_nothing_but_the_door_and_the_console_applies_an_event():
+def test_nothing_but_the_door_and_the_reconciliation_applies_an_event():
+    """Un evento solo lo aplica `PaymentService.apply`, y lo llaman la puerta (`PaymentIngress`) y la reconciliación
+    (ADR 0029): el reconciliador programado, la consola y `retry-payment-event` pasan por `reconciliation/events.py`,
+    que reanuda el **procesamiento** con la misma puerta de siempre. Nada más: un camino nuevo que aplique eventos
+    tiene que declararse aquí."""
     appliers = files_matching(r"\.apply\(")
     applies_payment_events = {
         name
@@ -84,7 +88,7 @@ def test_nothing_but_the_door_and_the_console_applies_an_event():
         if re.search(r"PaymentService\([^)]*\)\.apply\(", (APP / name).read_text(encoding="utf-8"))
     }
 
-    assert applies_payment_events <= {"payments/ingress.py", "cli.py"}, sorted(applies_payment_events)
+    assert applies_payment_events <= {"payments/ingress.py", "reconciliation/events.py"}, sorted(applies_payment_events)
 
 
 def test_no_route_accepts_a_payment_state_in_its_request_models():

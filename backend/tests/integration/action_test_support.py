@@ -84,5 +84,12 @@ class FakeProviderAdapter:
 class FakeLookupProviderAdapter(FakeProviderAdapter):
     """Un proveedor que además sabe decir, por la clave, si ejecutó una operación."""
 
+    #: Un doble de prueba **en el mismo proceso**, con su estado real: su consulta es autoritativa (ADR 0029 §7). El
+    #: `lookup` de los
+    #: simuladores del producto no lo es (es memoria de proceso) y esta declaración es lo que lo distingue en las
+    #: pruebas.
+    lookup_is_authoritative = True
+    lookup_settle_seconds = 0
+
     def lookup(self, idempotency_key: str) -> ActionResponse | None:
         return self._by_key.get(idempotency_key)

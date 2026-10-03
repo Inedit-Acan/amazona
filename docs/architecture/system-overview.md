@@ -1232,6 +1232,7 @@ reservas y solo sale por reconciliación, respuesta tardía o resolución humana
 | `POST /api/orders/{id}/cancel` · `POST /api/fulfillments/{id}/{complete,cancel,fail}` | por estado (repetir es 409) | `order.write` · `fulfilment.write` |
 | `POST /api/payments/webhooks/{provider}` | firma del proveedor | sin identidad: se autentica la firma |
 | `GET /api/orders` (`status`, `limit` ≤ 200, `cursor`; devuelve una **página** `{items, limit, count, has_more, next_cursor}`) · `GET /api/orders/{id}` | — | `business.read` |
+| `GET /api/reconciliation/status` (solo lectura: lo abierto, lo desconocido, los eventos topados, la última ejecución de cada trabajo) | — | `business.read` |
 
 No hay `GET` de un cobro, reembolso o fulfillment suelto: se leen dentro del pedido, con su `attention_required` y sus motivos,
 que **se calculan al leer** y nunca se escriben en un `GET`. Un `POST` sin `Idempotency-Key` es un 428 (también en
@@ -1261,7 +1262,8 @@ Todos los comandos que cambian algo exigen `AMAZONA_BOOTSTRAP=1`.
 | `create-test-order` | crea un pedido de una línea sin datos personales (`--product-id`, `--quantity`, `--unit-price`; `--unit-cost` si se conoce) |
 | `simulate-payment` | emite un evento de pago simulado (`succeeded`, `failed`, `expired`, `attempt-failed`) por la misma puerta que un webhook |
 | `simulate-refund` | emite el evento con que el proveedor confirma (`succeeded`) o niega (`failed`) un reembolso |
-| `reconcile-payment-events` | aplica los eventos `RECEIVED` que no llegaron a aplicarse |
+| `reconcile-payment-events` | aplica los eventos `RECEIVED` que no llegaron a aplicarse (con el tope de intentos de la ADR 0029) |
+| `retry-payment-event` | reintenta el **procesamiento** de un evento `RECEIVED` atascado, sin cobrar ni llamar al proveedor; con motivo y auditoría (ADR 0029) |
 | `reconcile-actions` | libera reservas cuya petición nunca salió y marca las demás como desconocidas |
 | `resolve-action` | cierra una acción de resultado desconocido, con su motivo, tras comprobarla a mano |
 | `show-actions` | lista las acciones externas y en qué punto está cada una (`--open`: solo las abiertas) |

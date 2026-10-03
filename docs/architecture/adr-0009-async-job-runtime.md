@@ -140,4 +140,4 @@ cola.
 
 El runtime solo ejecuta lo que alguien encola; ningún trabajo se programaba solo (ni siquiera `fx.refresh`). La [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md)
 decide añadir al mantenimiento del bucle del worker un paso que **encola los trabajos recurrentes** con `idempotency_key = "{tipo}:{cubo temporal}"`: con N workers, la columna única deja un solo
-trabajo, y no hace falta tabla de horarios, proceso aparte ni Redis. El estado de los trabajos, el reclamo `SKIP LOCKED` y el arriendo no cambian. *(Decidido; implementación en los Commits 5 a 7 de M45.)*
+trabajo, y no hace falta tabla de horarios, proceso aparte ni Redis. El estado de los trabajos, el reclamo `SKIP LOCKED` y el arriendo no cambian. *(Decidido en la ADR 0029; implementado en el Commit 5 de M45.)*

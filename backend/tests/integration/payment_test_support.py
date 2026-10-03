@@ -46,6 +46,13 @@ class ScriptedPaymentProvider(SimulatedPaymentProvider):
       hay efecto). `timeout_before`: se agota el tiempo y **no** ejecutó. `timeout_after`: **ejecutó** y la respuesta
       se perdió. `die`: el proceso muere en mitad de la llamada (`KeyboardInterrupt`)."""
 
+    #: Un doble de prueba **en el mismo proceso**, con su estado real: su consulta es autoritativa (ADR 0029 §7). El
+    #: `lookup` de los
+    #: simuladores del producto no lo es (es memoria de proceso) y esta declaración es lo que lo distingue en las
+    #: pruebas.
+    lookup_is_authoritative = True
+    lookup_settle_seconds = 0
+
     def __init__(self, *behaviors: str, **kwargs) -> None:
         kwargs.setdefault("signing_key", secrets.token_bytes(32))
         kwargs.setdefault("operations", {})

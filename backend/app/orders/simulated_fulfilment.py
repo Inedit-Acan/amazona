@@ -42,6 +42,11 @@ class SimulatedFulfilmentAdapter:
         phases=frozenset(PHASES),
     )
 
+    #: Su `lookup` es la memoria de **este proceso** (`_shared_operations`): no vale entre procesos, así que **no es
+    #: autoritativo**
+    #: (ADR 0029 §7). Un worker nunca cerrará con ella una acción que la API «ejecutó».
+    lookup_is_authoritative = False
+
     _shared_operations: dict[str, ActionResponse] = {}
     _shared_lock = threading.Lock()
 

@@ -492,4 +492,4 @@ cargado; ninguna de ellas se confunde con una página vacía. Compatibilidad: el
 P1-1 se resuelve con la [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md): trabajos recurrentes dentro del mantenimiento del worker (acciones huérfanas cada 5 min con umbral de 15; eventos `RECEIVED`
 cada 2 min con umbral de 5; ambos configurables). `PaymentEvent` sigue siendo un hecho inmutable; a los campos de proceso que ya tiene (`processing_status`, `processed_at`, `note` y los enlaces) se añaden `reconcile_attempts`,
 `last_reconcile_error` y `last_reconcile_at`. Un evento que supera el tope de 5 intentos automáticos **sigue `RECEIVED`** (no hay estado nuevo, no se declara `FAILED`, no se libera ninguna reserva y no se pierde) y queda visible
-para una persona. Un `UNKNOWN_OUTCOME` solo lo cierra la respuesta tardía, una consulta autoritativa o una persona. *(Decidido; implementación en los Commits 5 a 7 de M45.)*
+para una persona. Un `UNKNOWN_OUTCOME` solo lo cierra la respuesta tardía, una consulta autoritativa o una persona. *(Decidido en la ADR 0029; implementado en el Commit 5 de M45.)*

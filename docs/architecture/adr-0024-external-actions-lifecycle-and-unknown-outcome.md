@@ -228,4 +228,4 @@ La [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md
 - **`reconcile()` exige un `lookup` autoritativo declarado** (`lookup_is_authoritative`, por defecto falso, con `lookup_settle_seconds`). El `lookup` de los adaptadores simulados es memoria de proceso y no vale entre procesos: no lo declaran.
   La repetición de la petición con la misma clave (§6.2) es un efecto externo y queda solo como acción humana explícita.
 
-*(Decidido; implementación en los Commits 5 a 7 de M45.)*
+*(Decidido en la ADR 0029; implementado en el Commit 5 de M45.)*

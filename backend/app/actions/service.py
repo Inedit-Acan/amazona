@@ -15,7 +15,7 @@ import datetime
 from collections.abc import Callable
 from decimal import Decimal
 
-from sqlalchemy import text, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,8 @@ from app.actions.contract import (
     ProviderTimeoutError,
     ProviderUnreachableError,
     derive_idempotency_key,
+    has_authoritative_lookup,
+    lookup_settle_seconds,
     request_fingerprint,
 )
 from app.actions.observers import ActionObserver, observers_for
@@ -274,42 +276,81 @@ class ExternalActionService:
 
         - `PENDING` desde hace más de `older_than`: la petición nunca salió → se libera la reserva y se cierra
           como `FAILED_CONFIRMED` (no se ejecutó nada);
-        - `CALLING` desde hace más de `older_than`: no se sabe → `UNKNOWN_OUTCOME`, **la reserva se queda**.
+        - `CALLING` desde hace más de `older_than` (medido desde `call_started_at`): no se sabe → `UNKNOWN_OUTCOME`,
+          **la reserva se queda**. Superar el umbral **nunca** es un `FAILED_CONFIRMED`.
 
         `older_than` tiene que ser mayor que el arriendo del trabajo: es la prueba de que su ejecutor ya no está.
         Las transiciones son compare-and-set, así que un ejecutor que justo despierte y un barrido no pueden
-        ganar los dos."""
+        ganar los dos. Cada operación va en su propia transacción (`sweep_one`)."""
         limit = self._clock() - older_than
         released: list[str] = []
         unknown: list[str] = []
-        stale = (
-            self._db.query(ExternalAction)
-            .filter(ExternalAction.status.in_(["PENDING", "CALLING"]), ExternalAction.updated_at < limit)
-            .order_by(ExternalAction.created_at)
-            .all()
-        )
-        for action in stale:
-            if action.status == ActionStatus.PENDING.value:
-                try:
-                    self.finish_unstarted(action)
-                    released.append(action.id)
-                except ExternalActionStateError:
-                    continue
-            else:
-                if self._transition(
-                    action,
-                    {ActionStatus.CALLING},
-                    ActionStatus.UNKNOWN_OUTCOME,
-                    error="the attempt that was calling the provider did not finish",
-                    updated_at=self._clock(),
-                ):
-                    self._audit(
-                        action, "unknown_outcome", before={"status": "CALLING"}, after={"status": "UNKNOWN_OUTCOME"}
-                    )
-                    self._notify(action, ActionStatus.CALLING.value, ActionStatus.UNKNOWN_OUTCOME.value)
-                    unknown.append(action.id)
-        self._db.commit()
+        for action_id, _status in self.stale_candidates(limit):
+            outcome = self.sweep_one(action_id)
+            if outcome == "released":
+                released.append(action_id)
+            elif outcome == "unknown":
+                unknown.append(action_id)
         return {"released": released, "unknown": unknown}
+
+    def stale_candidates(self, limit: datetime.datetime, *, batch: int | None = None) -> list[tuple[str, str]]:
+        """Las operaciones que llevan sin avanzar desde antes de `limit`: `(id, estado)`, las más viejas primero.
+        `PENDING` se mide desde
+        su última escritura; `CALLING`, desde que **empezó la llamada** (`call_started_at`; la última escritura si
+        faltara)."""
+        calling_since = func.coalesce(ExternalAction.call_started_at, ExternalAction.updated_at)
+        query = (
+            select(ExternalAction.id, ExternalAction.status)
+            .where(
+                or_(
+                    and_(ExternalAction.status == ActionStatus.PENDING.value, ExternalAction.updated_at < limit),
+                    and_(ExternalAction.status == ActionStatus.CALLING.value, calling_since < limit),
+                )
+            )
+            .order_by(ExternalAction.created_at, ExternalAction.id)
+        )
+        if batch is not None:
+            query = query.limit(batch)
+        return [(row[0], row[1]) for row in self._db.execute(query).all()]
+
+    def sweep_one(self, action_id: str) -> str:
+        """Una operación abandonada, en **su propia transacción**: `released` (nunca salió: liberada), `unknown`
+        (pudo salir: pasa a
+        `UNKNOWN_OUTCOME`, reserva mantenida) o `lost_race` (otro la movió antes: el compare-and-set no tocó nada).
+        Si un observador falla, la
+        excepción sube **antes** del commit y nada de esta operación se confirma; quien llama decide qué hacer con
+        las demás."""
+        action = self._db.get(ExternalAction, action_id, populate_existing=True)
+        if action is None:
+            return "lost_race"
+        if action.status == ActionStatus.PENDING.value:
+            try:
+                self.finish_unstarted(action)
+            except ExternalActionStateError:
+                self._db.rollback()
+                return "lost_race"
+            return "released"
+        if action.status == ActionStatus.CALLING.value:
+            return "unknown" if self.mark_calling_unknown(action) else "lost_race"
+        return "lost_race"
+
+    def mark_calling_unknown(self, action: ExternalAction) -> bool:
+        """`CALLING → UNKNOWN_OUTCOME` por compare-and-set, con su auditoría y sus observadores, y **commit**. La
+        reserva se queda. Devuelve
+        `False` si otro ya había movido la operación (la llamada terminó, o la cerró una persona)."""
+        if not self._transition(
+            action,
+            {ActionStatus.CALLING},
+            ActionStatus.UNKNOWN_OUTCOME,
+            error="the attempt that was calling the provider did not finish",
+            updated_at=self._clock(),
+        ):
+            self._db.rollback()
+            return False
+        self._audit(action, "unknown_outcome", before={"status": "CALLING"}, after={"status": "UNKNOWN_OUTCOME"})
+        self._notify(action, ActionStatus.CALLING.value, ActionStatus.UNKNOWN_OUTCOME.value)
+        self._db.commit()
+        return True
 
     def finish_unstarted(self, action: ExternalAction) -> None:
         """La petición no llegó a salir: no hubo efecto. Cierra la operación y libera la reserva."""
@@ -341,12 +382,24 @@ class ExternalActionService:
         3. si no puede ninguna de las dos (sin idempotencia ni consulta), se queda en `UNKNOWN_OUTCOME` y hace falta
            una persona.
 
-        Un timeout al reconciliar tampoco resuelve nada: sigue desconocido."""
+        Un timeout al reconciliar tampoco resuelve nada: sigue desconocido.
+
+        **Una consulta solo cierra si el adaptador declara que es autoritativa** (ADR 0029 §7):
+        `lookup_is_authoritative` y
+        `lookup_settle_seconds`. Sin esa declaración (los adaptadores simulados no la hacen: su `lookup` es la
+        memoria de un proceso y
+        no vale entre procesos) no se cierra nada, y tampoco se pasa a repetir la petición: sigue `UNKNOWN_OUTCOME`.
+        Un `None` antes de
+        que pase el tiempo de asentamiento desde `call_started_at` es «todavía no se sabe», no «no existe»."""
         if action.status != ActionStatus.UNKNOWN_OUTCOME.value:
             return ActionStatus(action.status)
         try:
             if isinstance(adapter, LookupCapableAdapter):
+                if not has_authoritative_lookup(adapter):
+                    return ActionStatus.UNKNOWN_OUTCOME
                 found = adapter.lookup(action.idempotency_key)
+                if found is None and not self._lookup_has_settled(action, adapter):
+                    return ActionStatus.UNKNOWN_OUTCOME
                 self._close_unknown(
                     action,
                     ActionStatus.SUCCEEDED if found is not None else ActionStatus.FAILED_CONFIRMED,
@@ -419,6 +472,17 @@ class ExternalActionService:
         self._db.commit()
 
     # --- Interno -----------------------------------------------------------------------
+
+    def _lookup_has_settled(self, action: ExternalAction, adapter: object) -> bool:
+        """¿Ha pasado el tiempo que el adaptador declara para que un `None` de su consulta sea «no existe»? Sin
+        instante de inicio de
+        la llamada no se puede afirmar: conservador (no)."""
+        started = action.call_started_at
+        if started is None:
+            return False
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=datetime.UTC)
+        return self._clock() >= started + datetime.timedelta(seconds=lookup_settle_seconds(adapter))
 
     def _latest(self, reference: str) -> ExternalAction | None:
         return (

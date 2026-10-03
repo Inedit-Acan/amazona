@@ -9,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import Settings
 from app.db.base import Base
 from app.db.models.job import JobEvent
 from app.db.models.product import Product
@@ -17,6 +18,10 @@ from app.jobs.handlers import DIAGNOSTIC_ECHO, RESEARCH_RUN
 from app.jobs.queue import JobQueue
 from app.jobs.schemas import JobBlockedError, JobCancelledError, JobResult, JobStatus
 from app.jobs.worker import Worker
+
+#: Estos tests son del runtime genérico de trabajos: sin los trabajos recurrentes de reconciliación (ADR 0029),
+#: que se prueban aparte.
+NO_RECURRING = Settings(_env_file=None, reconciliation_enabled=False)
 
 
 @pytest.fixture()
@@ -38,7 +43,7 @@ def queue(db):
 
 @pytest.fixture()
 def worker():
-    return Worker(name="test-worker")
+    return Worker(name="test-worker", settings=NO_RECURRING)
 
 
 @pytest.fixture()
@@ -227,8 +232,8 @@ def test_each_cycle_releases_retries_whose_wait_is_over(queue, db, worker):
 def test_two_workers_never_take_the_same_job(queue, db):
     queue.enqueue(job_type=DIAGNOSTIC_ECHO)
 
-    first = Worker(name="w1").run_once(db)
-    second = Worker(name="w2").run_once(db)
+    first = Worker(name="w1", settings=NO_RECURRING).run_once(db)
+    second = Worker(name="w2", settings=NO_RECURRING).run_once(db)
 
     assert first is not None
     assert second is None

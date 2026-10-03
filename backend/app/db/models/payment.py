@@ -137,6 +137,7 @@ class PaymentEvent(IdMixin, Base):
             name="ck_payment_events_processing_status",
         ),
         CheckConstraint("(amount IS NULL) = (currency IS NULL)", name="ck_payment_events_amount_has_currency"),
+        CheckConstraint("reconcile_attempts >= 0", name="ck_payment_events_reconcile_attempts_not_negative"),
     )
 
     provider: Mapped[str] = mapped_column(String(64))
@@ -157,6 +158,15 @@ class PaymentEvent(IdMixin, Base):
     processing_status: Mapped[str] = mapped_column(String(16), default="RECEIVED")
     processed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: Campos de **proceso**, no del hecho (ADR 0029 §6): cuántas veces el reconciliador **programado** ha intentado
+    #: aplicar este evento,
+    #: con qué error falló la última y cuándo. El hecho (proveedor, id, tipo, importe, hash) sigue siendo inmutable.
+    #: Un evento que llega al
+    #: tope sigue `RECEIVED` (no hay estado nuevo) y queda visible para una persona; las reentregas del proveedor no
+    #: cuentan.
+    reconcile_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    last_reconcile_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_reconcile_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Refund(IdMixin, TimestampMixin, Base):

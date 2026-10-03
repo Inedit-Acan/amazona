@@ -233,7 +233,7 @@ def test_retrying_after_a_timeout_does_not_run_the_work_twice(client: TestClient
     worker la ejecutó. El reintento recibe esa misma ejecución, ya terminada, y no se ejecuta nada."""
     post(client)  # la respuesta «se pierde»
     with factory() as db:
-        worker = Worker(name="test-worker")
+        worker = Worker(name="test-worker", settings=Settings(_env_file=None, reconciliation_enabled=False))
         for _ in range(12):
             if worker.run_once(db) is None:
                 break

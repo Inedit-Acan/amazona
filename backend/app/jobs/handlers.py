@@ -1,21 +1,29 @@
 """Los tipos de trabajo que el runtime sabe ejecutar.
 
-Tres: una investigación de producto (`research.run`, Milestone 31), una ejecución
-completa del pipeline de Fase 3 (`pipeline.run`, Milestone 32) y uno de
-diagnóstico para comprobar el runtime sin tocar datos de negocio.
+Una investigación de producto (`research.run`, Milestone 31), una ejecución
+completa del pipeline de Fase 3 (`pipeline.run`, Milestone 32), el refresco de tipos de cambio, uno de
+diagnóstico para comprobar el runtime sin tocar datos de negocio, y los tres de reconciliación programada
+(`reconcile.actions`, `reconcile.payment_events`, `reconcile.report`, Milestone 45, ADR 0029).
 
 Importar este módulo es lo que registra los manejadores; `app/jobs/worker.py` y
 la API lo importan por ese efecto.
 """
 
+import datetime
+
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.errors import PipelineDisabledError, PipelineOutcomeUnknownError
 from app.costs.service import ApiBudgetExceededError
+from app.jobs.recurring import RECONCILE_ACTIONS, RECONCILE_PAYMENT_EVENTS, RECONCILE_REPORT
 from app.jobs.registry import register
 from app.jobs.schemas import JobBlockedError, JobContext, JobResult
 from app.money.fx_refresh import FxRefreshService, FxSourceNotConfiguredError
 from app.pipeline.service import PIPELINE_RUN_JOB, PipelineOrchestrator
+from app.reconciliation.actions import ActionReconciler
+from app.reconciliation.events import EventReconciler
+from app.reconciliation.report import build_status
 from app.research.service import ResearchService
 
 #: Tipos, como constantes, para que el que encola y el que ejecuta no dependan
@@ -103,6 +111,58 @@ def run_fx_refresh(payload: dict, context: JobContext, db: Session) -> JobResult
     except (FxSourceNotConfiguredError, ApiBudgetExceededError) as exc:
         raise JobBlockedError(str(exc)) from exc
     return JobResult(reference=context.correlation_id, detail=result.summary())
+
+
+@register(RECONCILE_ACTIONS)
+def run_reconcile_actions(payload: dict, context: JobContext, db: Session) -> JobResult:
+    """El barrido programado de acciones externas abandonadas (Milestone 45, ADR 0029). Libera lo que nunca salió y
+    marca como desconocido lo que
+    pudo salir; **no** toca un `UNKNOWN_OUTCOME`, no repite peticiones y no llama a `reconcile()`. Con la
+    reconciliación apagada, un tick que ya
+    estaba encolado **no hace nada**."""
+    settings = get_settings()
+    if not settings.reconciliation_enabled:
+        return JobResult(reference=None, detail={"disabled": True})
+    report = ActionReconciler(
+        db, older_than=datetime.timedelta(minutes=settings.reconcile_actions_older_than_minutes)
+    ).sweep(heartbeat=context.heartbeat)
+    return JobResult(reference=None, detail=report.summary())
+
+
+@register(RECONCILE_PAYMENT_EVENTS)
+def run_reconcile_payment_events(payload: dict, context: JobContext, db: Session) -> JobResult:
+    """Reanuda los eventos de pago guardados y no aplicados, con el tope de intentos (Milestone 45, ADR 0029 §6).
+    Aplicar un evento es la misma
+    puerta de siempre (`PaymentService.apply`): no cobra, no llama al proveedor."""
+    settings = get_settings()
+    if not settings.reconciliation_enabled:
+        return JobResult(reference=None, detail={"disabled": True})
+    report = EventReconciler(
+        db,
+        older_than=datetime.timedelta(minutes=settings.reconcile_events_older_than_minutes),
+        max_attempts=settings.reconcile_event_max_attempts,
+    ).sweep(heartbeat=context.heartbeat)
+    return JobResult(reference=None, detail=report.summary())
+
+
+@register(RECONCILE_REPORT)
+def run_reconcile_report(payload: dict, context: JobContext, db: Session) -> JobResult:
+    """Solo lectura: cuenta y envejece lo abierto, lo desconocido y los eventos topados, y lo deja en el resultado
+    del trabajo. **Nunca cierra ni
+    corrige nada.**"""
+    settings = get_settings()
+    if not settings.reconciliation_enabled:
+        return JobResult(reference=None, detail={"disabled": True})
+    status = build_status(db, settings)
+    return JobResult(
+        reference=None,
+        detail={
+            "open_actions": {state: item["count"] for state, item in status["actions"]["open"].items()},
+            "unknown_outcome_oldest_age_seconds": status["actions"]["open"]["UNKNOWN_OUTCOME"]["oldest_age_seconds"],
+            "events_waiting": status["events"]["waiting"]["count"],
+            "events_capped": status["events"]["capped"]["count"],
+        },
+    )
 
 
 @register(DIAGNOSTIC_ECHO)
