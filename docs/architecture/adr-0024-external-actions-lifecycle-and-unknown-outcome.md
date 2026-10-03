@@ -216,3 +216,16 @@ la [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (E1 a E3):
   ellos: el evento se conserva como evidencia (E3).
 - Sigue sin existir un reconciliador programado: `reconcile-actions`, `reconcile-payment-events` y `resolve-action` son
   comandos manuales de la consola (**P1-1**, a resolver en M45 antes de conectar nada real).
+
+## Enmienda (Milestone 45): el barrido se programa, y `reconcile` solo con una consulta autoritativa
+
+La [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md) decide dos cosas que precisan este texto (la regla de `UNKNOWN_OUTCOME` no cambia):
+
+- **El barrido deja de ser solo una orden del operador.** Un trabajo recurrente libera lo `PENDING` que nunca salió y marca `UNKNOWN_OUTCOME` lo `CALLING` abandonado, cada elemento en su transacción y por compare-and-set. Lo mide
+  desde `call_started_at` con un umbral configurable que debe superar con margen el techo que el operador declara para la duración de una llamada externa (`external_call_max_seconds`, **sin valor contractual**: lo define el operador a
+  partir del proveedor real antes de conectarlo; solo en simulación hay un valor provisional); el código actual **no aplica** ese techo y la seguridad no depende de él (el compare-and-set y la respuesta tardía protegen). Superar el umbral
+  **nunca** es un `FAILED_CONFIRMED`: una `CALLING` pasa a `UNKNOWN_OUTCOME`. El programador **no** cierra un desconocido, no repite peticiones y no llama a `reconcile`.
+- **`reconcile()` exige un `lookup` autoritativo declarado** (`lookup_is_authoritative`, por defecto falso, con `lookup_settle_seconds`). El `lookup` de los adaptadores simulados es memoria de proceso y no vale entre procesos: no lo declaran.
+  La repetición de la petición con la misma clave (§6.2) es un efecto externo y queda solo como acción humana explícita.
+
+*(Decidido; implementación en los Commits 5 a 7 de M45.)*
