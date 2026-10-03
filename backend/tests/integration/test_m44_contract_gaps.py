@@ -49,6 +49,7 @@ from app.money.money import Money
 from app.orders.domain import ORDER_TRANSITIONS, OrderStatus
 from app.orders.errors import OperationNotAllowedError, OutcomeUnknownBlockError
 from app.orders.fulfilment_domain import FULFILLMENT_TRANSITIONS, FulfillmentStatus
+from app.orders.pagination import OrderCursor
 from app.orders.service import OrderService
 from app.payments.port import PaymentEventType, WebhookVerificationError
 
@@ -179,10 +180,16 @@ def test_every_read_route_leaves_the_database_exactly_as_it_found_it_even_with_d
             client.get("/api/orders"),
             client.get(f"/api/orders/{order_id}"),
             client.get("/api/orders", params={"status": "PAID"}),
-            client.get("/api/orders", params={"limit": 1, "offset": 0}),
+            client.get("/api/orders", params={"limit": 1}),
+            # Seguir un cursor tampoco escribe: uno válido, de un instante futuro, deja pasar el pedido de arriba.
+            client.get(
+                "/api/orders",
+                params={"cursor": OrderCursor(datetime.datetime.now(datetime.UTC), "zzz").encode()},
+            ),
         ]
 
-        assert [r.status_code for r in responses] == [200, 200, 200, 200]
+        assert [r.status_code for r in responses] == [200, 200, 200, 200, 200]
+        assert [o["id"] for o in responses[4].json()["items"]] == [order_id]
         assert "refund_unconfirmed" in responses[1].json()["attention_reasons"], "the reason is derived at read time"
         writes = [
             s

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Ban,
@@ -13,24 +13,31 @@ import {
   ShoppingCart,
   Wallet,
 } from "lucide-react";
-import type { Order } from "@/lib/api";
+import { ApiError, api, type Order } from "@/lib/api";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import { formatInteger } from "@/lib/format";
 import {
   FULFILLMENT_STATUS,
   ORDER_STATUS,
+  PARTIAL_FIGURE_NOTE,
   PERIODS,
   TABS,
+  appendPage,
   attentionList,
   attentionText,
+  countText,
   describe,
   formatAmount,
   formatTotals,
   fulfilmentPipeline,
   fulfilmentTotal,
+  loadedFromPage,
   newestFirst,
   orderKpis,
   ordersInPeriod,
+  pageErrorText,
+  periodCoverage,
+  type OrdersLoaded,
 } from "@/lib/orders-view";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { KpiCard } from "@/components/kpi-card";
@@ -43,6 +50,7 @@ import { OPERATIONS_DESCRIPTION, OPERATIONS_TITLE } from "./copy";
 import {
   AbsentCard,
   AttentionCard,
+  LoadedBanner,
   NoOrders,
   OrderDetailCard,
   PipelineCard,
@@ -75,14 +83,24 @@ function fulfilmentSummary(order: Order): string {
 }
 
 export function OperationsWorkspace({
-  orders,
+  initialOrders,
+  initialHasMore,
+  initialNextCursor,
+  pageSize,
   names,
   today,
   initialPeriod,
   initialTab,
   initialOrderId,
 }: {
-  orders: Order[];
+  /** La primera página de `GET /api/orders`: los pedidos más recientes, no necesariamente todos. */
+  initialOrders: Order[];
+  /** El backend dice que existen pedidos más antiguos que el último de `initialOrders`. */
+  initialHasMore: boolean;
+  /** De dónde sigue la siguiente página (se devuelve tal cual al backend). */
+  initialNextCursor: string | null;
+  /** Cuántos pedidos pide cada página. */
+  pageSize: number;
   /** Nombre real de cada producto, por id. Si no se conoce, la pantalla enseña el id. */
   names: [string, string][];
   today: string;
@@ -93,10 +111,40 @@ export function OperationsWorkspace({
   const [period, setPeriod] = useState(() => (PERIODS.some((p) => p.value === initialPeriod) ? initialPeriod! : "all"));
   const [tab, setTab] = useState(() => (TABS.some((t) => t.key === initialTab) ? initialTab! : "todos"));
   const [orderId, setOrderId] = useState<string | null>(initialOrderId ?? null);
+  // Lo cargado hasta ahora y si el backend dice que hay más. Esta pantalla nunca da una página por el total.
+  const [loaded, setLoaded] = useState<OrdersLoaded>(() =>
+    loadedFromPage({ items: initialOrders, has_more: initialHasMore, next_cursor: initialNextCursor }),
+  );
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const orders = loaded.orders;
+
+  async function loadMore() {
+    if (inFlight.current || !loaded.hasMore || loaded.nextCursor === null) return;
+    inFlight.current = true;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const page = await api.listOrders({ limit: pageSize, cursor: loaded.nextCursor });
+      setLoaded((current) => appendPage(current, page));
+    } catch (err) {
+      setLoadError(
+        err instanceof ApiError
+          ? pageErrorText(err.status, err.detail)
+          : pageErrorText(undefined, err instanceof Error ? err.message : "error desconocido"),
+      );
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
+  }
 
   const nameById = useMemo(() => new Map(names), [names]);
   const days = PERIODS.find((p) => p.value === period)!.days;
   const periodOrders = useMemo(() => newestFirst(ordersInPeriod(orders, today, days)), [orders, today, days]);
+  const coverage = useMemo(() => periodCoverage(loaded, today, days), [loaded, today, days]);
+  const partial = coverage === "partial";
   const kpis = useMemo(() => orderKpis(periodOrders), [periodOrders]);
   const stages = useMemo(() => fulfilmentPipeline(periodOrders), [periodOrders]);
   const attention = useMemo(() => attentionList(periodOrders), [periodOrders]);
@@ -133,7 +181,7 @@ export function OperationsWorkspace({
         o.attention_reasons.map(attentionText).join("; "),
       ]),
     );
-    downloadCsv(`operaciones-${period}-${tab}.csv`, csv);
+    downloadCsv(`operaciones-${period}-${tab}${partial ? "-parcial" : ""}.csv`, csv);
   }
 
   const columns: DataTableColumn<Order>[] = [
@@ -216,7 +264,7 @@ export function OperationsWorkspace({
             <select value={period} onChange={(e) => changePeriod(e.target.value)} className="bg-transparent text-sm font-medium text-primary outline-none">
               {PERIODS.map((p) => (
                 <option key={p.value} value={p.value} className="bg-popover text-foreground">
-                  {p.label}
+                  {p.value === "all" && loaded.hasMore ? "Todo lo cargado" : p.label}
                 </option>
               ))}
             </select>
@@ -233,7 +281,10 @@ export function OperationsWorkspace({
     return (
       <div className="space-y-5">
         {header}
-        <NoOrders outsidePeriod={orders.length} />
+        <NoOrders loaded={orders.length} hasMore={loaded.hasMore} onLoadMore={loadMore} loading={loading} />
+        {loadError ? (
+          <LoadedBanner loaded={orders.length} hasMore={loaded.hasMore} loading={loading} error={loadError} onLoadMore={loadMore} />
+        ) : null}
         <AbsentCard />
       </div>
     );
@@ -243,20 +294,27 @@ export function OperationsWorkspace({
   const refunded = formatTotals(kpis.refunded);
   const inProgress = formatTotals(kpis.refundInProgress);
 
+  // Un contador es un total solo si lo cargado cubre el periodo; si no, es un mínimo («12+»), y se dice.
+  const count = (n: number) => countText(formatInteger(n), coverage);
+  const partialCaption = partial ? "Mínimo: hay pedidos sin cargar" : undefined;
+
   return (
     <div className="space-y-5">
       {header}
 
+      <LoadedBanner loaded={orders.length} hasMore={loaded.hasMore} loading={loading} error={loadError} onLoadMore={loadMore} />
+
       <section className="grid gap-4 grid-cols-2 md:grid-cols-3 xl:grid-cols-6" aria-label="Pedidos por estado">
-        <KpiCard label="Pedidos" leading={<ShoppingCart className="size-8 shrink-0 text-primary" />} value={formatInteger(kpis.total)} />
-        <KpiCard label="Pendientes de cobro" leading={<Clock className="size-8 shrink-0 text-primary" />} value={formatInteger(kpis.awaitingPayment)} />
-        <KpiCard label="Pagados" leading={<PackageCheck className="size-8 shrink-0 text-primary" />} value={formatInteger(kpis.paid)} />
-        <KpiCard label="Completados" leading={<CheckCircle2 className="size-8 shrink-0 text-primary" />} value={formatInteger(kpis.completed)} />
-        <KpiCard label="Cancelados" leading={<Ban className="size-8 shrink-0 text-primary" />} value={formatInteger(kpis.cancelled)} />
+        <KpiCard label="Pedidos" leading={<ShoppingCart className="size-8 shrink-0 text-primary" />} value={count(kpis.total)} caption={partialCaption} />
+        <KpiCard label="Pendientes de cobro" leading={<Clock className="size-8 shrink-0 text-primary" />} value={count(kpis.awaitingPayment)} caption={partialCaption} />
+        <KpiCard label="Pagados" leading={<PackageCheck className="size-8 shrink-0 text-primary" />} value={count(kpis.paid)} caption={partialCaption} />
+        <KpiCard label="Completados" leading={<CheckCircle2 className="size-8 shrink-0 text-primary" />} value={count(kpis.completed)} caption={partialCaption} />
+        <KpiCard label="Cancelados" leading={<Ban className="size-8 shrink-0 text-primary" />} value={count(kpis.cancelled)} caption={partialCaption} />
         <KpiCard
           label="Requieren atención"
           leading={<AlertTriangle className={kpis.attention > 0 ? "size-8 shrink-0 text-destructive" : "size-8 shrink-0 text-primary"} />}
-          value={formatInteger(kpis.attention)}
+          value={count(kpis.attention)}
+          caption={partialCaption}
           tone={kpis.attention > 0 ? "danger" : "default"}
         />
       </section>
@@ -266,19 +324,33 @@ export function OperationsWorkspace({
           label="Cobrado"
           leading={<Wallet className="size-8 shrink-0 text-primary" />}
           value={captured ?? "—"}
-          caption={captured ? "Dinero realmente cobrado, por evidencia verificada" : "Sin cobros"}
+          caption={
+            partial
+              ? `${PARTIAL_FIGURE_NOTE}${captured ? "" : ": sin cobros entre ellos"}`
+              : captured
+                ? "Dinero realmente cobrado, por evidencia verificada"
+                : "Sin cobros"
+          }
         />
         <KpiCard
           label="Reembolsado"
           leading={<RotateCcw className="size-8 shrink-0 text-primary" />}
           value={refunded ?? "—"}
-          caption={inProgress ? `Pedido y sin confirmar: ${inProgress}` : refunded ? "Confirmado por un hecho verificado del proveedor" : "Sin reembolsos"}
+          caption={
+            partial
+              ? `${PARTIAL_FIGURE_NOTE}${inProgress ? `. Pedido y sin confirmar: ${inProgress}` : ""}`
+              : inProgress
+                ? `Pedido y sin confirmar: ${inProgress}`
+                : refunded
+                  ? "Confirmado por un hecho verificado del proveedor"
+                  : "Sin reembolsos"
+          }
         />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">
-        <PipelineCard stages={stages} total={fulfilmentTotal(periodOrders)} />
-        <AttentionCard orders={attention} selectedId={selected?.id ?? null} onSelect={selectOrder} />
+        <PipelineCard stages={stages} total={fulfilmentTotal(periodOrders)} partial={partial} />
+        <AttentionCard orders={attention} selectedId={selected?.id ?? null} onSelect={selectOrder} partial={partial} />
       </section>
 
       <section className="grid gap-4 min-[106.25rem]:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -287,14 +359,18 @@ export function OperationsWorkspace({
             <CardTitle className="flex items-center gap-2">
               <Landmark className="size-4 text-muted-foreground" /> Pedidos
             </CardTitle>
-            <CardDescription>Los pedidos que existen en la base de datos, del más reciente al más antiguo.</CardDescription>
+            <CardDescription>
+              {loaded.hasMore
+                ? "Los pedidos cargados, del más reciente al más antiguo. La búsqueda, el orden y los contadores actúan solo sobre ellos; hay más sin cargar."
+                : "Los pedidos que existen en la base de datos, del más reciente al más antiguo."}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Tabs value={tab} onValueChange={changeTab}>
               <TabsList className="flex w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
                 {TABS.map((item) => (
                   <TabsTrigger key={item.key} value={item.key} className="flex-none px-2.5 text-xs">
-                    {item.label} ({periodOrders.filter(item.match).length})
+                    {item.label} ({count(periodOrders.filter(item.match).length)})
                   </TabsTrigger>
                 ))}
               </TabsList>

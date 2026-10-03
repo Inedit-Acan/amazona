@@ -415,7 +415,8 @@ La sección 10 se cumple en Operaciones y **no** en el resto del Control Center:
   Los generadores se conservan a propósito porque esos paneles se apoyan en ellos.
 - **Se retiró** de Operaciones el informe del agente de operaciones (política de devoluciones y ticket de ejemplo). Sigue
   en `GET /api/products/{id}/operations`.
-- **Límite sin avisar (P2-2).** Operaciones lee como máximo 500 pedidos (`ORDERS_LIMIT`) y no avisa de que trunca.
+- **Límite sin avisar (P2-2).** Operaciones lee como máximo 500 pedidos (`ORDERS_LIMIT`) y no avisa de que trunca. *(Resuelto
+  en M45: ver E8.)*
 - **Un matiz sobre el seguimiento.** El fulfillment guarda una `tracking_reference`: es la referencia que devuelve el proveedor
   simulado al enviar. No hay transportista, estado de seguimiento ni plazos; «entregado» es una confirmación humana con actor.
 
@@ -432,3 +433,56 @@ Preguntadas el 2026-10-02, antes de escribir la documentación del cierre:
    verdad del dinero, como el presupuesto ya lo es).
 5. **Sin decidir:** cuándo y con qué procedimiento se aplican las migraciones de M44 a Supabase. Hoy **no están aplicadas**
    (Supabase tiene 12 migraciones, la última `20260917114106`); requiere una autorización expresa y un procedimiento aparte.
+
+### E8. Operaciones pagina sus pedidos y dice cuándo trunca (M45, P2-2)
+
+**Defecto.** `GET /api/orders` devolvía una lista (por defecto 100, máximo 500) sin ninguna marca: quien pedía 500 y recibía 500
+no podía saber si existía el 501, y Operaciones, que pedía 500 y se presentaba como «todo el historial», calculaba sobre esa
+muestra sus contadores, sus importes cobrados y reembolsados, el pipeline y la lista de atención, como si fueran del total.
+
+**Contrato nuevo.** `GET /api/orders?status=&limit=&cursor=` devuelve una **página**:
+
+    {"items": [...], "limit": 100, "count": 100, "has_more": true, "next_cursor": "…"}
+
+- Orden total y determinista: `created_at DESC, id ASC` (el `id` desempata a igual instante).
+- `count == len(items) <= limit`; `has_more` es verdad si existen pedidos más antiguos que el último de `items`; entonces
+  `next_cursor` es lo que hay que devolver en `cursor`, y si no, es `null`. Una página posterior al final es una página vacía
+  **válida**; un cursor que este servicio no emitió es un 422 (nunca una página vacía ni otra consulta).
+- **Cursor y no `offset`.** Un pedido nuevo entra por arriba: con `offset` cada pedido nuevo empuja las páginas y la siguiente
+  repite filas. El cursor es una posición `(created_at, id)`: lo creado durante un recorrido queda fuera de él y no repite ni
+  salta nada (probado con un hilo que crea pedidos sin parar sobre PostgreSQL). Es opaco (`base64url` de un JSON versionado),
+  se valida y los valores van como parámetros enlazados. `offset` ya no existe y **se rechaza con un 422** en vez de
+  ignorarse: un cliente antiguo recibiría la primera página una y otra vez.
+- **Sin total.** No se calcula: sería una cifra que miente en una tabla que crece mientras se lee. Quien necesite «cuántos hay»
+  recorre las páginas o pedirá un agregado (Commit 11 de M45).
+- `limit` por defecto 100 y **máximo 200** (antes 500). Medido en PostgreSQL local con la implementación actual: ~8 consultas por
+  pedido (N+1, P3-5): 100 pedidos = 801 consultas, 0,5–0,8 s, 136 KiB; 200 = 1 601, ~1,5 s, 272 KiB; 500 = 4 001, ~3 s, 678 KiB.
+  El tiempo de una página **no** depende del tamaño de la tabla ni de lo profunda que sea (keyset): 10 → 10 000 pedidos da la
+  misma latencia. Un recorrido completo de 10 000 pedidos son 50 páginas (~76 s, 80 050 consultas): lineal, y es lo que cuesta
+  hoy el N+1. Se deja sin optimizar a propósito (no es el defecto y no hay un consumidor que lo necesite); el remedio, cuando haga
+  falta, es cargar cobros, reembolsos y fulfillments de la página en bloque (~7 consultas por página en vez de ~800).
+- **Índices.** El orden sin filtro es `Seq Scan + Sort` (`ix_orders_status_created_at` solo sirve con `status`). Con 10 000
+  pedidos el coste es despreciable frente al N+1; antes de volúmenes del orden de 10⁵ pedidos hará falta un índice
+  `(created_at DESC, id)`. No se añade una migración por intuición.
+
+**Qué no garantiza.** No es una instantánea: un pedido cuya transacción confirma **después** de que el recorrido pasó por su
+instante (un `created_at` anterior que se confirma tarde) no aparece hasta volver a empezar, y los estados que cambian (un pedido
+que se paga) se leen en el momento de cada página.
+
+**Operaciones.** La pantalla pide la primera página (100), la enseña con «Mostrando N pedidos · hay más resultados sin cargar»
+—nunca «X de Y»: el total no se conoce— y ofrece «Cargar más pedidos», que sigue `next_cursor` y **no sustituye** lo cargado. Cada
+cifra es **completa** (cubre todos los pedidos que existen en su ámbito) o **parcial** (solo los cargados, que son siempre un prefijo
+del historial: los más recientes):
+
+| Cifra | Con todo cargado | Con más sin cargar |
+|---|---|---|
+| Contadores por estado y de pestañas | total | mínimo: «12+» |
+| Cobrado, reembolsado y apartado (por moneda, exacto) | total | «Solo de los pedidos cargados; hay más sin cargar» |
+| Pipeline de fulfillment y lista de atención | total | marcados como parciales («ningún pedido cargado requiere atención») |
+| Un periodo («Hoy», «7 días», «30 días») | completo | **completo** si el pedido cargado más antiguo es **anterior** al comienzo del periodo (estrictamente), parcial si no |
+| «Todo el historial» | completo | se llama «Todo lo cargado» y es parcial |
+| Búsqueda y orden de la tabla, exportación CSV | sobre todos | solo sobre los cargados (el fichero se llama `…-parcial.csv`) |
+
+Un fallo al cargar una página se dice con su causa (backend caído o error 5xx, petición inválida 422, sin permiso) y no pierde lo ya
+cargado; ninguna de ellas se confunde con una página vacía. Compatibilidad: el único consumidor del listado es el Control Center
+(actualizado); el cambio de forma (de lista a página) rompe ruidosamente a cualquier cliente antiguo en vez de truncarle en silencio.

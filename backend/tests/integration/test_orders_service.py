@@ -250,8 +250,8 @@ def test_reading_orders_never_writes(db, product):
     writes.clear()
 
     service.get(order.id)
-    service.list()
-    service.list(status="PAID")
+    service.list_page()
+    service.list_page(status="PAID")
 
     assert not [s for s in writes if s.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))]
 
@@ -260,8 +260,9 @@ def test_listing_filters_by_status_and_unknown_orders_are_not_found(db, product)
     create_order(db, line(product))
     service = OrderService(db, settings=SIMULATION)
 
-    assert len(service.list(status="AWAITING_PAYMENT")) == 1
-    assert service.list(status="PAID") == []
+    awaiting = service.list_page(status="AWAITING_PAYMENT")
+    assert len(awaiting.orders) == 1 and awaiting.has_more is False and awaiting.next_cursor is None
+    assert service.list_page(status="PAID").orders == []
     with pytest.raises(NotFoundError):
         service.get("missing")
 
@@ -272,7 +273,7 @@ def test_listing_filters_by_status_and_unknown_orders_are_not_found(db, product)
 def test_the_order_service_has_no_way_to_mark_an_order_as_paid():
     public = {name for name, member in inspect.getmembers(OrderService, inspect.isfunction) if not name.startswith("_")}
 
-    assert public == {"create", "get", "list", "cancel"}, "creating, reading and cancelling: never paying"
+    assert public == {"create", "get", "list_page", "cancel"}, "creating, reading and cancelling: never paying"
     source = inspect.getsource(orders_service)
     assert "OrderStatus.PAID" not in source and "paid_at =" not in source
 

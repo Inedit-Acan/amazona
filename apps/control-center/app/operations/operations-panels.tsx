@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Info, PackageSearch } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, Loader2, PackageSearch } from "lucide-react";
 import type { Order, OrderFulfillment, OrderItem, OrderPayment, OrderRefund } from "@/lib/api";
 import {
   ABSENT,
@@ -11,13 +11,17 @@ import {
   attentionText,
   describe,
   formatAmount,
+  loadedSummary,
   orderEvents,
+  PARTIAL_FIGURE_NOTE,
   type PipelineStage,
   type Tone,
 } from "@/lib/orders-view";
 import { formatInteger } from "@/lib/format";
 import { EmptyState } from "@/components/empty-state";
 import { LevelChip } from "@/components/level-chip";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -46,17 +50,74 @@ export function StatusChip({ tone, children }: { tone: Tone; children: React.Rea
   return <LevelChip tone={tone}>{children}</LevelChip>;
 }
 
+// --- Lo cargado frente a lo que existe ---------------------------------------------------------------------------
+
+/** Dice qué se está viendo: cuántos pedidos están cargados y si hay más. Nunca «X de Y»: el total no se conoce.
+ * Con más pedidos sin cargar, además lo avisa y ofrece cargar la siguiente página; si cargarla falla, lo dice con la
+ * causa y no pierde lo ya cargado. */
+export function LoadedBanner({
+  loaded,
+  hasMore,
+  loading,
+  error,
+  onLoadMore,
+}: {
+  loaded: number;
+  hasMore: boolean;
+  loading: boolean;
+  error: string | null;
+  onLoadMore: () => void;
+}) {
+  return (
+    <section aria-label="Pedidos cargados" className="space-y-2">
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm",
+          hasMore ? "border-amber-500/40 bg-amber-500/5" : "bg-card text-muted-foreground",
+        )}
+      >
+        <div>
+          <p className="font-medium" data-testid="loaded-summary">
+            {loadedSummary(loaded, hasMore)}
+          </p>
+          {hasMore ? (
+            <p className="text-xs text-muted-foreground">
+              Los pedidos van del más reciente al más antiguo. Las cifras de esta pantalla cubren solo los cargados
+              mientras haya más sin cargar; los contadores con «+» son un mínimo, no un total.
+            </p>
+          ) : null}
+        </div>
+        {hasMore ? (
+          <Button variant="outline" onClick={onLoadMore} disabled={loading}>
+            {loading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+            {loading ? "Cargando…" : "Cargar más pedidos"}
+          </Button>
+        ) : null}
+      </div>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>No se pudo cargar la siguiente página</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+    </section>
+  );
+}
+
 // --- Pipeline de fulfillment --------------------------------------------------------------------------------------
 
-export function PipelineCard({ stages, total }: { stages: PipelineStage[]; total: number }) {
+export function PipelineCard({ stages, total, partial }: { stages: PipelineStage[]; total: number; partial: boolean }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle>Fulfillment</CardTitle>
         <CardDescription>
           {total === 0
-            ? "Ningún pedido tiene todavía un fulfillment."
-            : `${formatInteger(total)} ${total === 1 ? "fulfillment" : "fulfillments"} en los pedidos de este periodo.`}
+            ? partial
+              ? "Ningún pedido cargado tiene un fulfillment; hay más pedidos sin cargar."
+              : "Ningún pedido tiene todavía un fulfillment."
+            : `${formatInteger(total)}${partial ? "+" : ""} ${total === 1 && !partial ? "fulfillment" : "fulfillments"} en los pedidos de este periodo.`}
+          {partial && total > 0 ? ` ${PARTIAL_FIGURE_NOTE}.` : ""}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -93,27 +154,31 @@ export function AttentionCard({
   orders,
   selectedId,
   onSelect,
+  partial,
 }: {
   orders: Order[];
   selectedId: string | null;
   onSelect: (orderId: string) => void;
+  /** Hay pedidos sin cargar: la lista es un mínimo, y «ninguno» solo se puede afirmar de los cargados. */
+  partial: boolean;
 }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           Requieren atención
-          <LevelChip tone={orders.length > 0 ? "bad" : "ok"}>{orders.length}</LevelChip>
+          <LevelChip tone={orders.length > 0 ? "bad" : "ok"}>{partial ? `${orders.length}+` : orders.length}</LevelChip>
         </CardTitle>
         <CardDescription>
           Se calcula al leer, a partir del estado de cobros, reembolsos y fulfillments. El sistema avisa; no arregla nada
-          por su cuenta.
+          por su cuenta.{partial ? ` ${PARTIAL_FIGURE_NOTE}.` : ""}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {orders.length === 0 ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <CheckCircle2 className="size-4 shrink-0 text-primary" /> Ningún pedido requiere atención.
+            <CheckCircle2 className="size-4 shrink-0 text-primary" />{" "}
+            {partial ? "Ningún pedido cargado requiere atención; hay más sin cargar." : "Ningún pedido requiere atención."}
           </p>
         ) : (
           <ul className="space-y-2">
@@ -387,19 +452,38 @@ export function AbsentCard() {
   );
 }
 
-export function NoOrders({ outsidePeriod }: { outsidePeriod: number }) {
+/** Ningún pedido en el periodo elegido. Tres casos que no se confunden: no existe ninguno (se afirma solo si todo está
+ * cargado), hay pedidos pero fuera del periodo, o el periodo está vacío **entre los cargados** y hay más sin cargar. */
+export function NoOrders({
+  loaded,
+  hasMore,
+  onLoadMore,
+  loading,
+}: {
+  loaded: number;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  loading: boolean;
+}) {
+  const title =
+    loaded > 0 ? "Ningún pedido cargado en este periodo" : hasMore ? "Ningún pedido cargado" : "Todavía no hay pedidos";
+  const description =
+    loaded > 0
+      ? `Hay ${formatInteger(loaded)} ${loaded === 1 ? "pedido cargado" : "pedidos cargados"} fuera de este periodo: elige «${hasMore ? "Todo lo cargado" : "Todo el historial"}».${hasMore ? " Hay más pedidos sin cargar." : ""}`
+      : hasMore
+        ? "Hay pedidos sin cargar."
+        : "Un pedido existe cuando se crea desde la API. Esta pantalla solo muestra lo que existe: no genera pedidos de ejemplo.";
   return (
     <Card>
       <CardContent>
-        <EmptyState
-          icon={PackageSearch}
-          title={outsidePeriod > 0 ? "Ningún pedido en este periodo" : "Todavía no hay pedidos"}
-          description={
-            outsidePeriod > 0
-              ? `Hay ${formatInteger(outsidePeriod)} ${outsidePeriod === 1 ? "pedido" : "pedidos"} fuera de este periodo: elige «Todo el historial».`
-              : "Un pedido existe cuando se crea desde la API. Esta pantalla solo muestra lo que existe: no genera pedidos de ejemplo."
-          }
-        />
+        <EmptyState icon={PackageSearch} title={title} description={description} />
+        {hasMore ? (
+          <div className="flex justify-center pb-2">
+            <Button variant="outline" onClick={onLoadMore} disabled={loading}>
+              {loading ? "Cargando…" : "Cargar más pedidos"}
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

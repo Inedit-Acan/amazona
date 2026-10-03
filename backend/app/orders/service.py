@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,7 @@ from app.orders.domain import (
     require_cents,
     validate_customer_ref,
 )
+from app.orders.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, OrderCursor, OrderPageResult
 from app.payments.domain import ACTIVE_PAYMENT_STATUSES
 
 ORDER_ACTOR = "orders"
@@ -227,8 +228,30 @@ class OrderService:
             raise NotFoundError(f"order {order_id} not found")
         return order
 
-    def list(self, *, status: str | None = None, limit: int = 100, offset: int = 0) -> list[Order]:
+    def list_page(
+        self, *, status: str | None = None, limit: int = DEFAULT_PAGE_SIZE, cursor: str | None = None
+    ) -> OrderPageResult:
+        """Una página de pedidos, del más reciente al más antiguo (`created_at DESC, id ASC`: total y determinista), y
+        si hay más. Se piden `limit + 1` filas: la de más no se devuelve, solo dice que existe (`has_more`) y de dónde
+        seguir (`next_cursor`). No hay una forma de listar pedidos que trunque sin decirlo: ver `pagination.py`."""
+        if not 1 <= limit <= MAX_PAGE_SIZE:
+            raise ValidationError(f"limit must be between 1 and {MAX_PAGE_SIZE}")
         query = select(Order).order_by(Order.created_at.desc(), Order.id)
         if status is not None:
             query = query.where(Order.status == status)
-        return list(self._db.scalars(query.limit(limit).offset(offset)))
+        if cursor is not None:
+            after = OrderCursor.decode(cursor)
+            query = query.where(
+                or_(
+                    Order.created_at < after.created_at,
+                    and_(Order.created_at == after.created_at, Order.id > after.order_id),
+                )
+            )
+        rows = list(self._db.scalars(query.limit(limit + 1)))
+        page = rows[:limit]
+        has_more = len(rows) > limit
+        next_cursor = None
+        if has_more:
+            last = page[-1]
+            next_cursor = OrderCursor(created_at=last.created_at, order_id=last.id).encode()
+        return OrderPageResult(orders=page, has_more=has_more, next_cursor=next_cursor)

@@ -1332,6 +1332,17 @@ export interface Order {
   attention_reasons: string[];
 }
 
+/** Una página de `GET /api/orders` (M45, P2-2): los pedidos más recientes primero, y lo que hace falta para no tomarla
+ * por el total. `has_more` dice si existen pedidos más antiguos; `next_cursor` es el valor que se devuelve en `cursor`
+ * para pedir la siguiente (y `null` si no hay más). No hay total: no se calcula. */
+export interface OrderPage {
+  items: Order[];
+  limit: number;
+  count: number;
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
 export interface NewOrderLine {
   product_id: string;
   quantity: number;
@@ -1389,13 +1400,13 @@ export const api = {
     request<OrderFulfillment>(`/api/fulfillments/${fulfillmentId}/fail`, { method: "POST" }),
   cancelOrder: (orderId: string) => request<Order>(`/api/orders/${orderId}/cancel`, { method: "POST" }),
   // Las lecturas no escriben nada (un `GET` no escribe, ADR 0028): son lo que lee el panel Operaciones.
-  listOrders: (options?: { status?: string; limit?: number; offset?: number }) => {
+  listOrders: (options?: { status?: string; limit?: number; cursor?: string }) => {
     const query = new URLSearchParams();
     if (options?.status) query.set("status", options.status);
     if (options?.limit !== undefined) query.set("limit", String(options.limit));
-    if (options?.offset !== undefined) query.set("offset", String(options.offset));
+    if (options?.cursor) query.set("cursor", options.cursor);
     const suffix = query.size > 0 ? `?${query.toString()}` : "";
-    return request<Order[]>(`/api/orders${suffix}`);
+    return request<OrderPage>(`/api/orders${suffix}`);
   },
   getOrder: (orderId: string) => request<Order>(`/api/orders/${orderId}`),
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>

@@ -174,7 +174,8 @@ def test_listing_and_reading_orders(env):
     one = client.get(f"/api/orders/{created['id']}")
     paid = client.get("/api/orders", params={"status": "PAID"}).json()
 
-    assert [o["id"] for o in listed] == [created["id"]] and paid == []
+    assert [o["id"] for o in listed["items"]] == [created["id"]] and paid["items"] == []
+    assert listed["has_more"] is False and listed["next_cursor"] is None, "a page says whether it is the whole list"
     assert one.status_code == 200 and one.json()["id"] == created["id"]
     assert client.get("/api/orders/missing").status_code == 404
     assert client.get("/api/orders", params={"status": "NOPE"}).status_code == 422

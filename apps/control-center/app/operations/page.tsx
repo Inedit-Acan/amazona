@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-server";
-import { type Order } from "@/lib/api";
+import { type OrderPage } from "@/lib/api";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { OPERATIONS_DESCRIPTION, OPERATIONS_TITLE } from "./copy";
@@ -9,26 +9,28 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-/** El máximo que el backend devuelve de una vez (`GET /api/orders?limit=`). */
-const ORDERS_LIMIT = 500;
+/** Cuántos pedidos pide cada página (`GET /api/orders?limit=`): ~0,5 s de backend con 100 (ver ADR 0028, E8). El backend
+ * dice si hay más (`has_more`) y la pantalla lo cuenta; «Cargar más» pide la siguiente con `next_cursor`. */
+const PAGE_SIZE = 100;
 
 export default async function OperationsPage({ searchParams }: PageProps<"/operations">) {
   const params = await searchParams;
 
-  // Lo que se enseña son los pedidos que existen: ni uno generado. Si no hay, la pantalla lo dice.
-  let orders: Order[] = [];
+  // Lo que se enseña son los pedidos que existen: ni uno generado. Si no hay, la pantalla lo dice. Y si hay más de los
+  // que caben en la primera página, también: nunca se toma una página por el total.
+  let firstPage: OrderPage | null = null;
   let error: string | null = null;
   try {
-    orders = await api.listOrders({ limit: ORDERS_LIMIT });
+    firstPage = await api.listOrders({ limit: PAGE_SIZE });
   } catch (err) {
     error = err instanceof Error ? err.message : "Error desconocido";
   }
 
-  if (error) {
+  if (error || firstPage === null) {
     return (
       <div>
         <PageHeader title={OPERATIONS_TITLE} description={OPERATIONS_DESCRIPTION} />
-        <ApiErrorAlert message={error} />
+        <ApiErrorAlert message={error ?? "Error desconocido"} />
       </div>
     );
   }
@@ -42,7 +44,10 @@ export default async function OperationsPage({ searchParams }: PageProps<"/opera
 
   return (
     <OperationsWorkspace
-      orders={orders}
+      initialOrders={firstPage.items}
+      initialHasMore={firstPage.has_more}
+      initialNextCursor={firstPage.next_cursor}
+      pageSize={PAGE_SIZE}
       names={names}
       today={today}
       initialPeriod={first(params.periodo)}

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.auth.actor import Actor
 from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
+from app.core.errors import ValidationError
 from app.db.models.fulfillment import Fulfillment as FulfillmentModel
 from app.db.models.fulfillment import FulfillmentItem as FulfillmentItemModel
 from app.db.models.order import Order as OrderModel
@@ -28,6 +29,7 @@ from app.money.serialization import money_to_json
 from app.orders.attention import attention_reasons
 from app.orders.domain import OrderStatus
 from app.orders.fulfilment import FulfilmentRequestLine, FulfilmentService
+from app.orders.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 from app.orders.payment_attempts import PaymentAttemptService, Requester
 from app.orders.refunds import RefundService
 from app.orders.service import NewOrderLine, OrderService
@@ -187,6 +189,22 @@ class OrderOut(BaseModel):
     attention_reasons: list[str]
 
 
+class OrderPage(BaseModel):
+    """Una página de pedidos y lo que hace falta para no confundirla con el total (M45, P2-2).
+
+    - `count == len(items)` y `count <= limit`.
+    - `has_more` es verdad si existen pedidos más antiguos que el último de `items`; entonces `next_cursor` es el valor
+      que hay que devolver en `cursor` para pedir la siguiente página, y si no, es `null`.
+    - **No hay total**: no se calcula, y un total sobre una tabla que crece mientras se lee sería una cifra que miente.
+      Quien necesite saber «cuántos hay» tiene que recorrerlos (`has_more` hasta `false`) o pedir un agregado."""
+
+    items: list[OrderOut]
+    limit: int
+    count: int
+    has_more: bool
+    next_cursor: str | None
+
+
 def _money(amount: Decimal | float | str, currency: str) -> MoneyOut:
     out = money_to_json(Money(amount=Decimal(str(amount)), currency=currency))
     assert out is not None
@@ -326,15 +344,24 @@ def order_out(db: Session, order: OrderModel) -> OrderOut:
     )
 
 
-@router.get("", response_model=list[OrderOut])
+@router.get("", response_model=OrderPage)
 def list_orders(
     status: OrderStatus | None = None,
-    limit: int = Query(default=100, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    cursor: str | None = Query(default=None, max_length=256),
+    offset: int | None = Query(default=None, include_in_schema=False),
     db: Session = Depends(get_db),
-) -> list[OrderOut]:
-    orders = OrderService(db).list(status=status.value if status else None, limit=limit, offset=offset)
-    return [order_out(db, order) for order in orders]
+) -> OrderPage:
+    """Una página de pedidos, del más reciente al más antiguo. **Nunca trunca sin decirlo**: `has_more` dice si hay
+    más y `next_cursor` es de dónde seguir (se devuelve tal cual en `cursor`). No hay `offset`: cada pedido nuevo
+    entra por arriba y empujaría las páginas (repetiría filas); quien aún lo envíe recibe un 422, no una página mala."""
+    if offset is not None:
+        raise ValidationError("offset is not supported: follow next_cursor of the previous page")
+    page = OrderService(db).list_page(status=status.value if status else None, limit=limit, cursor=cursor)
+    items = [order_out(db, order) for order in page.orders]
+    return OrderPage(
+        items=items, limit=limit, count=len(items), has_more=page.has_more, next_cursor=page.next_cursor
+    )
 
 
 @router.get("/{order_id}", response_model=OrderOut)

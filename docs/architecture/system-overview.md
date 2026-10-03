@@ -1231,7 +1231,7 @@ reservas y solo sale por reconciliación, respuesta tardía o resolución humana
 | `POST /api/fulfillments/{id}/purchase` · `…/ship` | `Idempotency-Key` + `ExternalAction` | `fulfilment.write` |
 | `POST /api/orders/{id}/cancel` · `POST /api/fulfillments/{id}/{complete,cancel,fail}` | por estado (repetir es 409) | `order.write` · `fulfilment.write` |
 | `POST /api/payments/webhooks/{provider}` | firma del proveedor | sin identidad: se autentica la firma |
-| `GET /api/orders` (`status`, `limit` ≤ 500, `offset`) · `GET /api/orders/{id}` | — | `business.read` |
+| `GET /api/orders` (`status`, `limit` ≤ 200, `cursor`; devuelve una **página** `{items, limit, count, has_more, next_cursor}`) · `GET /api/orders/{id}` | — | `business.read` |
 
 No hay `GET` de un cobro, reembolso o fulfillment suelto: se leen dentro del pedido, con su `attention_required` y sus motivos,
 que **se calculan al leer** y nunca se escriben en un `GET`. Un `POST` sin `Idempotency-Key` es un 428 (también en

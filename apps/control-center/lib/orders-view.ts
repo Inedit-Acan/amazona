@@ -1,4 +1,4 @@
-import type { Order, OrderFulfillment, OrderPayment, OrderRefund } from "./api.ts";
+import type { Order, OrderFulfillment, OrderPage, OrderPayment, OrderRefund } from "./api.ts";
 
 // Vista de la pantalla de Operaciones sobre los pedidos REALES de M44 (ADR 0028 §10).
 //
@@ -167,6 +167,85 @@ export const TABS: { key: string; label: string; match: (order: Order) => boolea
 /** Más recientes primero; a igual instante, por id, para que servidor y navegador ordenen igual. */
 export function newestFirst(orders: Order[]): Order[] {
   return [...orders].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || a.id.localeCompare(b.id));
+}
+
+// --- Lo cargado frente a lo que existe -----------------------------------------------------------------------------
+//
+// `GET /api/orders` entrega páginas (M45, P2-2). Esta pantalla solo ve **las que ha cargado**, que son siempre un
+// prefijo del historial —los más recientes—: ninguna cifra calculada sobre ellas es «del total» mientras el backend
+// diga que hay más. Cada cifra es **completa** (cubre todos los pedidos que existen en su ámbito) o **parcial** (solo
+// los cargados), y se enseña como lo que es. Nunca se inventa un total a partir de una muestra.
+
+export interface OrdersLoaded {
+  orders: Order[];
+  /** El backend dice que existen pedidos más antiguos que el último cargado. */
+  hasMore: boolean;
+  /** De dónde sigue la siguiente página; `null` si no hay más. */
+  nextCursor: string | null;
+}
+
+export function loadedFromPage(page: Pick<OrderPage, "items" | "has_more" | "next_cursor">): OrdersLoaded {
+  return { orders: page.items, hasMore: page.has_more, nextCursor: page.next_cursor };
+}
+
+/** Une una página a lo ya cargado. El backend no repite pedidos, pero esta pantalla no lo da por hecho: un pedido ya
+ * presente no se cuenta dos veces, y los pedidos van siempre del más reciente al más antiguo. */
+export function appendPage(
+  loaded: OrdersLoaded,
+  page: Pick<OrderPage, "items" | "has_more" | "next_cursor">,
+): OrdersLoaded {
+  const known = new Set(loaded.orders.map((order) => order.id));
+  const added = page.items.filter((order) => !known.has(order.id));
+  return {
+    orders: newestFirst([...loaded.orders, ...added]),
+    hasMore: page.has_more,
+    nextCursor: page.next_cursor,
+  };
+}
+
+/** `complete`: la cifra cubre **todos** los pedidos del ámbito. `partial`: solo los cargados; hay más sin cargar. */
+export type Coverage = "complete" | "partial";
+
+/** ¿Lo cargado cubre todos los pedidos de este periodo? Con todo cargado, sí. Si no, solo cuando el pedido **más
+ * antiguo** cargado es **anterior** al comienzo del periodo (estrictamente: a igual instante podría haber otro sin
+ * cargar): los pedidos van del más reciente al más antiguo, así que todo lo que cae dentro del periodo ya está. */
+export function periodCoverage(loaded: OrdersLoaded, today: string, days: number | null): Coverage {
+  if (!loaded.hasMore) return "complete";
+  if (days === null || loaded.orders.length === 0) return "partial";
+  const from = startOfDay(today) - (days - 1) * DAY_MS;
+  const oldest = Math.min(...loaded.orders.map((order) => Date.parse(order.created_at)));
+  return oldest < from ? "complete" : "partial";
+}
+
+/** Un contador: «12», o «12+» si hay más pedidos sin cargar (es un mínimo, no un total). */
+export function countText(formatted: string, coverage: Coverage): string {
+  return coverage === "partial" ? `${formatted}+` : formatted;
+}
+
+/** La frase que dice qué se está viendo. Nunca «X de Y»: el total no se conoce. */
+export function loadedSummary(count: number, hasMore: boolean): string {
+  const noun = count === 1 ? "pedido" : "pedidos";
+  return hasMore
+    ? `Mostrando ${count} ${noun} · hay más resultados sin cargar`
+    : `${count} ${noun} · son todos los que existen`;
+}
+
+/** Lo que se avisa en una cifra parcial. */
+export const PARTIAL_FIGURE_NOTE = "Solo de los pedidos cargados; hay más sin cargar";
+
+/** Qué le pasó a la petición de una página, dicho con las palabras de cada causa: un fallo del backend no es una
+ * petición inválida, y ninguna de las dos es una página vacía. */
+export function pageErrorText(status: number | undefined, message: string): string {
+  if (status === 400 || status === 422) {
+    return "El backend rechazó la petición de la siguiente página por no ser válida. Recarga la pantalla para empezar de nuevo.";
+  }
+  if (status === 401 || status === 403) {
+    return "No tienes permiso para leer más pedidos, o la sesión ha caducado.";
+  }
+  if (status === undefined) {
+    return `No se pudo contactar con el backend: ${message}`;
+  }
+  return `El backend falló al leer la siguiente página (HTTP ${status}). Lo ya cargado no se ha perdido: puedes reintentar.`;
 }
 
 // --- Cifras ---------------------------------------------------------------------------------------------------
