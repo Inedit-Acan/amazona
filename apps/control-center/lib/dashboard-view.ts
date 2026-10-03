@@ -1,35 +1,25 @@
 import type { Agent } from "./api.ts";
 import type { AgentCardView } from "./agents-view.ts";
 import type { ApprovalRequest } from "./approvals-view.ts";
-import type { Pnl } from "./cfo-view.ts";
 import type { RequestKind, Severity } from "./demo/approvals.ts";
-import type { Order } from "./operations-view.ts";
-import { startOfDay } from "./operations-view.ts";
 import type { Level, ResearchRow, Risk } from "./research-view.ts";
 
 // Vista del Panel (mockup docs/design/«dashboard inicial.png»). El Panel no tiene
 // datos propios: es el resumen de las demás pantallas, así que aquí no se calcula
-// nada nuevo, solo se elige y se da forma a lo que ya calculan sus libs. Ventas y
-// beneficio salen del mismo P&L que Finanzas (`lib/cfo-view.ts`), la actividad de
-// los agentes de Agentes (`lib/agents-view.ts`), las decisiones de Aprobaciones
-// (`lib/approvals-view.ts`), las oportunidades de Investigación
-// (`lib/research-view.ts`) y la serie de 30 días de los pedidos de Operaciones
-// (`lib/operations-view.ts`). Si una cifra no cuadra con su pantalla, el fallo
-// está en la lib de origen, no aquí.
-
-const DAY_MS = 86_400_000;
-/** Días del mes que cubre el P&L de Finanzas (su unidad es el mes). */
-const PNL_DAYS = 30;
-const round2 = (value: number) => Math.round(value * 100) / 100;
+// nada nuevo, solo se elige y se da forma a lo que ya calculan sus libs: la actividad
+// de los agentes de Agentes (`lib/agents-view.ts`), las decisiones de Aprobaciones
+// (`lib/approvals-view.ts`) y las oportunidades de Investigación
+// (`lib/research-view.ts`). Si una cifra no cuadra con su pantalla, el fallo está en
+// la lib de origen, no aquí.
+//
+// Los INGRESOS ya no están aquí (M45): salen del registro de ingresos verificados y
+// los da `lib/revenue-view.ts`. Las ventas y el beneficio que antes se modelaban a
+// partir del P&L de Finanzas y de pedidos de demostración se retiraron del Panel:
+// AMAZONA no factura, y un modelo no se enseña como si fuera una medición.
 
 // --- KPIs de cabecera ---------------------------------------------------------------
 
 export interface DashboardKpis {
-  /** Ingresos y beneficio neto del mes, del mismo P&L que Finanzas. */
-  sales: number;
-  salesDelta: number | null;
-  profit: number;
-  profitDelta: number | null;
   /** Agentes registrados y cuántos no están fuera de servicio (real). */
   agentsOnline: number;
   agentsTotal: number;
@@ -39,20 +29,11 @@ export interface DashboardKpis {
   realDecisions: number;
 }
 
-export function dashboardKpis(input: {
-  pnl: Pnl;
-  previousPnl: Pnl;
-  agents: Pick<Agent, "status">[];
-  requests: ApprovalRequest[];
-}): DashboardKpis {
-  const { pnl, previousPnl, agents, requests } = input;
+export function dashboardKpis(input: { agents: Pick<Agent, "status">[]; requests: ApprovalRequest[] }): DashboardKpis {
+  const { agents, requests } = input;
   const online = agents.filter((agent) => agent.status !== "OFFLINE").length;
   const pending = requests.filter((request) => request.status === "PENDING");
   return {
-    sales: pnl.revenue,
-    salesDelta: previousPnl.revenue > 0 ? pnl.revenue / previousPnl.revenue - 1 : null,
-    profit: pnl.net,
-    profitDelta: previousPnl.net > 0 ? pnl.net / previousPnl.net - 1 : null,
     agentsOnline: online,
     agentsTotal: agents.length,
     agentsRatio: agents.length > 0 ? online / agents.length : 0,
@@ -198,45 +179,5 @@ export function opportunityRows(rows: ResearchRow[], depths: ProductDepth[], lim
       stage: depth ? opportunityStage(depth) : "En observación",
       signalsAreDemo: row.isDemo,
     };
-  });
-}
-
-// --- Ventas y margen de los últimos 30 días -----------------------------------------
-
-export interface SalesPoint {
-  /** Índice 0…days-1; `days-1` es hoy. */
-  x: number;
-  at: number;
-  sales: number;
-  /** Margen operativo del día (fracción). */
-  marginPct: number;
-}
-
-/** Ventas por día: los pedidos de Operaciones dan la FORMA (qué días se vendió
- * más) y el P&L de Finanzas el NIVEL. El P&L es mensual, así que una ventana de
- * `days` días vale su parte proporcional: a 30 días la gráfica suma exactamente
- * los ingresos del KPI y de Finanzas. El margen de cada día sale del mismo P&L:
- * los costes variables van con las ventas y los operativos son fijos, así que un
- * día de más ventas deja más margen. Es un modelo, no una medición: AMAZONA no
- * factura. */
-export function salesSeries(orders: Order[], pnl: Pnl, today: string, days: number): SalesPoint[] {
-  const end = startOfDay(today);
-  const from = end - (days - 1) * DAY_MS;
-  const byDay = new Map<number, number>();
-  let total = 0;
-  for (const order of orders) {
-    if (order.createdAt < from || order.createdAt > end) continue;
-    byDay.set(order.createdAt, (byDay.get(order.createdAt) ?? 0) + order.amount);
-    total += order.amount;
-  }
-  const windowRevenue = (pnl.revenue * days) / PNL_DAYS;
-  const variableRate = pnl.revenue > 0 ? pnl.cogs / pnl.revenue : 0;
-  const fixedPerDay = pnl.operatingCosts / PNL_DAYS;
-  return Array.from({ length: days }, (_, x) => {
-    const at = from + x * DAY_MS;
-    // Sin pedidos en la ventana, se reparte a partes iguales.
-    const share = total > 0 ? (byDay.get(at) ?? 0) / total : 1 / days;
-    const sales = round2(windowRevenue * share);
-    return { x, at, sales, marginPct: sales > 0 ? Math.max(0, 1 - variableRate - fixedPerDay / sales) : 0 };
   });
 }

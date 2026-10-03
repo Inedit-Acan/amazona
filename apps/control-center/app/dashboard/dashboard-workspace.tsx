@@ -1,77 +1,56 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
-import { ArrowDown, ArrowUp, Bot, ClipboardCheck, Coins, Plus, Wallet } from "lucide-react";
-import type { Agent, AgentExecution, Approval, PipelineReview, Product, SupplierQuoteDetail } from "@/lib/api";
+import { Bot, ClipboardCheck, Coins, Plus, ReceiptText, Scale } from "lucide-react";
+import type {
+  Agent,
+  AgentExecution,
+  Approval,
+  PipelineReview,
+  Product,
+  RevenueEntriesPage,
+  RevenueSeries,
+  RevenueSummary,
+} from "@/lib/api";
 import { teamOf } from "@/lib/agents";
 import { agentCards } from "@/lib/agents-view";
 import { demoRequests, requestFromApproval, requestFromReview, type ApprovalRequest } from "@/lib/approvals-view";
-import { buildPnl, monthFactor, scalePnl, withDeltas, type ProductFinance } from "@/lib/cfo-view";
-import {
-  activityRows,
-  dashboardKpis,
-  decisionRows,
-  opportunityRows,
-  salesSeries,
-  type ProductDepth,
-} from "@/lib/dashboard-view";
+import { activityRows, dashboardKpis, decisionRows, opportunityRows, type ProductDepth } from "@/lib/dashboard-view";
 import { demoExecutions } from "@/lib/demo/agents";
-import { DEMO_SALE } from "@/lib/demo/economics";
-import { demoQuotes } from "@/lib/demo/sourcing";
-import { demoSku } from "@/lib/demo/storefront";
 import { buildBaseline } from "@/lib/economics-baseline";
 import { dedupeQuotesBySupplier } from "@/lib/economics";
 import { evaluate } from "@/lib/economics-model";
-import { formatEuro, formatInteger, formatPercent } from "@/lib/format";
-import { buildOrders, type ProductInput, type SupplierInput } from "@/lib/operations-view";
+import { formatInteger, formatPercent } from "@/lib/format";
+import { type RevenueWindow } from "@/lib/revenue-query";
+import { periodLabel, revenueKpis, type KpiText, type Settled } from "@/lib/revenue-view";
 import { buildRows } from "@/lib/research-view";
-import { rankSuppliers } from "@/lib/sourcing-view";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { HeaderClock } from "@/components/header-clock";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
-import { Sparkline } from "@/components/sparkline";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import type { DashboardProductData } from "./page";
 import { DASHBOARD_DESCRIPTION, DASHBOARD_TITLE } from "./copy";
-import { ActivityCard, DecisionsCard, OpportunitiesCard, SalesMarginCard } from "./dashboard-panels";
+import { ActivityCard, DecisionsCard, OpportunitiesCard } from "./dashboard-panels";
+import {
+  OutsideVerifiedCard,
+  PeriodSelect,
+  RevenueBreakdownCard,
+  RevenueEntriesCard,
+  RevenueSeriesCard,
+} from "./revenue-panels";
 
 const DEMO_TOOLTIP =
-  "Incluye datos de demostración: AMAZONA no factura, no recibe pedidos ni tiene contabilidad, así que las ventas, el beneficio y la serie de 30 días son el modelo de Finanzas y Operaciones, no una medición. La tarea en curso de cada agente y las solicitudes de decisión que no vienen del backend también lo son. Real: los productos del catálogo y sus análisis (de ahí salen el margen y la fase de cada oportunidad), los agentes registrados con su estado, el log de ejecuciones y las aprobaciones y revisiones de pipeline pendientes.";
+  "Incluye datos de demostración: la tarea en curso de cada agente, las solicitudes de decisión que no vienen del backend y las señales de mercado de las oportunidades. Del backend: los ingresos (de su registro de hechos de pago verificados), los productos del catálogo y sus análisis, los agentes registrados con su estado, el log de ejecuciones y las aprobaciones y revisiones de pipeline pendientes. El Panel ya no enseña ventas ni beneficio modelados: el margen y el beneficio esperan a una fuente que el backend pueda demostrar (Finanzas).";
 
-const PERIODS = [7, 14, 30];
+/** Qué demuestra el backend detrás de las cifras de ingresos, y qué NO demuestra. */
+const LEDGER_TOOLTIP =
+  "Hechos de pago verificados y registrados por el backend (ADR 0030): no es un modelo ni una estimación. No dice si la operación fue simulada — el registro todavía no guarda esa procedencia.";
+
 const ACTIVITY_LIMIT = 5;
 const DECISION_LIMIT = 4;
 const OPPORTUNITY_LIMIT = 5;
-
-function quoteToSupplier(quote: SupplierQuoteDetail, isDemo: boolean): SupplierInput {
-  return {
-    id: quote.supplier_id,
-    name: quote.data?.name ?? quote.supplier_id,
-    region: quote.data?.region ?? "eu",
-    // Milestone 39: lo que nadie ha dicho llega como `null`. Aquí se degrada a
-    // un valor neutro porque estas vistas resumen, no deciden; la pantalla de
-    // Proveedores es la que enseña el hueco.
-    leadTimeDays: quote.lead_time_days ?? 0,
-    reliability: quote.supplier?.reliability_score ?? 0,
-    verified: quote.supplier?.verification === "third_party_verified",
-    isDemo,
-  };
-}
-
-function Delta({ value }: { value: number | null }) {
-  if (value === null) return <span className="text-xs text-muted-foreground">Sin periodo anterior</span>;
-  const Icon = value >= 0 ? ArrowUp : ArrowDown;
-  return (
-    <span className={cn("flex items-center gap-1 text-xs", value >= 0 ? "text-primary" : "text-warning")}>
-      <Icon className="size-3 shrink-0" />
-      {value >= 0 ? "+" : "−"}
-      {formatPercent(Math.abs(value), 1)}
-    </span>
-  );
-}
 
 /** Barras de ejecuciones por día (los siete días de la tarjeta de agentes). */
 function RunBars({ values }: { values: number[] }) {
@@ -85,6 +64,47 @@ function RunBars({ values }: { values: number[] }) {
   );
 }
 
+const iconBox = (icon: React.ReactNode) => (
+  <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background/40">{icon}</span>
+);
+
+/** Una cifra de ingresos: el valor y su pie salen tal cual de `lib/revenue-view.ts`; si la lectura falló, se dice. */
+function RevenueKpi({
+  label,
+  icon,
+  summary,
+  pick,
+  tooltip,
+  accent = false,
+  tone = "default",
+}: {
+  label: string;
+  icon: React.ReactNode;
+  summary: Settled<RevenueSummary>;
+  pick: (kpis: ReturnType<typeof revenueKpis>) => KpiText;
+  tooltip: string;
+  accent?: boolean;
+  tone?: "default" | "warning";
+}) {
+  if (!summary.ok) {
+    return <KpiCard label={label} value="No disponible" leading={iconBox(icon)} caption={summary.message} tone="danger" />;
+  }
+  const text = pick(revenueKpis(summary.data));
+  return (
+    <KpiCard
+      label={label}
+      value={text.value}
+      leading={iconBox(icon)}
+      caption={text.caption}
+      accent={accent && !text.isNoData}
+      tone={tone}
+      provenance="ledger"
+      provenanceCompact
+      provenanceTooltip={tooltip}
+    />
+  );
+}
+
 export function DashboardWorkspace({
   data,
   products,
@@ -93,7 +113,8 @@ export function DashboardWorkspace({
   approvals,
   reviews,
   now,
-  today,
+  days,
+  revenue,
 }: {
   data: DashboardProductData[];
   products: Product[];
@@ -102,67 +123,15 @@ export function DashboardWorkspace({
   approvals: Approval[];
   reviews: PipelineReview[];
   now: number;
-  today: string;
+  /** Periodo de los ingresos (7, 14 o 30 días): lo elige la URL y lo lee el servidor. */
+  days: number;
+  revenue: {
+    window: RevenueWindow;
+    summary: Settled<RevenueSummary>;
+    series: Settled<RevenueSeries>;
+    entries: Settled<RevenueEntriesPage>;
+  };
 }) {
-  const [days, setDays] = useState(() => {
-    if (typeof window === "undefined") return 30;
-    const value = Number(new URLSearchParams(window.location.search).get("dias"));
-    return PERIODS.includes(value) ? value : 30;
-  });
-
-  // El periodo del gráfico sobrevive a una recarga sin volver al servidor.
-  const changeDays = useCallback((value: number) => {
-    setDays(value);
-    const url = new URL(window.location.href);
-    url.searchParams.set("dias", String(value));
-    window.history.replaceState(null, "", url);
-  }, []);
-
-  // Mismos supuestos que Economía y Finanzas: cotización real (o la que
-  // recomienda Proveedores) y último análisis económico de cada producto.
-  const finances = useMemo<ProductFinance[]>(
-    () =>
-      data.map(({ product, economics, quotes }) => {
-        const analysis = economics[0];
-        const options = dedupeQuotesBySupplier(quotes, analysis?.supplier_quote_id);
-        const quote = options.find((q) => q.id === analysis?.supplier_quote_id) ?? options[0];
-        return {
-          id: product.id,
-          name: product.name,
-          category: product.category,
-          inputs: buildBaseline(quote, analysis).inputs,
-          analysis,
-          isDemo: !analysis,
-        };
-      }),
-    [data],
-  );
-
-  // Los mismos pedidos que Operaciones y Finanzas.
-  const orderProducts = useMemo<ProductInput[]>(
-    () =>
-      data.map(({ product, economics, quotes }) => {
-        const real = quotes.length > 0;
-        const ranked = rankSuppliers(real ? dedupeQuotesBySupplier(quotes) : demoQuotes(product.id));
-        return {
-          id: product.id,
-          name: product.name,
-          sku: demoSku(product.category, product.id),
-          price: economics[0]?.sale_price ?? DEMO_SALE.salePrice,
-          suppliers: ranked.slice(0, 3).map((r) => quoteToSupplier(r.quote, !real)),
-        };
-      }),
-    [data],
-  );
-
-  const orders = useMemo(() => buildOrders(orderProducts, today), [orderProducts, today]);
-  const basePnl = useMemo(() => buildPnl(finances), [finances]);
-  const previousPnl = useMemo(() => scalePnl(basePnl, monthFactor(-1, "revenue"), monthFactor(-1, "costs")), [basePnl]);
-  const pnl = useMemo(
-    () => withDeltas(scalePnl(basePnl, monthFactor(0, "revenue"), monthFactor(0, "costs")), previousPnl),
-    [basePnl, previousPnl],
-  );
-
   // Mismo criterio que Agentes: si el log está vacío se usan las ejecuciones de
   // demostración, para que las dos pantallas cuenten lo mismo.
   const usingDemoRuns = executions.length === 0;
@@ -185,25 +154,29 @@ export function DashboardWorkspace({
   );
 
   // El margen es el mismo que enseña Economía: el del modelo sobre los supuestos
-  // del producto, no el `margin_percent` del análisis (que ninguna otra pantalla usa).
+  // del producto (cotización real o la que recomienda Proveedores, y el último
+  // análisis económico). Es una ESTIMACIÓN del modelo, no un margen medido.
   const depths = useMemo<ProductDepth[]>(
     () =>
-      data.map(({ product, quotes, economics, legal, storefronts, campaigns }, index) => ({
-        productId: product.id,
-        quotes: quotes.length,
-        economics: economics.length,
-        legal: legal.length,
-        storefronts: storefronts.length,
-        campaigns: campaigns.length,
-        marginPct: finances[index] ? evaluate(finances[index].inputs).contributionMargin : null,
-        marginIsReal: economics.length > 0,
-      })),
-    [data, finances],
+      data.map(({ product, quotes, economics, legal, storefronts, campaigns }) => {
+        const analysis = economics[0];
+        const options = dedupeQuotesBySupplier(quotes, analysis?.supplier_quote_id);
+        const quote = options.find((q) => q.id === analysis?.supplier_quote_id) ?? options[0];
+        return {
+          productId: product.id,
+          quotes: quotes.length,
+          economics: economics.length,
+          legal: legal.length,
+          storefronts: storefronts.length,
+          campaigns: campaigns.length,
+          marginPct: evaluate(buildBaseline(quote, analysis).inputs).contributionMargin,
+          marginIsReal: economics.length > 0,
+        };
+      }),
+    [data],
   );
 
-  const kpis = useMemo(() => dashboardKpis({ pnl, previousPnl, agents, requests }), [pnl, previousPnl, agents, requests]);
-  const series = useMemo(() => salesSeries(orders, pnl, today, days), [orders, pnl, today, days]);
-  const monthSeries = useMemo(() => salesSeries(orders, pnl, today, 30), [orders, pnl, today]);
+  const kpis = useMemo(() => dashboardKpis({ agents, requests }), [agents, requests]);
   const research = useMemo(() => buildRows(products, []), [products]);
   const opportunities = useMemo(() => opportunityRows(research, depths, OPPORTUNITY_LIMIT), [research, depths]);
   const activity = useMemo(() => activityRows(cards, ACTIVITY_LIMIT), [cards]);
@@ -219,6 +192,8 @@ export function DashboardWorkspace({
     });
   }, [runs, now]);
 
+  const period = periodLabel(days);
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -226,7 +201,9 @@ export function DashboardWorkspace({
         description={DASHBOARD_DESCRIPTION}
         actions={
           <>
+            <DataProvenanceBadge status="ledger" tooltip={LEDGER_TOOLTIP} />
             <DataProvenanceBadge status="demo" tooltip={DEMO_TOOLTIP} />
+            <PeriodSelect days={days} />
             <HeaderClock />
             <Button nativeButton={false} render={<Link href="/ceo" />}>
               <Plus /> Nuevo objetivo
@@ -235,33 +212,34 @@ export function DashboardWorkspace({
         }
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Indicadores del negocio">
-        <KpiCard
-          label="Ventas"
-          value={formatEuro(kpis.sales, 0)}
-          leading={<span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background/40"><Coins className="size-5 text-primary" /></span>}
-          trailing={<Sparkline values={monthSeries.map((point) => point.sales)} width={72} height={30} />}
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Indicadores del negocio">
+        <RevenueKpi
+          label={`Ingresos verificados · ${period}`}
+          icon={<Coins className="size-5 text-primary" />}
+          summary={revenue.summary}
+          pick={(k) => k.verified}
           accent
-          footer={<Delta value={kpis.salesDelta} />}
-          provenance="demo"
-          provenanceCompact
-          provenanceTooltip="Ingresos del mes del mismo P&L que Finanzas, calculado sobre los análisis económicos reales de cada producto. AMAZONA no factura: es un modelo, no una medición."
+          tooltip="Cobros verificados del registro de ingresos, en EUR (la única moneda consolidada). Otras monedas se enseñan aparte y nunca se suman. Sin entradas en EUR el valor es «Sin datos», no 0."
         />
-        <KpiCard
-          label="Beneficio estimado"
-          value={formatEuro(kpis.profit, 0)}
-          leading={<span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background/40"><Wallet className="size-5 text-primary" /></span>}
-          trailing={<Sparkline values={monthSeries.map((point) => point.sales * point.marginPct)} width={72} height={30} />}
-          accent
-          footer={<Delta value={kpis.profitDelta} />}
-          provenance="demo"
-          provenanceCompact
-          provenanceTooltip="Beneficio neto del mismo P&L que Finanzas, después de costes e impuestos simulados."
+        <RevenueKpi
+          label={`En revisión · ${period}`}
+          icon={<Scale className="size-5 text-primary" />}
+          summary={revenue.summary}
+          pick={(k) => k.underReview}
+          tone="warning"
+          tooltip="Dinero recibido como duplicado o con discrepancia y aún sin resolver, en EUR. No suma a lo verificado ni se compensa con ello."
+        />
+        <RevenueKpi
+          label={`Evidencia pendiente · ${period}`}
+          icon={<ReceiptText className="size-5 text-primary" />}
+          summary={revenue.summary}
+          pick={(k) => k.pending}
+          tooltip="Eventos de pago (cobros o reembolsos) que no se pudieron asentar. No son ingreso ni reembolso y no entran en ningún total."
         />
         <KpiCard
           label="Agentes en línea"
           value={`${kpis.agentsOnline} / ${kpis.agentsTotal}`}
-          leading={<span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background/40"><Bot className="size-5 text-primary" /></span>}
+          leading={iconBox(<Bot className="size-5 text-primary" />)}
           trailing={<RunBars values={runsPerDay} />}
           caption={`${formatPercent(kpis.agentsRatio, 0)} operativos`}
           provenance="verified"
@@ -271,7 +249,7 @@ export function DashboardWorkspace({
         <KpiCard
           label="Aprobaciones pendientes"
           value={formatInteger(kpis.pendingDecisions)}
-          leading={<span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background/40"><ClipboardCheck className="size-5 text-primary" /></span>}
+          leading={iconBox(<ClipboardCheck className="size-5 text-primary" />)}
           tone={kpis.pendingDecisions > 0 ? "warning" : "default"}
           caption={
             kpis.realDecisions > 0
@@ -298,9 +276,18 @@ export function DashboardWorkspace({
         </div>
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-2" aria-label="Oportunidades y ventas">
+      <section className="grid gap-3 lg:grid-cols-2" aria-label="Oportunidades e ingresos por día">
         <OpportunitiesCard rows={opportunities} />
-        <SalesMarginCard points={series} days={days} onDaysChange={changeDays} salesDelta={kpis.salesDelta} />
+        <RevenueSeriesCard key={revenue.window.from} series={revenue.series} window={revenue.window} days={days} />
+      </section>
+
+      <section className="grid gap-3 lg:grid-cols-2" aria-label="Ingresos por moneda y dinero fuera de lo verificado">
+        <RevenueBreakdownCard summary={revenue.summary} days={days} />
+        <OutsideVerifiedCard summary={revenue.summary} days={days} />
+      </section>
+
+      <section aria-label="Entradas del registro de ingresos">
+        <RevenueEntriesCard key={revenue.window.from} initial={revenue.entries} window={revenue.window} days={days} />
       </section>
     </div>
   );

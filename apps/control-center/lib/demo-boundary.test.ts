@@ -64,8 +64,23 @@ const ALLOWED = [
   "lib/storefront-view.ts",
 ];
 
-/** El núcleo: nada de esto puede depender jamás de datos inventados. */
-const NEVER = ["lib/api.ts", "lib/auth.ts", "lib/format.ts", "lib/dates.ts", "lib/utils.ts"];
+/** El núcleo: nada de esto puede depender jamás de datos inventados.
+ *
+ * M45: los ingresos del Panel salen del registro de ingresos verificados (ADR 0030) y son lo primero que cruza la
+ * frontera hacia el lado medido. Sus módulos entran aquí para que ninguno pueda volver a importar `lib/demo`. El
+ * resto de la frontera de ese Panel (sin P&L modelado, solo lectura, etiquetas REAL) la fija
+ * `dashboard-revenue-boundary.test.ts`. */
+const NEVER = [
+  "lib/api.ts",
+  "lib/auth.ts",
+  "lib/format.ts",
+  "lib/dates.ts",
+  "lib/utils.ts",
+  "lib/revenue-query.ts",
+  "lib/revenue-view.ts",
+  "components/revenue-bars.tsx",
+  "app/dashboard/revenue-panels.tsx",
+];
 
 function sourceFiles(directory: string): string[] {
   const found: string[] = [];

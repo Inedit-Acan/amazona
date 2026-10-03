@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Building2, Clock, FlaskConical, ShieldCheck, Sparkles } from "lucide-react";
+import { Building2, Clock, Database, FlaskConical, ShieldCheck, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -7,12 +7,23 @@ import { cn } from "@/lib/utils";
 /** The 4 data-provenance states every panel must distinguish — never
  * present an estimate as a confirmed fact (docs/design/
  * AMAZONA_sistema_de_diseno_visual.md §3). */
-export type DataProvenance = "verified" | "third_party" | "estimated" | "pending" | "demo";
+export type DataProvenance = "ledger" | "verified" | "third_party" | "estimated" | "pending" | "demo";
 
 const PROVENANCE_CONFIG: Record<
   DataProvenance,
   { label: string; short: string; description: string; icon: ComponentType<{ className?: string }>; className: string }
 > = {
+  // M45: lo que el backend registró como hecho de pago verificado (ADR 0030). Dice QUÉ demuestra el backend, no de
+  // dónde salió el dinero: el registro todavía no guarda esa procedencia, así que esta etiqueta nunca puede leerse
+  // como «dinero que se movió fuera del simulador» (decisión del propietario, 2026-10-03).
+  ledger: {
+    label: "Registro verificado",
+    short: "Registro",
+    description:
+      "El backend tiene este hecho de pago o reembolso verificado y registrado: no es un modelo ni una estimación. No dice si la operación fue simulada — el registro todavía no guarda esa procedencia.",
+    icon: Database,
+    className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+  },
   verified: {
     label: "Verificado",
     short: "Verificado",

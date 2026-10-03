@@ -1,6 +1,8 @@
 import { api } from "@/lib/api-server";
 import { type Agent, type AgentExecution, type Approval, type EconomicAnalysis, type LegalAnalysis, type MarketingCampaign, type PipelineReview, type Product, type Storefront, type SupplierQuoteDetail } from "@/lib/api";
 import { projectCodeFor } from "@/lib/projects-view";
+import { parseRevenueDays, REVENUE_ENTRIES_PAGE_SIZE, revenueWindow } from "@/lib/revenue-query";
+import { settle } from "@/lib/revenue-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { DASHBOARD_DESCRIPTION, DASHBOARD_TITLE } from "./copy";
@@ -24,7 +26,8 @@ export interface DashboardProductData {
   depth: number;
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: PageProps<"/dashboard">) {
+  const params = await searchParams;
   let products: Product[] = [];
   let error: string | null = null;
 
@@ -33,6 +36,17 @@ export default async function DashboardPage() {
   } catch (err) {
     error = err instanceof Error ? err.message : "Error desconocido";
   }
+
+  // Los ingresos salen del registro de ingresos verificados (ADR 0030) y son tres lecturas de solo lectura. Cada una
+  // devuelve su dato o su error: un fallo se enseña como fallo y NUNCA se sustituye por datos de demostración.
+  const now = new Date().getTime();
+  const days = parseRevenueDays(params.dias);
+  const span = revenueWindow(now, days);
+  const [summary, series, entries] = await Promise.all([
+    settle(() => api.revenueSummary(span)),
+    settle(() => api.revenueSeries(span, "day")),
+    settle(() => api.revenueEntries({ window: span, limit: REVENUE_ENTRIES_PAGE_SIZE })),
+  ]);
 
   // Todo lo demás es opcional: el Panel resume lo que haya y declara lo que falte.
   const [agents, executions, approvals, reviews] = await Promise.all([
@@ -74,12 +88,8 @@ export default async function DashboardPage() {
     );
   }
 
-  // El día y el instante se fijan en el servidor: los pedidos, los meses y las
-  // solicitudes de demostración son deterministas a partir de ellos, así que el
-  // cliente hidrata exactamente lo mismo.
-  const now = new Date().getTime();
-  const today = new Date(now).toISOString().slice(0, 10);
-
+  // El instante (`now`) se fija en el servidor: las solicitudes de demostración son deterministas a partir de él, así
+  // que el cliente hidrata exactamente lo mismo.
   return (
     <DashboardWorkspace
       data={data}
@@ -89,7 +99,8 @@ export default async function DashboardPage() {
       approvals={approvals}
       reviews={reviews}
       now={now}
-      today={today}
+      days={days}
+      revenue={{ window: span, summary, series, entries }}
     />
   );
 }

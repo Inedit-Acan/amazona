@@ -1,4 +1,5 @@
 import { IDEMPOTENCY_HEADER, withIdempotencyKey } from "@/lib/idempotency";
+import { revenuePath, type RevenueWindow } from "@/lib/revenue-query";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -1343,6 +1344,114 @@ export interface OrderPage {
   next_cursor: string | null;
 }
 
+// --- Registro de ingresos verificados (M45, ADR 0030): solo lectura -----------------------------------------------------
+//
+// Los importes llegan como TEXTO exacto de 4 decimales (`"1234.5600"`), nunca como número JSON: se dejan como texto y se
+// formatean sin pasar por `float` (`lib/revenue-view.ts`). Ninguna respuesta lleva margen, beneficio, coste, impuestos,
+// IVA/OSS, caja ni comisiones, y todas dicen en `scope` que no son contabilidad.
+
+/** Texto decimal exacto, p. ej. `"1234.5600"` (puede ser negativo en un neto). */
+export type DecimalText = string;
+
+export interface RevenueScope {
+  is_accounting_ledger: boolean;
+  basis: string;
+  /** Lo que estas cifras NO contienen ni calculan. */
+  excludes: string[];
+}
+
+export interface RevenueVerifiedRow {
+  currency: string;
+  revenue: DecimalText;
+  refunds: DecimalText;
+  net: DecimalText;
+  captures: number;
+  refund_count: number;
+}
+
+export interface RevenueUnderReviewRow {
+  currency: string;
+  /** `DUPLICATE_RECEIPT` o `MISMATCH_RECEIPT`: dinero en revisión, nunca suma a lo verificado. */
+  classification: string;
+  received: DecimalText;
+  refunded: DecimalText;
+  outstanding: DecimalText;
+  receipts: number;
+  refund_count: number;
+}
+
+export interface RevenueEvidenceTotal {
+  currency: string;
+  event_type: string;
+  count: number;
+  amount: DecimalText;
+}
+
+export interface RevenueConsolidatedEur {
+  currency: string;
+  revenue: DecimalText;
+  refunds: DecimalText;
+  net: DecimalText;
+  under_review_outstanding: DecimalText;
+}
+
+export interface RevenueSummary {
+  period: Record<string, string | null>;
+  entries: number;
+  verified: RevenueVerifiedRow[];
+  under_review: RevenueUnderReviewRow[];
+  /** Eventos de dinero sin asentar (`CONFLICT`, `UNMATCHED`): ni ingreso ni reembolso, fuera de todo total. */
+  pending_evidence: { count: number; by_currency: RevenueEvidenceTotal[] };
+  /** Solo EUR. `null` = no hay ninguna entrada en EUR en el periodo («Sin datos», nunca un 0). */
+  consolidated_eur: RevenueConsolidatedEur | null;
+  non_aggregable_currencies: { currency: string; reason: string }[];
+  scope: RevenueScope;
+}
+
+export interface RevenueSeriesBucket {
+  /** `YYYY-MM-DD` (día UTC) o `YYYY-MM` (mes). Solo existen los cubos con entradas. */
+  bucket: string;
+  currency: string;
+  revenue: DecimalText;
+  refunds: DecimalText;
+  net: DecimalText;
+  under_review_received: DecimalText;
+  under_review_refunded: DecimalText;
+  entries: number;
+}
+
+export interface RevenueSeries {
+  granularity: string;
+  period: Record<string, string | null>;
+  buckets: RevenueSeriesBucket[];
+  scope: RevenueScope;
+}
+
+export interface RevenueEntry {
+  id: string;
+  /** `CAPTURE` o `REFUND`. */
+  kind: string;
+  /** `ORDER_PAYMENT` (verificado), `DUPLICATE_RECEIPT` o `MISMATCH_RECEIPT` (en revisión). */
+  classification: string;
+  payment_event_id: string;
+  payment_id: string;
+  order_id: string;
+  refund_id: string | null;
+  capture_entry_id: string | null;
+  amount: DecimalText;
+  currency: string;
+  occurred_at: string;
+  recorded_at: string;
+}
+
+/** Una página de `GET /api/revenue/entries`: de la más reciente a la más antigua. `has_more` dice si hay más y
+ * `next_cursor` es el valor que se devuelve en `cursor` para la siguiente. No hay total: no se calcula. */
+export interface RevenueEntriesPage {
+  items: RevenueEntry[];
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
 export interface NewOrderLine {
   product_id: string;
   quantity: number;
@@ -1409,6 +1518,29 @@ export const api = {
     return request<OrderPage>(`/api/orders${suffix}`);
   },
   getOrder: (orderId: string) => request<Order>(`/api/orders/${orderId}`),
+  // Registro de ingresos verificados (ADR 0030): solo `GET`. Ninguna de estas llamadas escribe ni lleva clave de
+  // idempotencia; el Panel las usa tal cual, sin sustituir un error por datos de demostración.
+  revenueSummary: (window?: RevenueWindow) => request<RevenueSummary>(revenuePath("summary", { ...window })),
+  revenueSeries: (window?: RevenueWindow, granularity: "day" | "month" = "day") =>
+    request<RevenueSeries>(revenuePath("series", { ...window, granularity })),
+  revenueEntries: (options?: {
+    window?: RevenueWindow;
+    cursor?: string;
+    limit?: number;
+    currency?: string;
+    classification?: string;
+    kind?: string;
+  }) =>
+    request<RevenueEntriesPage>(
+      revenuePath("entries", {
+        ...options?.window,
+        cursor: options?.cursor,
+        limit: options?.limit,
+        currency: options?.currency,
+        classification: options?.classification,
+        kind: options?.kind,
+      }),
+    ),
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
   runObjective: (objectiveId: string, options?: Keyed) =>
