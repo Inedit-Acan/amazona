@@ -128,3 +128,13 @@ Un presupuesto autorizado en cada entorno real; el medio para liberar reservas h
 idempotente hacia el proveedor, estable entre reintentos ([ADR 0011](adr-0011-action-gate.md),
 enmienda) —ambos ya resueltos en la [ADR 0024](adr-0024-external-actions-lifecycle-and-unknown-outcome.md)—; y que los adaptadores que ejecuten acciones declaren su coste (`0` con procedencia, o un
 importe) en lugar de dejarlo en `None`.
+
+## Enmienda (Milestone 45): el ingreso tiene su propio registro; el margen es una lectura
+
+El libro de presupuesto (`budgets`, `financial_events`) **sigue siendo la única fuente del gasto** y no se amplía con ingresos: sus
+importes son `Numeric(12,2)` sin moneda y su unicidad es «una reserva y una liquidación por referencia», incompatible con la identidad
+de un ingreso (un `PaymentEvent`) y con la regla de no convertir divisas. Los ingresos verificados viven en el registro de la
+[ADR 0030](adr-0030-verified-revenue-ledger.md). El **margen** de un pedido será una proyección de lectura que combine ambas fuentes y
+solo se calcule con pedido, cobro verificado y gasto confirmado y conocido, todos en EUR; si no, «Sin datos». Un gasto desconocido
+no es 0, y como el libro de presupuesto no guarda moneda, ningún margen se afirma fuera de EUR. *(Decidido en la ADR 0030; no cambia
+ninguna regla de este ADR.)*

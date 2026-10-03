@@ -1291,3 +1291,27 @@ como parámetro obligatorio.
 
 `staging` y `production` **no arrancan** hasta que existan adaptadores no simulados de pago y fulfillment (§12.2): es
 intencionado.
+
+## 26. Registro de ingresos verificados (Milestone 45, decidido; todavía no implementado)
+
+La [ADR 0030](adr-0030-verified-revenue-ledger.md) decide cómo dejar de inventar el dinero que muestran Dashboard, CFO y Proyectos
+(P1-2). **Todavía no existe nada de esto en el código:** ni tabla, ni migración, ni módulo, ni ruta. Es la decisión que precede al
+Commit 7, como la ADR 0029 precedió al Commit 5.
+
+- **Qué es.** Un *Verified Revenue Ledger* (*registro de ingresos verificados*; módulo `app/revenue/`, tabla `revenue_ledger_entries`):
+  una lista **inmutable** de hechos monetarios operativos verificados, que es una **proyección determinista** de los hechos de pago
+  (un `PaymentEvent` aplicado por `PaymentService`). No es una segunda fuente de verdad.
+- **Qué NO es.** **No es el libro contable ni fiscal de KOVA**: no sustituye contabilidad, facturación, IVA/OSS, conciliación bancaria,
+  comisiones de la pasarela ni reconocimiento contable o fiscal definitivo.
+- **Qué entra.** Una captura normal (`ORDER_PAYMENT`); un `DUPLICATE_CAPTURE` y un `CAPTURE_MISMATCH` como dinero en revisión
+  (`DUPLICATE_RECEIPT`, `MISMATCH_RECEIPT`), fuera del titular de ingresos; un reembolso confirmado, que hereda la clasificación de la
+  captura que revierte. Un evento `CONFLICT` o `UNMATCHED` con dinero **no** genera entrada y se muestra aparte como evidencia
+  económica pendiente de revisión: ni se oculta ni se cuenta como ingreso.
+- **Cómo se escribe.** Dentro de la transacción que ya aplica el evento (`_record_capture`, `_refund_succeeded`, `_provider_refund`): o
+  cambia el estado del cobro **y** nace la entrada, o no cambia nada. Es inmutable (trigger append-only), idempotente (una entrada por
+  evento) y se reconcilia en solo lectura con el estado del cobro dentro de `reconcile.report`.
+- **Moneda.** Multimoneda y exacto por moneda, sin conversión. El **margen** (una lectura que combina este registro con el gasto del
+  libro de presupuesto) solo se calcula en EUR y con coste confirmado y conocido; en cualquier otro caso, «Sin datos».
+- **Deuda registrada, sin corregir en M45.** El gasto (`ExternalAction.amount`, `financial_events.amount`) no guarda moneda, y el
+  fulfillment cotiza en la moneda del pedido y la reserva en el presupuesto sin convertir: para pedidos que no sean EUR el gasto no
+  tiene una moneda demostrable.
