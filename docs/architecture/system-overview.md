@@ -1268,7 +1268,10 @@ Todos los comandos que cambian algo exigen `AMAZONA_BOOTSTRAP=1`.
 | `resolve-action` | cierra una acción de resultado desconocido, con su motivo, tras comprobarla a mano |
 | `show-actions` | lista las acciones externas y en qué punto está cada una (`--open`: solo las abiertas) |
 
-**Ninguno de estos reconciliadores está programado:** son comandos manuales (P1-1, ver el milestone).
+**Los reconciliadores de acciones y de eventos están programados desde el Commit 5 de M45** ([ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md)): el worker encola `reconcile.actions` (cada 5 minutos, umbral de 15),
+`reconcile.payment_events` (cada 2 minutos, umbral de 5, con un tope de 5 intentos por evento) y `reconcile.report` (solo lectura), todo configurable y apagable con
+`reconciliation_enabled`. Estos comandos siguen existiendo como órdenes manuales. `resolve-action` sigue siendo manual a propósito: un `UNKNOWN_OUTCOME` solo lo cierra
+información autoritativa, una respuesta tardía o una persona, nunca un tick (P1-1 resuelto en el Commit 5).
 
 ### 25.5 Qué ve el Control Center
 
