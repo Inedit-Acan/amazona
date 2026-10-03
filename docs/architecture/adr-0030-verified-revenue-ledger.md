@@ -468,3 +468,68 @@ Fue **solo documentación**: ni tabla, ni migración, ni código, ni ruta, ni ca
   3. La reconciliación compara importes a la precisión de la columna (`round(…, 4)`), porque SQLite suma en coma flotante.
   4. `outside_ledger` se decide por el instante en que se aplicó el evento de captura frente a la primera entrada del registro, tal como
      describe §13, con su limitación declarada (registro vacío).
+
+## Enmienda (Commit 8 de M45): los agregados de lectura
+
+Decidida e implementada en el Commit 8. Añade **lecturas** sobre el registro; no cambia ninguna decisión de arriba, ni
+escribe, ni toca Dashboard, CFO o Proyectos.
+
+### Qué se expone (solo `GET`, `business.read`)
+
+| Ruta | Qué devuelve |
+|---|---|
+| `GET /api/revenue/summary?from&to` | por moneda: ingreso y reembolso **verificados** (`ORDER_PAYMENT`) y neto; dinero **en revisión** por clase (`DUPLICATE_RECEIPT`, `MISMATCH_RECEIPT`) con lo recibido, lo devuelto y lo que queda; la **evidencia pendiente** aparte; el bloque `consolidated_eur`; las monedas **no agregables**; y un `scope` que dice que no es contabilidad |
+| `GET /api/revenue/series?granularity=day\|month&from&to` | lo mismo por cubo temporal (UTC) y moneda; solo los cubos con entradas; ventana acotada (366 días la diaria, 1 096 la mensual; por defecto 30 días / 12 meses) |
+| `GET /api/revenue/entries?cursor&limit&currency&classification&kind&from&to` | las entradas que explican cualquier cifra, de la más reciente a la más antigua, por cursor; `limit` ≤ 200 |
+
+### Reglas que fijan estos agregados
+
+1. **A1.** Lo verificado y lo que está en revisión salen **solo** del registro; el servicio no lee `payments`, `refunds`, `orders` ni el
+   presupuesto (prueba de arquitectura).
+2. **A2.** La evidencia pendiente (`CONFLICT`/`UNMATCHED` con dinero) sale de `payment_events` —por D1 nunca entra en el registro— y se
+   muestra **aparte**: no suma en ningún total.
+3. **A3.** Lo verificado es solo `ORDER_PAYMENT`; un duplicado o una discrepancia nunca lo infla.
+4. **A4.** Un reembolso reduce **su** clase y solo esa: no se compensan entre clases (L5).
+5. **A5.** Todo va **por moneda**. EUR es la única moneda consolidada de M45 (D3): `consolidated_eur` solo contiene EUR y es `null`
+   si no hay ninguna entrada en EUR en el periodo («Sin datos»); las demás monedas se listan como **no agregables** y nunca se suman ni
+   se convierten.
+6. **A6.** Importes exactos: `Decimal`/`Numeric(18,4)` devueltos como **texto**, nunca un número JSON; sin `float` (prueba de
+   arquitectura).
+7. **A7.** Ninguna lectura escribe (prueba bajo escucha de sentencias y de arquitectura).
+8. **A8.** Paginación por cursor sin duplicados ni saltos, orden total `occurred_at DESC, id DESC`, página acotada, sin uniones.
+9. **A9.** Ninguna respuesta, ni su esquema, lleva margen, beneficio, coste, impuestos, IVA/OSS, caja ni comisiones.
+10. **A10.** El resumen cuadra con el estado de los cobros (`captured_amount − refunded_amount` por moneda y clase) y con la suma de las
+    entradas que lista `entries`.
+
+El periodo se mide por `occurred_at` (el hecho, no su llegada), en UTC, `from` inclusivo y `to` exclusivo; un límite con otra zona se
+lleva a UTC y toda fecha emitida es UTC. Un neto puede ser negativo en una ventana (un reembolso de una captura anterior): no se oculta.
+
+### Lo que sigue fuera, a propósito
+
+El **margen** que el §11 de este ADR preveía «en el commit de los agregados» queda **fuera de este bloque**: necesita el gasto, que no
+es del registro, y esta lectura se obtiene exclusivamente del registro. Se hará con el CFO, con las condiciones del §11 y de D3 (EUR,
+coste confirmado y conocido; si no, «Sin datos»). Tampoco hay beneficio, impuestos, IVA/OSS, caja ni comisiones.
+
+### Medido antes de decidir (PostgreSQL local, 990 000 entradas, 404 MB con índices)
+
+| Consulta | Sin índice | Con `ix_revenue_entries_occurred_at` |
+|---|---|---|
+| primera página (100) | 140 ms | ~1 ms |
+| página profunda por cursor | 205-454 ms (con `OR`) | ~1 ms (comparación de filas) |
+| resumen de 30 días | 126 ms | 12 ms |
+| serie diaria de 30 días | 135 ms | 31 ms |
+| resumen de 365 días / de todo el tiempo | 176 / 199 ms | ~180 / ~156 ms (barrido; coste lineal, salida acotada) |
+| serie mensual de 12 meses | 957 ms | ~700 ms |
+
+Medidas las **funciones reales** (no SQL suelto) sobre el mismo volumen, sin y con el índice: primera página 133 → 1,0 ms, página
+profunda por cursor 160 → 1,2 ms, resumen de 30 días 199 → 138 ms, serie diaria 93 → 42 ms, serie mensual 740 → 572 ms, resumen
+de 365 días y de todo el tiempo ~260-300 ms. De los 138 ms del resumen de 30 días, ~80 ms son la evidencia pendiente, que recorre
+`payment_events` (990 000 filas): un índice parcial `WHERE processing_status IN ('CONFLICT', 'UNMATCHED')` la dejaría en 0,5 ms. No
+se añade ahora (79 ms con un millón de eventos no es un barrido costoso y tocaría la tabla de M44); queda como opción si los
+eventos crecen mucho.
+
+Por eso la migración `e5a1d7c93b04` añade **un** índice `(occurred_at, id)` (con `INCLUDE (currency, classification, kind, amount)` en
+PostgreSQL; 72 MB frente a 119 MB de tabla) y el cursor usa comparación de filas. La auditoría `check_ledger` (Commit 7) costaba
+**5,3 s** sobre el mismo volumen; se reestructuró sin cambiar su semántica (C1 y C4 en una pasada, C2 solo sobre los cobros que difieren)
+y baja a **3-4 s** (3,2 s y 4,0 s en dos medidas). Es una auditoría completa, de coste lineal, que se ejecuta cada 5 minutos en `reconcile.report` y en cada `GET` del
+estado de la reconciliación: cachearla o hacerla incremental es una decisión pendiente del propietario, no de este commit.

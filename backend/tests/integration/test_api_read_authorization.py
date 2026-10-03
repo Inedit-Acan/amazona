@@ -69,6 +69,11 @@ BUSINESS_ROUTES = [
     # Milestone 45: el estado de la reconciliación (qué hay abierto, qué es desconocido, qué evento topó) es dato de
     # negocio; solo lectura.
     "/api/reconciliation/status",
+    # Milestone 45: los agregados del registro de ingresos verificados son dato de negocio; los siete roles los leen,
+    # solo lectura (ADR 0030).
+    "/api/revenue/summary",
+    "/api/revenue/series",
+    "/api/revenue/entries",
     # Milestone 41: lo declarado y la evidencia son dato de negocio; los siete
     # roles lo leen y solo OWNER y ADMIN lo escriben.
     "/api/regulatory-requirements",
@@ -263,6 +268,9 @@ def test_the_inventory_covers_every_read_route():
         "/api/orders",
         "/api/orders/{order_id}",
         "/api/reconciliation/status",
+        "/api/revenue/summary",
+        "/api/revenue/series",
+        "/api/revenue/entries",
         "/api/projects",
         "/api/projects/{project_id}",
         "/api/research/comparisons",

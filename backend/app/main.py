@@ -30,6 +30,7 @@ from app.api import (
     reconciliation,
     regulatory,
     research,
+    revenue,
     sourcing,
     tasks,
 )
@@ -270,6 +271,7 @@ app.include_router(incidents.router, dependencies=BUSINESS)
 app.include_router(jobs.router, dependencies=BUSINESS)
 app.include_router(orders.router, dependencies=BUSINESS)
 app.include_router(reconciliation.router, dependencies=BUSINESS)
+app.include_router(revenue.router, dependencies=BUSINESS)
 app.include_router(fulfillments.router, dependencies=BUSINESS)
 # El webhook de un proveedor de pagos no lleva el token de nadie: se autentica por la firma de su cuerpo (ADR 0028).
 app.include_router(payments.router)

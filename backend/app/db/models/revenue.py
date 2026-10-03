@@ -101,6 +101,16 @@ class RevenueLedgerEntry(IdMixin, Base):
             postgresql_where=text("refund_id IS NOT NULL"),
             sqlite_where=text("refund_id IS NOT NULL"),
         ),
+        #: El índice de las lecturas de agregados (M45): rango por `occurred_at` y página por cursor
+        #: `(occurred_at, id)`. En PostgreSQL lleva además las columnas que suman las agregaciones, así que un
+        #: resumen del periodo se lee del índice (medido sobre 990 000 entradas: resumen de 30 días 126 → 12 ms; página
+        #: 140 → 1 ms). SQLite lo crea sin `INCLUDE`.
+        Index(
+            "ix_revenue_entries_occurred_at",
+            "occurred_at",
+            "id",
+            postgresql_include=["currency", "classification", "kind", "amount"],
+        ),
         CheckConstraint(_KINDS, name="ck_revenue_entries_kind"),
         CheckConstraint(_CLASSIFICATIONS, name="ck_revenue_entries_classification"),
         CheckConstraint("amount > 0", name="ck_revenue_entries_amount_positive"),

@@ -12,7 +12,7 @@ Solo cuentan los eventos que mueven dinero (`payment.succeeded` y `refund.succee
 import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.payment import PaymentEvent
@@ -28,7 +28,8 @@ _PLACES = Decimal("0.0001")
 
 
 def _aware(value: datetime.datetime) -> datetime.datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=datetime.UTC)
+    """Siempre en UTC: PostgreSQL devuelve las fechas en la zona de la sesión y SQLite sin zona."""
+    return value.replace(tzinfo=datetime.UTC) if value.tzinfo is None else value.astimezone(datetime.UTC)
 
 
 def money(value: object) -> str:
@@ -36,18 +37,26 @@ def money(value: object) -> str:
     return format(Decimal(str(value)).quantize(_PLACES), "f")
 
 
-def _is_pending_money_event():
-    return (
+def _is_pending_money_event(start: datetime.datetime | None = None, end: datetime.datetime | None = None):
+    """Las condiciones de un evento de dinero sin asentar; opcionalmente, en un rango de `occurred_at` (`start`
+    inclusivo, `end` exclusivo)."""
+    found: list[ColumnElement[bool]] = [
         PaymentEvent.processing_status.in_(PENDING_STATUSES),
         PaymentEvent.event_type.in_(MONEY_EVENT_TYPES),
         PaymentEvent.amount.is_not(None),
-    )
+    ]
+    if start is not None:
+        found.append(PaymentEvent.occurred_at >= start)
+    if end is not None:
+        found.append(PaymentEvent.occurred_at < end)
+    return tuple(found)
 
 
-def pending_economic_evidence(
-    db: Session, *, now: datetime.datetime | None = None, limit: int = LISTED_EVIDENCE
+def pending_evidence_totals(
+    db: Session, *, start: datetime.datetime | None = None, end: datetime.datetime | None = None
 ) -> dict:
-    moment = now or datetime.datetime.now(datetime.UTC)
+    """Cuántos eventos hay sin asentar y cuánto dinero dicen, por moneda y tipo, sin listarlos. Un agregado: no suma
+    monedas distintas ni entra en ningún total de ingresos."""
     totals = db.execute(
         select(
             PaymentEvent.currency,
@@ -55,10 +64,22 @@ def pending_economic_evidence(
             func.count(PaymentEvent.id),
             func.sum(PaymentEvent.amount),
         )
-        .where(*_is_pending_money_event())
+        .where(*_is_pending_money_event(start, end))
         .group_by(PaymentEvent.currency, PaymentEvent.event_type)
         .order_by(PaymentEvent.currency, PaymentEvent.event_type)
     ).all()
+    return {
+        "count": sum(int(row[2]) for row in totals),
+        "by_currency": [
+            {"currency": row[0], "event_type": row[1], "count": int(row[2]), "amount": money(row[3])} for row in totals
+        ],
+    }
+
+
+def pending_economic_evidence(
+    db: Session, *, now: datetime.datetime | None = None, limit: int = LISTED_EVIDENCE
+) -> dict:
+    moment = now or datetime.datetime.now(datetime.UTC)
     events = db.scalars(
         select(PaymentEvent)
         .where(*_is_pending_money_event())
@@ -66,10 +87,7 @@ def pending_economic_evidence(
         .limit(limit)
     ).all()
     return {
-        "count": sum(int(row[2]) for row in totals),
-        "by_currency": [
-            {"currency": row[0], "event_type": row[1], "count": int(row[2]), "amount": money(row[3])} for row in totals
-        ],
+        **pending_evidence_totals(db),
         "items": [
             {
                 "id": event.id,

@@ -1232,6 +1232,7 @@ reservas y solo sale por reconciliación, respuesta tardía o resolución humana
 | `POST /api/orders/{id}/cancel` · `POST /api/fulfillments/{id}/{complete,cancel,fail}` | por estado (repetir es 409) | `order.write` · `fulfilment.write` |
 | `POST /api/payments/webhooks/{provider}` | firma del proveedor | sin identidad: se autentica la firma |
 | `GET /api/orders` (`status`, `limit` ≤ 200, `cursor`; devuelve una **página** `{items, limit, count, has_more, next_cursor}`) · `GET /api/orders/{id}` | — | `business.read` |
+| `GET /api/revenue/summary` · `/series` · `/entries` (solo lectura: ingreso y reembolso verificados, dinero en revisión y evidencia pendiente por moneda; ADR 0030, enmienda del Commit 8) | — | `business.read` |
 | `GET /api/reconciliation/status` (solo lectura: lo abierto, lo desconocido, los eventos topados, la última ejecución de cada trabajo y, desde el Commit 7, la reconciliación del registro de ingresos y la evidencia económica pendiente) | — | `business.read` |
 
 No hay `GET` de un cobro, reembolso o fulfillment suelto: se leen dentro del pedido, con su `attention_required` y sus motivos,
@@ -1299,8 +1300,7 @@ intencionado.
 
 La [ADR 0030](adr-0030-verified-revenue-ledger.md) decide cómo dejar de inventar el dinero que muestran Dashboard, CFO y Proyectos
 (P1-2). Decidido en el Commit 6 e implementado en el Commit 7: la tabla `revenue_ledger_entries` (migración `c4e8b1d9a273`), el
-módulo `app/revenue/` y los tres puntos de escritura de `PaymentService`. Todavía **no** hay agregados de lectura ni cambios en
-Dashboard, CFO o Proyectos: eso son los commits siguientes.
+módulo `app/revenue/` y los tres puntos de escritura de `PaymentService`. Los agregados de lectura se añadieron en el Commit 8 (ver abajo); Dashboard, CFO y Proyectos siguen sin cambios.
 
 - **Qué es.** Un *Verified Revenue Ledger* (*registro de ingresos verificados*; módulo `app/revenue/`, tabla `revenue_ledger_entries`):
   una lista **inmutable** de hechos monetarios operativos verificados, que es una **proyección determinista** de los hechos de pago
@@ -1319,3 +1319,9 @@ Dashboard, CFO o Proyectos: eso son los commits siguientes.
 - **Deuda registrada, sin corregir en M45.** El gasto (`ExternalAction.amount`, `financial_events.amount`) no guarda moneda, y el
   fulfillment cotiza en la moneda del pedido y la reserva en el presupuesto sin convertir: para pedidos que no sean EUR el gasto no
   tiene una moneda demostrable.
+- **Lecturas (Commit 8).** `GET /api/revenue/summary`, `/series` y `/entries` (solo lectura, `business.read`): ingreso y reembolso
+  verificados (solo `ORDER_PAYMENT`), dinero en revisión (duplicados y discrepancias, con sus reembolsos heredados) y evidencia
+  pendiente, **cada cosa por separado y por moneda**; EUR es la única moneda consolidada y las demás se declaran no agregables. Los
+  importes son texto exacto. **No** hay margen, beneficio, coste, impuestos, IVA/OSS, caja ni comisiones, y cada respuesta dice que no
+  es contabilidad. Un índice `(occurred_at, id)` (migración `e5a1d7c93b04`) sirve el rango y el cursor (medido sobre 990 000
+  entradas: página 140 → 1 ms, resumen de 30 días 126 → 12 ms).

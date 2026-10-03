@@ -21,6 +21,7 @@ from m44_migration_test_support import (
 from app.db.models import revenue as model
 
 FILE = "c4e8b1d9a273_revenue_ledger_entries.py"
+INDEX_FILE = "e5a1d7c93b04_revenue_ledger_occurred_at_index.py"
 ORDERS_FILE = "f6a1c8d3e925_orders_and_items.py"
 PAYMENTS_FILE = "a9d2e7b4c136_payments_events_refunds.py"
 TABLE = "revenue_ledger_entries"
@@ -114,6 +115,7 @@ def test_it_can_be_applied_again_after_a_downgrade(connection):
 
 def test_the_migrated_table_is_what_the_model_declares(connection):
     migrate(connection)
+    run(connection, load_migration(INDEX_FILE), "upgrade")  # el modelo declara también el índice de las lecturas
 
     assert_migration_matches_model(connection, (TABLE,))
     foreign_keys = sa.inspect(connection).get_foreign_keys(TABLE)

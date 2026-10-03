@@ -170,7 +170,7 @@ def test_only_the_payment_service_calls_the_revenue_ledger_writer():
 
 
 def test_the_revenue_reads_never_write_anything():
-    for name in ("check.py", "evidence.py"):
+    for name in ("check.py", "evidence.py", "aggregates.py", "pagination.py"):
         source = (APP / "revenue" / name).read_text(encoding="utf-8")
         forbidden = re.findall(r"\.(?:add|add_all|commit|flush|delete|merge)\(|\b(?:insert|update|delete)\(", source)
 
@@ -180,7 +180,8 @@ def test_the_revenue_reads_never_write_anything():
 def test_no_money_in_the_revenue_ledger_is_a_float():
     import ast
 
-    for path in [*sorted((APP / "revenue").glob("*.py")), APP / "db" / "models" / "revenue.py"]:
+    paths = [*sorted((APP / "revenue").glob("*.py")), APP / "db" / "models" / "revenue.py", APP / "api" / "revenue.py"]
+    for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         floats = [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "float"]
 
@@ -194,3 +195,48 @@ def test_the_ledger_never_decides_by_the_visible_state_of_an_order():
         assert "OrderStatus" not in source and "order.status" not in source, (
             f"{relative(path)}: an entry is caused by a verified payment fact, never by an order showing PAID"
         )
+
+
+# --- Los agregados de ingresos (Milestone 45, ADR 0030): solo lectura, solo el registro ------------------------------
+
+
+def test_the_revenue_aggregates_take_verified_money_only_from_the_revenue_ledger():
+    source = (APP / "revenue" / "aggregates.py").read_text(encoding="utf-8")
+
+    assert "RevenueLedgerEntry" in source
+    assert not re.search(r"from app\.db\.models\.(payment|order|fulfillment|budget)", source), (
+        "verified and under-review figures come from the ledger alone: not from payments, refunds, orders or the budget"
+    )
+
+
+def test_the_revenue_routes_only_read():
+    from fastapi.routing import APIRoute
+
+    from app.api.revenue import router
+
+    routes = [r for r in router.routes if isinstance(r, APIRoute)]
+
+    assert {r.path for r in routes} == {"/api/revenue/summary", "/api/revenue/series", "/api/revenue/entries"}
+    assert all(r.methods == {"GET"} for r in routes), "a route that writes does not belong to the aggregates"
+
+
+def test_the_revenue_response_schemas_have_no_margin_profit_cost_tax_cash_or_fee_fields():
+    import inspect
+
+    from pydantic import BaseModel
+
+    from app.api import revenue
+
+    forbidden = {
+        "margin", "profit", "cost", "costs", "tax", "taxes", "vat", "vat_oss", "oss", "cash", "fee", "fees",
+        "commission", "commissions", "gateway_fees", "balance",
+    }  # fmt: skip
+    fields = {
+        name
+        for _, model in inspect.getmembers(revenue, lambda m: inspect.isclass(m) and issubclass(m, BaseModel))
+        if model.__module__ == revenue.__name__
+        for name in model.model_fields
+    }
+
+    assert fields, "the response models were not found"
+    assert not fields & forbidden, f"the ledger cannot prove {sorted(fields & forbidden)}: it must not promise it"

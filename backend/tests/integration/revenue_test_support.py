@@ -13,7 +13,6 @@ from payment_test_support import (
     REQUESTER,
     SIMULATION,
     ScriptedPaymentProvider,
-    add_order,
     deliver,
     ingress,
     reload,
@@ -76,9 +75,15 @@ def capture_entry(db: Session, payment: Payment) -> RevenueLedgerEntry:
     ).one()
 
 
-def new_order(db: Session, name: str = "Widget", customer: str = "sim_customer") -> Order:
-    """Un pedido de 2 × 25.00 = 50.00 EUR."""
-    return add_order(db, add_product(db, name=name), customer=customer)
+def new_order(
+    db: Session, name: str = "Widget", customer: str = "sim_customer", *, price: str = "25.00", currency: str = "EUR"
+) -> Order:
+    """Un pedido de 2 × 25.00 = 50.00 EUR (el precio y la moneda se pueden cambiar)."""
+    from order_test_support import create_order, line
+
+    return create_order(
+        db, line(add_product(db, name=name), unit_price=price, currency=currency), customer_ref=customer
+    )
 
 
 def capture(db: Session, provider: ScriptedPaymentProvider, order: Order, **kwargs) -> Payment:

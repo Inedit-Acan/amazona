@@ -60,35 +60,37 @@ def check_ledger(db: Session, *, limit: int = LISTED_DIVERGENCES) -> dict:
         .subquery()
     )
 
-    # C1: la suma de capturas del cobro frente a su dinero capturado (solo cobros que ya tienen entrada de captura).
+    # C1 y C4 en **una sola pasada** sobre los cobros (medido sobre 990 000 entradas: dos pasadas, 1,6 s + 1,7 s):
+    # lo capturado frente a la suma de capturas del registro. Con entradas y distinto = C1; sin ninguna entrada y con
+    # dinero capturado = candidato a C4 o a `outside_ledger`.
+    uncovered = []
     for row in db.execute(
         select(Payment.id, Payment.currency, Payment.captured_amount, captures.c.total)
-        .join(captures, captures.c.payment_id == Payment.id)
-        .where(_round(Payment.captured_amount) != _round(captures.c.total))
+        .outerjoin(captures, captures.c.payment_id == Payment.id)
+        .where(_round(Payment.captured_amount) != _round(func.coalesce(captures.c.total, 0)))
         .order_by(Payment.id)
     ):
-        divergences.append(_amounts("C1", row.id, row.currency, row.captured_amount, row.total))
+        if row.total is None:
+            uncovered.append(row)
+        else:
+            divergences.append(_amounts("C1", row.id, row.currency, row.captured_amount, row.total))
 
-    # C2: la suma de reembolsos frente a lo reembolsado, solo en cobros cubiertos por el registro.
+    # C2: la suma de reembolsos frente a lo reembolsado, solo en cobros cubiertos por el registro. La comprobación de
+    # cobertura (`EXISTS`) se evalúa solo sobre los pocos cobros cuyo reembolsado ya difiere.
+    covered = select(Entry.id).where(Entry.payment_id == Payment.id, Entry.kind == EntryKind.CAPTURE.value).exists()
     for row in db.execute(
         select(Payment.id, Payment.currency, Payment.refunded_amount, func.coalesce(refunds.c.total, 0).label("total"))
-        .join(captures, captures.c.payment_id == Payment.id)
         .outerjoin(refunds, refunds.c.payment_id == Payment.id)
-        .where(_round(Payment.refunded_amount) != _round(func.coalesce(refunds.c.total, 0)))
+        .where(_round(Payment.refunded_amount) != _round(func.coalesce(refunds.c.total, 0)), covered)
         .order_by(Payment.id)
     ):
         divergences.append(_amounts("C2", row.id, row.currency, row.refunded_amount, row.total))
 
     divergences.extend(_event_mismatches(db))
 
-    # C4 y `outside_ledger`: cobros con dinero capturado y sin ninguna entrada de captura.
-    epoch = db.scalar(select(func.min(Entry.recorded_at)))
-    uncovered = db.execute(
-        select(Payment.id, Payment.currency, Payment.captured_amount)
-        .outerjoin(captures, captures.c.payment_id == Payment.id)
-        .where(Payment.captured_amount > 0, captures.c.total.is_(None))
-        .order_by(Payment.id)
-    ).all()
+    # C4 y `outside_ledger`: los cobros con dinero capturado y sin ninguna entrada de captura. La época (la primera
+    # entrada del registro) solo se busca si hace falta.
+    epoch = db.scalar(select(func.min(Entry.recorded_at))) if uncovered else None
     for row in uncovered:
         applied_at = db.scalar(
             select(func.min(PaymentEvent.processed_at)).where(
