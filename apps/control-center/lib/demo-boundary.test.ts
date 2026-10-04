@@ -29,8 +29,6 @@ const ALLOWED = [
   "app/approvals/approvals-workspace.tsx",
   "app/audit/audit-panels.tsx",
   "app/audit/audit-workspace.tsx",
-  "app/cfo/cfo-panels.tsx",
-  "app/cfo/cfo-workspace.tsx",
   "app/dashboard/dashboard-panels.tsx",
   "app/dashboard/dashboard-workspace.tsx",
   "app/ecommerce/ecommerce-workspace.tsx",
@@ -50,7 +48,6 @@ const ALLOWED = [
   "lib/agents-view.ts",
   "lib/approvals-view.ts",
   "lib/audit-view.ts",
-  "lib/cfo-view.ts",
   "lib/dashboard-view.ts",
   "lib/economics-baseline.ts",
   "lib/legal-view.ts",
@@ -80,6 +77,13 @@ const NEVER = [
   "lib/revenue-view.ts",
   "components/revenue-bars.tsx",
   "app/dashboard/revenue-panels.tsx",
+  "lib/decimal.ts",
+  "lib/provenance.ts",
+  "lib/cfo-margin.ts",
+  "lib/cfo-plan.ts",
+  "lib/cfo-verdict.ts",
+  "app/cfo/cfo-panels.tsx",
+  "app/cfo/cfo-workspace.tsx",
 ];
 
 function sourceFiles(directory: string): string[] {

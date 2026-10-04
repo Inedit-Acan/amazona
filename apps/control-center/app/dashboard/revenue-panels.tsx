@@ -1,12 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, Loader2, ReceiptText } from "lucide-react";
 import { api, ApiError, type RevenueEntriesPage, type RevenueSeries, type RevenueSummary } from "@/lib/api";
 import { parseUtc } from "@/lib/dates";
 import { formatInteger } from "@/lib/format";
-import { REVENUE_ENTRIES_PAGE_SIZE, REVENUE_PERIODS, type RevenueWindow } from "@/lib/revenue-query";
+import { REVENUE_ENTRIES_PAGE_SIZE, type RevenueWindow } from "@/lib/revenue-query";
 import {
   appendEntries,
   dayLabel,
@@ -46,35 +45,6 @@ export function RevenueUnavailable({ what, message }: { what: string; message: s
         {message} No se ha sustituido por datos de demostración: la cifra no se conoce hasta que la lectura funcione.
       </AlertDescription>
     </Alert>
-  );
-}
-
-// --- Periodo (lectura: solo cambia la URL, el servidor vuelve a leer) --------------------------------------------
-
-export function PeriodSelect({ days }: { days: number }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [pending, startTransition] = useTransition();
-  return (
-    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-      <span className="sr-only">Periodo de los ingresos</span>
-      <select
-        value={days}
-        aria-label="Periodo de los ingresos"
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          startTransition(() => router.replace(`${pathname}?dias=${next}`, { scroll: false }));
-        }}
-        className="rounded-md border bg-background px-2 py-1 text-xs text-foreground"
-      >
-        {REVENUE_PERIODS.map((value) => (
-          <option key={value} value={value}>
-            Ingresos: {periodLabel(value)}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 

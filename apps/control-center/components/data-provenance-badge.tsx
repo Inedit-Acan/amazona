@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Building2, Clock, Database, FlaskConical, ShieldCheck, Sparkles } from "lucide-react";
+import { Building2, Clock, Database, FileSignature, FlaskConical, LineChart, ShieldCheck, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -7,7 +7,15 @@ import { cn } from "@/lib/utils";
 /** The 4 data-provenance states every panel must distinguish — never
  * present an estimate as a confirmed fact (docs/design/
  * AMAZONA_sistema_de_diseno_visual.md §3). */
-export type DataProvenance = "ledger" | "verified" | "third_party" | "estimated" | "pending" | "demo";
+export type DataProvenance =
+  | "ledger"
+  | "declared"
+  | "planned"
+  | "verified"
+  | "third_party"
+  | "estimated"
+  | "pending"
+  | "demo";
 
 const PROVENANCE_CONFIG: Record<
   DataProvenance,
@@ -23,6 +31,25 @@ const PROVENANCE_CONFIG: Record<
       "El backend tiene este hecho de pago o reembolso verificado y registrado: no es un modelo ni una estimación. No dice si la operación fue simulada — el registro todavía no guarda esa procedencia.",
     icon: Database,
     className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+  },
+  // M45, Commit 10: el coste de una línea de pedido. El backend lo guarda con su fuente (`cost_provenance`,
+  // `cost_source`), pero nadie ha comprobado que se pagara: es un dato declarado, no un hecho.
+  declared: {
+    label: "Declarado",
+    short: "Declarado",
+    description:
+      "Dato que alguien declaró y que el backend guarda con su fuente (una cotización de proveedor o una declaración manual). No es un pago comprobado.",
+    icon: FileSignature,
+    className: "bg-cyan-accent/15 text-cyan-accent border-cyan-accent/30",
+  },
+  // M45, Commit 10: lo que el modelo espera si los supuestos se cumplen. No ha ocurrido.
+  planned: {
+    label: "Proyección (PLAN)",
+    short: "PLAN",
+    description:
+      "Proyección calculada sobre los supuestos de un análisis económico. No ha ocurrido: es lo que el modelo espera si esos supuestos se cumplen.",
+    icon: LineChart,
+    className: "bg-warning/15 text-warning border-warning/30",
   },
   verified: {
     label: "Verificado",

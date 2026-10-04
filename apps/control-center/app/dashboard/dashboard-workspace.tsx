@@ -29,17 +29,12 @@ import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { HeaderClock } from "@/components/header-clock";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
+import { PeriodSelect } from "@/components/period-select";
 import { Button } from "@/components/ui/button";
 import type { DashboardProductData } from "./page";
 import { DASHBOARD_DESCRIPTION, DASHBOARD_TITLE } from "./copy";
 import { ActivityCard, DecisionsCard, OpportunitiesCard } from "./dashboard-panels";
-import {
-  OutsideVerifiedCard,
-  PeriodSelect,
-  RevenueBreakdownCard,
-  RevenueEntriesCard,
-  RevenueSeriesCard,
-} from "./revenue-panels";
+import { OutsideVerifiedCard, RevenueBreakdownCard, RevenueEntriesCard, RevenueSeriesCard } from "./revenue-panels";
 
 const DEMO_TOOLTIP =
   "Incluye datos de demostración: la tarea en curso de cada agente, las solicitudes de decisión que no vienen del backend y las señales de mercado de las oportunidades. Del backend: los ingresos (de su registro de hechos de pago verificados), los productos del catálogo y sus análisis, los agentes registrados con su estado, el log de ejecuciones y las aprobaciones y revisiones de pipeline pendientes. El Panel ya no enseña ventas ni beneficio modelados: el margen y el beneficio esperan a una fuente que el backend pueda demostrar (Finanzas).";

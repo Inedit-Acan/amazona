@@ -19,7 +19,7 @@ const read = (file: string) => readFileSync(join(ROOT, file), "utf8").replace(/\
 const MEASURED = ["lib/revenue-view.ts", "lib/revenue-query.ts", "components/revenue-bars.tsx", "app/dashboard/revenue-panels.tsx"];
 
 /** Módulos que modelan o inventan cifras económicas: ni de lejos pueden alimentar los ingresos. */
-const MODELLED = /demo|cfo-view|operations-view|economics|finance|projects-view|storefront|sourcing-view/;
+const MODELLED = /demo|cfo-view|operations-view|economics|projects-view|storefront|sourcing-view/;
 
 function importsOf(source: string): string[] {
   return [...source.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1]);
@@ -198,7 +198,10 @@ test("la vista de ingresos no suma importes: no hay aritmética con dinero", () 
 });
 
 test("el selector de periodo solo navega: cambia la URL, no escribe", () => {
+  // Vive en components/period-select.tsx desde el Commit 10: lo comparten el Panel y Finanzas.
+  const selector = read("components/period-select.tsx");
+  assert.match(selector, /router\.replace\(/);
+  assert.ok(!/\bapi\./.test(selector), "el selector de periodo no llama a la API");
   const source = read("app/dashboard/revenue-panels.tsx");
-  assert.match(source, /router\.replace\(/);
-  assert.ok(!/api\.(?!revenueEntries)\w+\(/.test(source), "el selector y las tarjetas solo llaman a api.revenueEntries");
+  assert.ok(!/api\.(?!revenueEntries)\w+\(/.test(source), "las tarjetas del Panel solo llaman a api.revenueEntries");
 });

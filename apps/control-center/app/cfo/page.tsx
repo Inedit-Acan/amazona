@@ -1,23 +1,70 @@
 import { api } from "@/lib/api-server";
-import { type CFOReport, type EconomicAnalysis, type Product, type SupplierQuoteDetail } from "@/lib/api";
+import {
+  type CFOReport,
+  type EconomicAnalysis,
+  type Order,
+  type Product,
+  type RevenueEntry,
+  type RevenueSummary,
+} from "@/lib/api";
+import { parseRevenueDays, revenueWindow, type RevenueWindow } from "@/lib/revenue-query";
+import { settle } from "@/lib/revenue-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { CFO_DESCRIPTION, CFO_TITLE } from "./copy";
 import { CfoWorkspace } from "./cfo-workspace";
 
-/** Tope de productos de los que se leen cotizaciones y decisiones económicas: no
- * hay un endpoint agregado y cada producto cuesta dos peticiones. */
-const PORTFOLIO_PRODUCT_LIMIT = 20;
+/** Tope de productos de los que se lee el análisis económico: no hay endpoint agregado y cada producto cuesta una
+ * petición. */
+const PRODUCT_LIMIT = 20;
 
-export interface ProductFinanceData {
-  product: Product;
-  economics: EconomicAnalysis[];
-  quotes: SupplierQuoteDetail[];
+/** El margen necesita TODAS las entradas del periodo: con una lista truncada el ingreso por pedido estaría incompleto,
+ * y entonces no se calcula (y se dice por qué). 200 es el máximo que admite `GET /api/revenue/entries`. */
+const ENTRY_PAGE_SIZE = 200;
+const ENTRY_PAGES = 5;
+
+/** Pedidos que se leen para conocer el coste declarado. Un pedido que no se lee es coste **desconocido**, no cero. */
+const ORDER_PAGE_SIZE = 100;
+const ORDER_PAGES = 3;
+
+export interface EntriesRead {
+  entries: RevenueEntry[];
+  /** Son todas las del periodo: el backend no dijo que hubiera más al agotar el tope. */
+  complete: boolean;
 }
 
-export default async function CFOPage() {
+export interface OrdersRead {
+  orders: Order[];
+  complete: boolean;
+}
+
+async function readEntries(window: RevenueWindow): Promise<EntriesRead> {
+  const entries: RevenueEntry[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < ENTRY_PAGES; page += 1) {
+    const result = await api.revenueEntries({ window, cursor, limit: ENTRY_PAGE_SIZE });
+    entries.push(...result.items);
+    if (!result.has_more || result.next_cursor === null) return { entries, complete: true };
+    cursor = result.next_cursor;
+  }
+  return { entries, complete: false };
+}
+
+async function readOrders(): Promise<OrdersRead> {
+  const orders: Order[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < ORDER_PAGES; page += 1) {
+    const result = await api.listOrders({ limit: ORDER_PAGE_SIZE, cursor });
+    orders.push(...result.items);
+    if (!result.has_more || result.next_cursor === null) return { orders, complete: true };
+    cursor = result.next_cursor;
+  }
+  return { orders, complete: false };
+}
+
+export default async function CFOPage({ searchParams }: PageProps<"/cfo">) {
+  const params = await searchParams;
   let products: Product[] = [];
-  let reports: CFOReport[] = [];
   let error: string | null = null;
 
   try {
@@ -25,16 +72,28 @@ export default async function CFOPage() {
   } catch (err) {
     error = err instanceof Error ? err.message : "Error desconocido";
   }
-  // El informe del agente es opcional: sin él la pantalla sigue en pie.
-  reports = await api.listCFORuns().catch(() => []);
 
-  const data: ProductFinanceData[] = await Promise.all(
-    products.slice(0, PORTFOLIO_PRODUCT_LIMIT).map(async (product) => ({
-      product,
-      economics: await api.listProductEconomics(product.id).catch(() => []),
-      quotes: await api.listProductSuppliers(product.id).catch(() => []),
-    })),
+  // Los hechos del registro y el coste declarado de los pedidos. Cada lectura devuelve su dato o su error: un fallo se
+  // enseña como fallo y NUNCA se sustituye por datos de demostración.
+  const days = parseRevenueDays(params.dias);
+  // Igual que el Panel: el instante se fija aquí, en el servidor, y la ventana sale de él.
+  const span = revenueWindow(new Date().getTime(), days);
+  const [summary, entries, orders] = await Promise.all([
+    settle<RevenueSummary>(() => api.revenueSummary(span)),
+    settle<EntriesRead>(() => readEntries(span)),
+    settle<OrdersRead>(() => readOrders()),
+  ]);
+
+  // La proyección (PLAN) sale de los análisis económicos y el veredicto del agente CFO. Ambos son opcionales: sin
+  // ellos la pantalla sigue en pie y lo dice.
+  const analyses: [string, EconomicAnalysis][] = [];
+  await Promise.all(
+    products.slice(0, PRODUCT_LIMIT).map(async (product) => {
+      const [latest] = await api.listProductEconomics(product.id).catch((): EconomicAnalysis[] => []);
+      if (latest !== undefined) analyses.push([product.id, latest]);
+    }),
   );
+  const reports = await api.listCFORuns().catch((): CFOReport[] => []);
 
   if (error) {
     return (
@@ -45,9 +104,15 @@ export default async function CFOPage() {
     );
   }
 
-  // El día se fija en el servidor: los pedidos y los meses de la demostración son
-  // deterministas a partir de él y el cliente hidrata exactamente lo mismo.
-  const today = new Date().toISOString().slice(0, 10);
-
-  return <CfoWorkspace data={data} report={reports[0]} totalProducts={products.length} today={today} />;
+  return (
+    <CfoWorkspace
+      days={days}
+      summary={summary}
+      entries={entries}
+      orders={orders}
+      products={products.slice(0, PRODUCT_LIMIT)}
+      analyses={analyses}
+      report={reports[0]}
+    />
+  );
 }
