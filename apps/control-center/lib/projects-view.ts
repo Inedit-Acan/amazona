@@ -1,512 +1,347 @@
-import type { AuditEntry, EconomicAnalysis, LegalAnalysis, MarketingCampaign, OperationsRecord, Product, Storefront,  SupplierQuoteDetail } from "./api.ts";
-import { DEMO_ACTUAL_SPREAD, DEMO_CLOSED_PROJECTS, DEMO_PROJECTS, DEMO_SUPPLIER_ADVANCE, PROJECT_CODE_PREFIX } from "./demo/projects.ts";
-import { demoRandom } from "./demo/random.ts";
-import { launchReadiness } from "./ecommerce.ts";
-import { dedupeQuotesBySupplier } from "./economics.ts";
-import { buildBaseline } from "./economics-baseline.ts";
-import { evaluate } from "./economics-model.ts";
-import { buildLegalView } from "./legal-view.ts";
-import { ACTIVE_STATUSES, daysBetween, type Order } from "./operations-view.ts";
-import { buildRows } from "./research-view.ts";
-import { rankSuppliers } from "./sourcing-view.ts";
+import type { AuditEntry, Decision, DecisionStatus, Project, ProjectStatus, Task } from "./api.ts";
+import { planned, type Planned } from "./provenance.ts";
+import { NO_DATA } from "./revenue-view.ts";
+import {
+  DECISION_VERDICT,
+  pipelineSteps,
+  projectRisks as risksFromDecision,
+  projectedFinance,
+  taskProgress,
+  type PipelineStep,
+  type ProjectRisk,
+  type TaskProgress,
+} from "./projects.ts";
 
-// Vista de la pantalla de Proyectos (mockup docs/design/proyectos.png). Un
-// proyecto del backend es un grafo de tareas del Director ejecutivo: no tiene
-// producto, mercado, fase de negocio, salud ni beneficio, y hoy no hay ninguno
-// creado. Aquí cada producto real se presenta como un proyecto con SUS datos
-// reales (score de Investigación, proveedor, análisis económico y legal, tienda,
-// campaña y operaciones) y la cartera se completa con proyectos de demostración
-// (lib/demo/projects.ts). Las fases y los scores son los mismos que enseña cada
-// pantalla del pipeline.
+// Vista de la pantalla de Proyectos (M45, Commit 11).
+//
+// Un proyecto es lo que el backend llama proyecto: una validación de producto que el Director ejecutivo orquestó, con
+// su grafo de tareas y su decisión (`ceo/orchestrator.py`). **Un producto del catálogo no es un proyecto**: un pedido
+// puede contener varios productos y no existe ninguna regla aprobada para repartir su ingreso, así que esta pantalla
+// no convierte productos, oportunidades, análisis ni señales en proyectos. Si no hay proyectos reales, lo dice.
+//
+// Hasta el Commit 10 esta vista FABRICABA la cartera: cada producto se presentaba como un proyecto, once proyectos más
+// salían de `lib/demo/projects.ts`, y el «Beneficio real» de cada uno se calculaba con `buildOrders()` —pedidos
+// GENERADOS— y se sumaba en un KPI de cabecera. Nada de eso existía. Lo que queda aquí sale del backend o se declara
+// ausente:
+//
+//   `project.status`              el estado que el backend guarda, no uno derivado
+//   las cuatro etapas del grafo   con el estado real de su tarea y la recomendación de su evidencia
+//   `taskProgress`                tareas completadas sobre las del grafo
+//   la decisión                   veredicto, confianza y riesgos que dejaron los especialistas
+//   la proyección (PLAN)          `finance_validation.monthly_profit`, y `null` cuando el agente no la pudo calcular
+//   la fecha de inicio            la entrada de auditoría `project.created`, y `null` cuando no está registrada
+//
+// Lo que no tiene fuente no se estima, no se rellena con una constante y no se sustituye por cero: se dice
+// «Sin datos» y se explica por qué (`NOT_CALCULATED`).
 
-const DAY_MS = 86_400_000;
-const round2 = (value: number) => Math.round(value * 100) / 100;
+/** Prefijo del código con el que Aprobaciones, el Panel y Auditoría se refieren a un producto del catálogo. */
+export const PROJECT_CODE_PREFIX = "AMZ-";
 
-export type PhaseKey = "research" | "suppliers" | "economics" | "legal" | "store" | "marketing" | "operations" | "scale";
-
-export const PHASES: { key: PhaseKey; label: string; href: string }[] = [
-  { key: "research", label: "Investigación", href: "/research" },
-  { key: "suppliers", label: "Proveedores", href: "/sourcing" },
-  { key: "economics", label: "Economía", href: "/economics" },
-  { key: "legal", label: "Legal", href: "/legal" },
-  { key: "store", label: "Tienda", href: "/ecommerce" },
-  { key: "marketing", label: "Marketing", href: "/marketing" },
-  { key: "operations", label: "Operaciones", href: "/operations" },
-  { key: "scale", label: "Escala", href: "/cfo" },
-];
-
-export type PhaseState = "done" | "current" | "blocked" | "todo";
-
-export interface ProjectPhase {
-  key: PhaseKey;
-  label: string;
-  href: string;
-  state: PhaseState;
-  /** Texto bajo la fase: «92/100», «Aprobado», «Ready 94 %», «Pendiente»… */
-  detail: string;
-  /** 0–100 cuando la fase tiene puntuación. */
-  score: number | null;
-}
-
-export type ProjectStatusLabel = "En curso" | "En riesgo" | "Bloqueado" | "Pausado" | "Cerrado";
-
-export interface ProjectCard {
-  id: string;
-  code: string;
-  name: string;
-  category: string;
-  market: string;
-  phases: ProjectPhase[];
-  phase: PhaseKey;
-  phaseLabel: string;
-  status: ProjectStatusLabel;
-  /** 0–100. */
-  health: number;
-  /** 0–1. */
-  progress: number;
-  projectedProfit: number | null;
-  realProfit: number | null;
-  capitalExposed: number;
-  startedAt: number;
-  productId?: string;
-  /** El proyecto entero es de demostración (no hay producto detrás). */
-  isDemo: boolean;
-}
-
-export interface ProductProjectInput {
-  product: Product;
-  quotes: SupplierQuoteDetail[];
-  economics: EconomicAnalysis[];
-  legal: LegalAnalysis[];
-  storefronts: Storefront[];
-  campaigns: MarketingCampaign[];
-  operations: OperationsRecord[];
-  /** Pedidos del producto (Operaciones) para el beneficio real y el capital expuesto. */
-  orders: Order[];
-  /** Entradas de auditoría del producto, para la fecha de inicio y la actividad. */
-  audit: AuditEntry[];
-  market: string;
-}
-
-/** Código del proyecto de un producto por su posición en el catálogo (AMZ-0024,
- * AMZ-0023...). Lo comparten Proyectos y Aprobaciones. */
+/** Código de un producto del catálogo por su posición (AMZ-0024, AMZ-0023…). Lo usan Aprobaciones, el Panel y
+ * Auditoría, y **no cambia en este commit**. Deuda conocida: ese código habla de productos, no de proyectos, y dejará
+ * de llamarse «código de proyecto» cuando exista un modelo de relación real entre producto y proyecto. */
 export function projectCodeFor(index: number): string {
   return `${PROJECT_CODE_PREFIX}${String(24 - index).padStart(4, "0")}`;
 }
 
-function phase(key: PhaseKey, state: PhaseState, detail: string, score: number | null = null): ProjectPhase {
-  const meta = PHASES.find((p) => p.key === key)!;
-  return { key, label: meta.label, href: meta.href, state, detail, score };
+// --- El estado del proyecto, tal como lo guarda el backend ---------------------------------------------------------
+
+/** Cómo se lee en pantalla cada `Project.status`. Son los estados del backend, no una clasificación nuestra. */
+export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
+  DRAFT: "Borrador",
+  VALIDATING: "En validación",
+  APPROVED: "Aprobado",
+  EXECUTING: "En ejecución",
+  MONITORING: "En seguimiento",
+  PAUSED: "Pausado",
+  COMPLETED: "Completado",
+  REJECTED: "Rechazado",
+  FAILED: "Fallido",
+};
+
+export type PortfolioGroup = "validation" | "execution" | "paused" | "closed";
+
+/** A qué bloque pertenece cada estado del backend. Reparte SUS estados: no inventa fases de negocio. */
+const GROUP_OF: Record<ProjectStatus, PortfolioGroup> = {
+  DRAFT: "validation",
+  VALIDATING: "validation",
+  APPROVED: "execution",
+  EXECUTING: "execution",
+  MONITORING: "execution",
+  PAUSED: "paused",
+  COMPLETED: "closed",
+  REJECTED: "closed",
+  FAILED: "closed",
+};
+
+export type StatusTone = "ok" | "warn" | "bad" | "neutral";
+
+export const PROJECT_STATUS_TONE: Record<ProjectStatus, StatusTone> = {
+  DRAFT: "neutral",
+  VALIDATING: "warn",
+  APPROVED: "ok",
+  EXECUTING: "ok",
+  MONITORING: "ok",
+  PAUSED: "neutral",
+  COMPLETED: "ok",
+  REJECTED: "bad",
+  FAILED: "bad",
+};
+
+// --- La proyección (PLAN) ------------------------------------------------------------------------------------------
+
+/** Por qué un proyecto no tiene proyección. Nunca se sustituye por cero. */
+export type PlanAbsence = "no_decision" | "no_finance_evidence" | "not_projected";
+
+export const PLAN_ABSENCE_TEXT: Record<PlanAbsence, string> = {
+  no_decision: "El proyecto todavía no tiene decisión del Director ejecutivo: no hay ninguna proyección que leer.",
+  no_finance_evidence: "La decisión no trae la evidencia de validación financiera: nadie proyectó este proyecto.",
+  not_projected:
+    "El especialista de finanzas no proyectó un beneficio mensual porque el objetivo no declaraba coste unitario o precio de venta.",
+};
+
+export const PLAN_NOTE =
+  "Proyección sobre los supuestos que declaró el objetivo, calculada por el especialista de finanzas del Director " +
+  "ejecutivo: no ha ocurrido y no es contabilidad. No incluye impuestos, IVA/OSS, caja, comisiones de pasarela ni " +
+  "conversión de divisas. La evidencia financiera no declara moneda, así que la cifra se enseña sin símbolo y no se " +
+  "suma con ninguna otra.";
+
+/** Importe de una proyección, SIN símbolo de moneda: la evidencia no declara ninguna y poner «€» sería asumirla. */
+export function formatPlanAmount(value: number): string {
+  return value.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** Proyecto de un producto real: cada fase lee lo que su pantalla ya enseña. */
-export function projectFromProduct(input: ProductProjectInput, index: number, today: number): ProjectCard {
-  const { product, quotes, economics, legal, storefronts, campaigns, operations, orders, audit, market } = input;
-  const analysis = economics[0];
-  const options = dedupeQuotesBySupplier(quotes, analysis?.supplier_quote_id);
-  const quote = options.find((q) => q.id === analysis?.supplier_quote_id) ?? options[0];
-  const baseline = buildBaseline(quote, analysis);
-  const economicsResult = evaluate(baseline.inputs);
-  const researchScore = buildRows([product], [])[0].score;
+/** Margen de una proyección (0–1) en porcentaje. */
+export function formatPlanMargin(value: number): string {
+  return value.toLocaleString("es-ES", { style: "percent", maximumFractionDigits: 1 });
+}
 
-  const phases: ProjectPhase[] = [];
-  phases.push(phase("research", "done", `${researchScore}/100`, researchScore));
+// --- Lo que esta pantalla no calcula ------------------------------------------------------------------------------
 
-  const ranked = quotes.length > 0 ? rankSuppliers(dedupeQuotesBySupplier(quotes)) : [];
-  // `null` cuando faltan ejes: un proveedor del que no se sabe la mitad no
-  // tiene nota, y ponerle una lo haría comparable con uno que sí la tiene.
-  const supplierScore = ranked[0]?.score ?? null;
-  phases.push(
-    quotes.length === 0
-      ? phase("suppliers", "current", "Sin cotizaciones")
-      : supplierScore === null
-        ? phase("suppliers", "done", "Sin nota: faltan datos")
-        : phase("suppliers", "done", `${supplierScore}/100`, supplierScore),
-  );
+/** Dicho una vez y en pantalla, para que ninguna ausencia parezca un descuido. */
+export const NOT_CALCULATED: { label: string; reason: string }[] = [
+  {
+    label: "Beneficio, ingresos y ventas por proyecto",
+    reason:
+      "El registro de ingresos verificados (ADR 0030) guarda hechos de pago de un pedido, y un pedido puede llevar " +
+      "varios productos. Imputar ese ingreso a un proyecto exigiría repartirlo, y no hay ninguna regla aprobada para " +
+      "hacerlo: repartirlo por precio, por coste o por unidades sería inventarlo.",
+  },
+  {
+    label: "Capital expuesto y límite de capital",
+    reason:
+      "Nadie registra cuánto capital tiene comprometido un proyecto. Antes salía de pedidos generados y de una constante.",
+  },
+  {
+    label: "Margen de contribución por proyecto",
+    reason: "El coste declarado vive en las líneas de pedido (Finanzas), y ninguna línea apunta a un proyecto.",
+  },
+  {
+    label: "Mercado y categoría del proyecto",
+    reason: "Un proyecto del backend no declara mercado ni categoría. Antes se escribían «eu» y «—» en el código.",
+  },
+  {
+    label: "Fecha de inicio sin auditoría",
+    reason:
+      "La API de proyectos no expone `created_at`. Si la auditoría no registró el alta, la fecha es «Sin datos», nunca una fecha calculada.",
+  },
+  {
+    label: "Documentos del proyecto",
+    reason: "No hay gestor documental. La lista que había antes era de demostración.",
+  },
+];
 
-  const marginScore = analysis ? Math.round(Math.max(0, Math.min(1, economicsResult.contributionMargin / 0.5)) * 100) : null;
-  phases.push(analysis ? phase("economics", "done", `${marginScore}/100`, marginScore) : phase("economics", "todo", "Pendiente"));
+// --- La tarjeta de un proyecto -------------------------------------------------------------------------------------
 
-  const legalAnalysis = legal.find((l) => l.market === market) ?? legal[0];
-  const legalView = buildLegalView(market, legalAnalysis);
-  phases.push(
-    legalAnalysis
-      ? phase(
-          "legal",
-          legalView.gate.state === "blocked" ? "blocked" : legalView.gate.state === "review" ? "current" : "done",
-          legalView.gate.state === "blocked" ? "Bloqueado" : legalView.gate.state === "review" ? "Revisión" : "Aprobado",
-          Math.round(legalView.compliance.ratio * 100),
-        )
-      : phase("legal", "todo", "Pendiente"),
-  );
+export interface ProjectMilestone {
+  /** Nombre de la tarea en el grafo del Director ejecutivo. */
+  task: string;
+  label: string;
+  state: PipelineStep["state"];
+  /** Momento en que la auditoría registró `task.completed`; `null` = no registrado. */
+  at: number | null;
+}
 
-  const storefront = storefronts.find((s) => s.market === market) ?? storefronts[0];
-  const readiness = launchReadiness({ economic: analysis, storefront, legal: legalAnalysis });
-  const readyRatio = readiness.length ? readiness.filter((r) => r.state === "done").length / readiness.length : 0;
-  phases.push(
-    storefront ? phase("store", "done", `Ready ${Math.round(readyRatio * 100)} %`, Math.round(readyRatio * 100)) : phase("store", "todo", "Pendiente"),
-  );
+export interface ProjectCard {
+  id: string;
+  name: string;
+  status: ProjectStatus;
+  statusLabel: string;
+  statusTone: StatusTone;
+  group: PortfolioGroup;
+  /** Las cuatro etapas que el Director ejecutivo puede evidenciar, con el estado real de su tarea. */
+  stages: PipelineStep[];
+  progress: TaskProgress;
+  decisionStatus: DecisionStatus | null;
+  decisionLabel: string | null;
+  rationale: string | null;
+  /** Confianza de la decisión (0–1). `null` cuando no hay decisión: no es cero. */
+  confidence: number | null;
+  /** `null` cuando el backend no lo da: no es cero. */
+  opportunityScore: number | null;
+  plannedMonthlyProfit: Planned<number> | null;
+  plannedMargin: Planned<number> | null;
+  /** Por qué no hay proyección, cuando no la hay. */
+  planAbsence: PlanAbsence | null;
+  /** Momento del `project.created` de la auditoría; `null` = no registrado. */
+  startedAt: number | null;
+  milestones: ProjectMilestone[];
+  /** Riesgos que los especialistas dejaron en la evidencia de la decisión. Sin nivel: nadie lo gradúa. */
+  risks: ProjectRisk[];
+}
 
-  const campaign = campaigns.find((c) => c.market === market) ?? campaigns[0];
-  phases.push(campaign ? phase("marketing", "current", "En curso") : phase("marketing", "todo", "Pendiente"));
+export interface ProjectSource {
+  project: Project;
+  tasks: Task[];
+  decision: Decision | null;
+  /** Auditoría de la ejecución de este proyecto (la de su correlación). */
+  audit: AuditEntry[];
+}
 
-  const operationsRecord = operations.find((o) => o.market === market) ?? operations[0];
-  phases.push(operationsRecord ? phase("operations", "done", "Simulado") : phase("operations", "todo", "Pendiente"));
-  phases.push(phase("scale", "blocked", "Bloqueado"));
+/** La primera vez que la auditoría registró una acción con esta forma exacta. `null` si no hay ninguna. */
+function firstAuditAt(audit: AuditEntry[], action: string, resource: string): number | null {
+  const times = audit
+    .filter((entry) => entry.action === action && entry.resource === resource)
+    .map((entry) => Date.parse(entry.created_at))
+    .filter((time) => Number.isFinite(time));
+  return times.length > 0 ? Math.min(...times) : null;
+}
 
-  const activeOrders = orders.filter((o) => ACTIVE_STATUSES.includes(o.status));
-  const deliveredOrders = orders.filter((o) => o.status === "delivered" || o.status === "returned");
-  const realProfit = deliveredOrders.length
-    ? round2(deliveredOrders.reduce((sum, o) => sum + o.units, 0) * economicsResult.contribution - baseline.inputs.monthlyFixedCosts)
-    : null;
-  const startedAt = audit.length ? Math.min(...audit.map((entry) => Date.parse(entry.created_at))) : today - 30 * DAY_MS;
+/** Un proyecto real del backend, con cada campo en su procedencia y sin ningún hueco relleno. */
+export function projectCard({ project, tasks, decision, audit }: ProjectSource): ProjectCard {
+  const stages = pipelineSteps(tasks, decision);
+  const finance = projectedFinance(decision);
+
+  const planAbsence: PlanAbsence | null =
+    decision === null
+      ? "no_decision"
+      : !decision.evidence.some((evidence) => evidence.source === "finance_validation")
+        ? "no_finance_evidence"
+        : finance === null
+          ? "not_projected"
+          : null;
+
+  const milestones: ProjectMilestone[] = stages.map((stage) => {
+    const task = tasks.find((candidate) => candidate.name === stage.task);
+    return {
+      task: stage.task,
+      label: stage.label,
+      state: stage.state,
+      at: task ? firstAuditAt(audit, "task.completed", `task:${task.id}`) : null,
+    };
+  });
 
   return {
-    id: product.id,
-    code: projectCodeFor(index),
-    name: product.name,
-    category: product.category,
-    market,
-    phases,
-    ...currentPhase(phases),
-    status: statusOf(phases),
-    health: healthOf(phases),
-    progress: progressOf(phases),
-    projectedProfit: round2(economicsResult.monthlyProfit),
-    realProfit,
-    capitalExposed: round2(activeOrders.reduce((sum, o) => sum + o.amount, 0) * DEMO_SUPPLIER_ADVANCE),
-    startedAt,
-    productId: product.id,
-    isDemo: false,
+    id: project.id,
+    name: project.name,
+    status: project.status,
+    statusLabel: PROJECT_STATUS_LABEL[project.status] ?? project.status,
+    statusTone: PROJECT_STATUS_TONE[project.status] ?? "neutral",
+    group: GROUP_OF[project.status] ?? "validation",
+    stages,
+    progress: taskProgress(tasks),
+    decisionStatus: decision?.status ?? null,
+    decisionLabel: decision ? DECISION_VERDICT[decision.status].title : null,
+    rationale: decision?.rationale ?? null,
+    confidence: decision?.confidence ?? null,
+    opportunityScore: decision?.opportunity_score ?? null,
+    plannedMonthlyProfit: finance === null ? null : planned(finance.monthlyProfit),
+    plannedMargin: finance === null || finance.margin === null ? null : planned(finance.margin),
+    planAbsence,
+    startedAt: firstAuditAt(audit, "project.created", `project:${project.id}`),
+    milestones,
+    risks: risksFromDecision(decision),
   };
 }
 
-/** La fase actual es la primera que no está cerrada, en el orden del pipeline. */
-function currentPhase(phases: ProjectPhase[]): { phase: PhaseKey; phaseLabel: string } {
-  const current = phases.find((p) => p.state !== "done") ?? phases[phases.length - 1];
-  return { phase: current.key, phaseLabel: current.label };
-}
-
-function statusOf(phases: ProjectPhase[]): ProjectStatusLabel {
-  if (phases.some((p) => p.state === "blocked" && p.key !== "scale")) return "Bloqueado";
-  const scores = phases.filter((p) => p.score !== null).map((p) => p.score!);
-  if (scores.some((score) => score < 50)) return "En riesgo";
-  return "En curso";
-}
-
-function healthOf(phases: ProjectPhase[]): number {
-  const scores = phases.filter((p) => p.score !== null).map((p) => p.score!);
-  if (scores.length === 0) return 0;
-  const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
-  const blocked = phases.filter((p) => p.state === "blocked" && p.key !== "scale").length;
-  return Math.max(0, Math.min(100, Math.round(average - blocked * 15)));
-}
-
-function progressOf(phases: ProjectPhase[]): number {
-  const done = phases.filter((p) => p.state === "done").length;
-  const current = phases.filter((p) => p.state === "current").length;
-  return (done + current * 0.5) / phases.length;
-}
-
-/** Proyectos de ejemplo que completan la cartera, deterministas por nombre. */
-export function demoProjects(today: number, startIndex: number): ProjectCard[] {
-  const rows: ProjectCard[] = DEMO_PROJECTS.map((demo, k) => {
-    const phaseIndex = PHASES.findIndex((p) => p.key === demo.phase);
-    const phases = PHASES.map((meta, index) => {
-      if (index < phaseIndex) return phase(meta.key, "done", `${60 + Math.round(demoRandom(demo.name, `phase-${index}`) * 38)}/100`, 60 + Math.round(demoRandom(demo.name, `phase-${index}`) * 38));
-      if (index === phaseIndex) return phase(meta.key, demo.status === "Pausado" ? "todo" : "current", demo.status === "Pausado" ? "Pausado" : "En curso");
-      return phase(meta.key, meta.key === "scale" ? "blocked" : "todo", meta.key === "scale" ? "Bloqueado" : "Pendiente");
-    });
-    return {
-      id: `demo-${demo.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-      code: `${PROJECT_CODE_PREFIX}${String(startIndex - k).padStart(4, "0")}`,
-      name: demo.name,
-      category: demo.category,
-      market: demo.market,
-      phases,
-      ...currentPhase(phases),
-      status: demo.status as ProjectStatusLabel,
-      health: demo.health,
-      progress: progressOf(phases),
-      projectedProfit: demo.profit,
-      realProfit: demo.status === "Cerrado" ? demo.profit : null,
-      capitalExposed: Math.round(demoRandom(demo.name, "capital") * 400),
-      startedAt: today - demo.daysAgo * DAY_MS,
-      isDemo: true,
-    } satisfies ProjectCard;
-  });
-
-  const closed: ProjectCard[] = DEMO_CLOSED_PROJECTS.map((demo, k) => {
-    const phases = PHASES.map((meta) => phase(meta.key, "done", "Cerrado"));
-    return {
-      id: `demo-${demo.name.toLowerCase()}`,
-      code: `${PROJECT_CODE_PREFIX}${String(startIndex - DEMO_PROJECTS.length - k).padStart(4, "0")}`,
-      name: demo.name,
-      category: demo.category,
-      market: demo.market,
-      phases,
-      phase: "scale" as PhaseKey,
-      phaseLabel: "Cerrado",
-      status: "Cerrado" as ProjectStatusLabel,
-      health: demo.health,
-      progress: 1,
-      projectedProfit: demo.profit,
-      realProfit: demo.profit,
-      capitalExposed: 0,
-      startedAt: today - demo.daysAgo * DAY_MS,
-      isDemo: true,
-    } satisfies ProjectCard;
-  });
-
-  return [...rows, ...closed];
-}
-
-// --- Cartera ---------------------------------------------------------------------
+// --- La cartera ----------------------------------------------------------------------------------------------------
 
 export interface PortfolioCounts {
-  active: number;
+  total: number;
   validation: number;
-  launch: number;
-  operating: number;
-  atRisk: number;
-  blocked: number;
+  execution: number;
+  paused: number;
   closed: number;
-  projectedProfit: number;
-  realProfit: number;
+  /** Cuántos proyectos traen proyección. No se SUMAN: la evidencia financiera no declara moneda. */
+  withPlan: number;
 }
 
-const VALIDATION_PHASES: PhaseKey[] = ["research", "suppliers", "economics", "legal"];
-const LAUNCH_PHASES: PhaseKey[] = ["store", "marketing"];
-
 export function portfolioCounts(projects: ProjectCard[]): PortfolioCounts {
-  const open = projects.filter((p) => p.status !== "Cerrado");
+  const of = (group: PortfolioGroup) => projects.filter((project) => project.group === group).length;
   return {
-    active: open.length,
-    validation: open.filter((p) => VALIDATION_PHASES.includes(p.phase)).length,
-    launch: open.filter((p) => LAUNCH_PHASES.includes(p.phase)).length,
-    operating: open.filter((p) => p.phase === "operations" || p.phase === "scale").length,
-    atRisk: open.filter((p) => p.status === "En riesgo").length,
-    blocked: open.filter((p) => p.status === "Bloqueado").length,
-    closed: projects.filter((p) => p.status === "Cerrado").length,
-    projectedProfit: round2(open.reduce((sum, p) => sum + (p.projectedProfit ?? 0), 0)),
-    realProfit: round2(projects.reduce((sum, p) => sum + (p.realProfit ?? 0), 0)),
+    total: projects.length,
+    validation: of("validation"),
+    execution: of("execution"),
+    paused: of("paused"),
+    closed: of("closed"),
+    withPlan: projects.filter((project) => project.plannedMonthlyProfit !== null).length,
   };
 }
 
-export type PortfolioTab = "all" | "validation" | "launch" | "operating" | "closed";
+export type PortfolioTab = "all" | PortfolioGroup;
 
 export const PORTFOLIO_TABS: { key: PortfolioTab; label: string }[] = [
   { key: "all", label: "Todos" },
-  { key: "validation", label: "Validación" },
-  { key: "launch", label: "Lanzamiento" },
-  { key: "operating", label: "Operativos" },
+  { key: "validation", label: "En validación" },
+  { key: "execution", label: "En ejecución" },
+  { key: "paused", label: "Pausados" },
   { key: "closed", label: "Cerrados" },
 ];
 
 export function filterProjects(
   projects: ProjectCard[],
-  filters: { tab: PortfolioTab; query?: string; market?: string; category?: string; status?: string },
+  filters: { tab: PortfolioTab; query?: string; status?: string },
 ): ProjectCard[] {
   const query = (filters.query ?? "").trim().toLowerCase();
   return projects.filter((project) => {
-    if (filters.tab === "validation" && !(project.status !== "Cerrado" && VALIDATION_PHASES.includes(project.phase))) return false;
-    if (filters.tab === "launch" && !(project.status !== "Cerrado" && LAUNCH_PHASES.includes(project.phase))) return false;
-    if (filters.tab === "operating" && !(project.status !== "Cerrado" && (project.phase === "operations" || project.phase === "scale"))) return false;
-    if (filters.tab === "closed" && project.status !== "Cerrado") return false;
-    if (query && !`${project.code} ${project.name}`.toLowerCase().includes(query)) return false;
-    if (filters.market && filters.market !== "all" && project.market !== filters.market) return false;
-    if (filters.category && filters.category !== "all" && project.category !== filters.category) return false;
+    if (filters.tab !== "all" && project.group !== filters.tab) return false;
+    if (query && !`${project.id} ${project.name}`.toLowerCase().includes(query)) return false;
     if (filters.status && filters.status !== "all" && project.status !== filters.status) return false;
     return true;
   });
 }
 
-/** Reparto de los proyectos abiertos por bloque de fases, para el donut. */
-export function phaseDistribution(projects: ProjectCard[]): { key: string; label: string; value: number; color: string }[] {
+/** Reparto de la cartera por bloque de estados del backend. */
+export function statusDistribution(
+  projects: ProjectCard[],
+): { key: PortfolioGroup; label: string; value: number; color: string }[] {
   const counts = portfolioCounts(projects);
   return [
-    { key: "validation", label: "Validación", value: counts.validation, color: "#e056c8" },
-    { key: "launch", label: "Lanzamiento", value: counts.launch, color: "#4f8df7" },
-    { key: "operating", label: "Operativos", value: counts.operating, color: "#00d69a" },
-    { key: "closed", label: "Cerrados", value: counts.closed, color: "#7a8b99" },
+    { key: "validation", label: "En validación", value: counts.validation, color: "#e056c8" },
+    { key: "execution", label: "En ejecución", value: counts.execution, color: "#4f8df7" },
+    { key: "paused", label: "Pausados", value: counts.paused, color: "#7a8b99" },
+    { key: "closed", label: "Cerrados", value: counts.closed, color: "#00d69a" },
   ];
 }
 
-/** Beneficio previsto por mercado de los proyectos abiertos. */
-export function profitByMarket(projects: ProjectCard[]): { key: string; value: number }[] {
-  const totals = new Map<string, number>();
-  for (const project of projects) {
-    if (project.status === "Cerrado") continue;
-    totals.set(project.market, (totals.get(project.market) ?? 0) + (project.projectedProfit ?? 0));
-  }
-  return [...totals.entries()].map(([key, value]) => ({ key, value: round2(value) })).sort((a, b) => b.value - a.value);
-}
+// --- Detalle -------------------------------------------------------------------------------------------------------
 
-// --- Detalle ----------------------------------------------------------------------
-
-export interface DecisionGate {
-  label: string;
-  state: "ok" | "warn" | "bad";
-  detail: string;
-}
-
-export interface NextDecision {
+export interface NextStep {
+  /** La etapa que el proyecto tiene delante; `null` cuando el grafo no deja ninguna abierta. */
+  stage: PipelineStep | null;
   title: string;
-  phaseLabel: string;
-  amount: number | null;
-  maxCac: number | null;
-  gates: DecisionGate[];
-  href: string;
+  href: string | null;
+  /** El veredicto de la decisión del Director ejecutivo, si la hay. */
+  decision: string | null;
 }
 
-/** La decisión que el proyecto tiene delante, según su fase actual. */
-export function nextDecision(project: ProjectCard, input: { maxCac: number | null; amount: number | null }): NextDecision {
-  const titles: Record<PhaseKey, string> = {
-    research: "Validar la oportunidad",
-    suppliers: "Elegir proveedor",
-    economics: "Aprobar precio y márgenes",
-    legal: "Cerrar el Legal Gate",
-    store: "Publicar el escaparate",
-    marketing: "Campaña de lanzamiento",
-    operations: "Simular operaciones",
-    scale: "Escalar el producto",
-  };
-  const gateOf = (key: PhaseKey): DecisionGate => {
-    const item = project.phases.find((p) => p.key === key)!;
-    return {
-      label: item.label,
-      state: item.state === "done" ? "ok" : item.state === "blocked" ? "bad" : "warn",
-      detail: item.detail,
-    };
-  };
+const STEP_TITLE: Record<string, string> = {
+  product_validation: "Validar la oportunidad",
+  supplier_sourcing: "Elegir proveedor",
+  finance_validation: "Validar la economía",
+  legal_validation: "Cerrar el Legal Gate",
+};
+
+/** Lo siguiente que le toca al proyecto: la primera etapa de su grafo que no está cerrada. */
+export function nextStep(project: ProjectCard): NextStep {
+  const stage = project.stages.find((candidate) => candidate.state !== "done") ?? null;
   return {
-    title: titles[project.phase],
-    phaseLabel: project.phaseLabel,
-    amount: input.amount,
-    maxCac: input.maxCac,
-    gates: [gateOf("legal"), gateOf("economics"), gateOf("store")],
-    href: PHASES.find((p) => p.key === project.phase)!.href,
+    stage,
+    title: stage ? (STEP_TITLE[stage.task] ?? stage.label) : "Todas las etapas del grafo están completadas",
+    href: stage?.href ?? null,
+    decision: project.decisionLabel,
   };
 }
 
-export interface ProjectMilestone {
-  label: string;
-  done: boolean;
-  at: number | null;
-}
-
-/** Hitos del proyecto con la fecha en que la auditoría los registró. */
-export function projectMilestones(project: ProjectCard, audit: AuditEntry[]): ProjectMilestone[] {
-  const dateOf = (action: string) => {
-    const entry = audit.filter((e) => e.action.startsWith(action)).sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))[0];
-    return entry ? Date.parse(entry.created_at) : null;
-  };
-  const phaseDone = (key: PhaseKey) => project.phases.find((p) => p.key === key)!.state === "done";
-  return [
-    { label: "Producto validado", done: phaseDone("research"), at: dateOf("research") },
-    { label: "Proveedor seleccionado", done: phaseDone("suppliers"), at: dateOf("sourcing") },
-    { label: "Viabilidad económica", done: phaseDone("economics"), at: dateOf("economics") },
-    { label: "Legal Gate", done: phaseDone("legal"), at: dateOf("legal") },
-    { label: "Escaparate preparado", done: phaseDone("store"), at: dateOf("storefront") },
-    { label: "Campaña aprobada", done: project.phases.find((p) => p.key === "marketing")!.state !== "todo", at: dateOf("marketing") },
-    { label: "Primera venta", done: false, at: null },
-    { label: "Break-even real", done: false, at: null },
-  ];
-}
-
-export interface ComparisonRow {
-  key: string;
-  label: string;
-  planned: number;
-  actual: number;
-  /** El valor menor es el mejor (CAC, devoluciones, entrega). */
-  lowerIsBetter: boolean;
-  format: "integer" | "euro" | "percent" | "days";
-}
-
-/** Previsto (supuestos de Economía) frente a real (pedidos de Operaciones). */
-export function plannedVsActual(input: {
-  projectId: string;
-  plannedOrders: number;
-  plannedRevenue: number;
-  plannedCac: number;
-  plannedMargin: number;
-  plannedReturnRate: number;
-  plannedDeliveryDays: number;
-  orders: Order[];
-  today: number;
-}): ComparisonRow[] {
-  const { projectId, orders, today } = input;
-  const delivered = orders.filter((o) => o.status === "delivered" || o.status === "returned");
-  const units = delivered.reduce((sum, o) => sum + o.units, 0);
-  const revenue = delivered.reduce((sum, o) => sum + o.amount, 0);
-  const returned = delivered.filter((o) => o.status === "returned").length;
-  const deliveryDays = delivered.length ? delivered.reduce((sum, o) => sum + daysBetween(o.createdAt, o.estimatedAt), 0) / delivered.length : input.plannedDeliveryDays;
-  const spread = (salt: string) => 1 + (demoRandom(projectId, salt) * 2 - 1) * DEMO_ACTUAL_SPREAD;
-  void today;
-  return [
-    { key: "orders", label: "Ventas/mes", planned: input.plannedOrders, actual: units || Math.round(input.plannedOrders * spread("orders")), lowerIsBetter: false, format: "integer" },
-    { key: "revenue", label: "Ingresos", planned: round2(input.plannedRevenue), actual: round2(revenue || input.plannedRevenue * spread("revenue")), lowerIsBetter: false, format: "euro" },
-    { key: "cac", label: "CAC", planned: round2(input.plannedCac), actual: round2(input.plannedCac * spread("cac")), lowerIsBetter: true, format: "euro" },
-    { key: "margin", label: "Margen", planned: input.plannedMargin, actual: input.plannedMargin * spread("margin"), lowerIsBetter: false, format: "percent" },
-    {
-      key: "returns",
-      label: "Devoluciones",
-      planned: input.plannedReturnRate,
-      actual: delivered.length ? returned / delivered.length : input.plannedReturnRate * spread("returns"),
-      lowerIsBetter: true,
-      format: "percent",
-    },
-    { key: "delivery", label: "Entrega", planned: input.plannedDeliveryDays, actual: round2(deliveryDays), lowerIsBetter: true, format: "days" },
-  ];
-}
-
-export interface Learning {
-  text: string;
-  tone: "ok" | "warn";
-}
-
-/** Aprendizajes: cada métrica que se desvía lo bastante deja una lección. */
-export function learnings(rows: ComparisonRow[]): Learning[] {
-  return rows.map((row) => {
-    const delta = row.planned !== 0 ? row.actual / row.planned - 1 : 0;
-    const better = row.lowerIsBetter ? delta < -0.02 : delta > 0.02;
-    const worse = row.lowerIsBetter ? delta > 0.02 : delta < -0.02;
-    const percent = `${Math.abs(delta * 100).toLocaleString("es-ES", { maximumFractionDigits: 0 })} %`;
-    if (!better && !worse) return { text: `${row.label}: previsión correcta.`, tone: "ok" as const };
-    return better
-      ? { text: `${row.label}: mejor de lo previsto (${percent}).`, tone: "ok" as const }
-      : { text: `${row.label}: por debajo de lo previsto (${percent}).`, tone: "warn" as const };
-  });
-}
-
-export interface ProjectRiskRow {
-  source: string;
-  text: string;
-  level: "Alto" | "Medio" | "Bajo";
-}
-
-/** Riesgos del proyecto: los que dejaron los agentes en sus análisis y los que se
- * derivan del estado de las fases. */
-export function projectRisks(input: {
-  analyses: { source: string; risks: string[] }[];
-  project: ProjectCard;
-  capitalExposed: number;
-  capitalLimit: number;
-}): ProjectRiskRow[] {
-  const rows: ProjectRiskRow[] = input.analyses.flatMap((analysis) =>
-    analysis.risks.map((text) => ({ source: analysis.source, text, level: "Medio" as const })),
-  );
-  const legal = input.project.phases.find((p) => p.key === "legal")!;
-  rows.push({
-    source: "Legal",
-    text: legal.state === "done" ? "Sin bloqueos" : legal.state === "blocked" ? "Legal Gate bloqueado" : "Legal Gate pendiente de revisión",
-    level: legal.state === "done" ? "Bajo" : legal.state === "blocked" ? "Alto" : "Medio",
-  });
-  rows.push({
-    source: "Capital",
-    text: input.capitalExposed <= input.capitalLimit ? "Dentro de política" : "Capital expuesto sobre el límite",
-    level: input.capitalExposed <= input.capitalLimit ? "Bajo" : "Alto",
-  });
-  return rows;
-}
+/** Una fecha o una cifra ausente se dice con el mismo vocabulario que Finanzas y el Panel. */
+export { NO_DATA };

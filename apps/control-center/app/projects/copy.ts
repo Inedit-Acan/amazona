@@ -1,2 +1,2 @@
 export const PROJECTS_TITLE = "Proyectos";
-export const PROJECTS_DESCRIPTION = "Cartera de oportunidades. Del análisis a la realidad.";
+export const PROJECTS_DESCRIPTION = "Los proyectos que el Director ejecutivo ha creado, con lo que el backend registró de cada uno.";
