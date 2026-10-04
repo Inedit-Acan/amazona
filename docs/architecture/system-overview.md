@@ -262,6 +262,8 @@ separados, colas) — no se usa activamente hoy.
 | [0026](adr-0026-database-identity-guards.md) | La identidad de lo que es único la garantiza la base de datos: un presupuesto por nombre, un saldo por presupuesto, un interruptor por nombre, una reserva y una liquidación por referencia, una pregunta pendiente por paso; una referencia se reserva una sola vez; el techo es finito, en céntimos y acotado; la migración nunca borra ni fusiona filas y se niega si ya hay duplicados |
 | [0027](adr-0027-approval-boundary-and-budget-authorisation.md) | `Approval` (decisión del CEO, con su dinero reservado y caducidad) y `PipelineReview` (permiso de un efecto de un paso, de un solo uso, o revisión a posteriori) son dos conceptos distintos con una frontera que hacen cumplir las pruebas, no una convención; y la autorización del presupuesto sigue siendo un comando de consola con auditoría de importe, moneda y ámbito, porque un endpoint que fije el techo de gasto es un endpoint que puede subirlo |
 | [0028](adr-0028-orders-payments-fulfilment-core.md) | Núcleo de pedido, pago y fulfillment: el pago solo lo confirma un evento verificado por una única puerta (simulado o real), un pedido tiene varios intentos de cobro, la evidencia financiera nunca se descarta (`DUPLICATE_CAPTURE`) y una unidad comprada no vuelve al pool; enmendada al cierre del milestone (bloqueo `FOR NO KEY UPDATE`, perder una carrera es un 409, el evento de reembolso que coincide con un cierre es evidencia, intenciones del frontend sin caducidad, `code` de idempotencia y la deuda de los tres paneles) y enmienda a las ADR 0011, 0024, 0025 y 0027 |
+| [0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md) | Reconciliación programada **dentro del worker**: qué estados se miran y quién puede cerrar cuál; un `UNKNOWN_OUTCOME` solo lo cierra información (una consulta autoritativa, una respuesta tardía o una persona), nunca un tick; un evento `RECEIVED` tiene un tope de 5 intentos automáticos sin estados nuevos; el `lookup` de un simulador no es autoritativo; y el techo de una llamada externa no tiene valor por defecto con proveedores reales |
+| [0030](adr-0030-verified-revenue-ledger.md) | Registro de ingresos verificados: una **proyección inmutable** (trigger *append-only*) de los hechos de pago verificados, atómica con el evento que la causa, una entrada por evento; `CONFLICT`/`UNMATCHED` no son ingreso y se enseñan aparte; un reembolso hereda la clasificación de su captura; multimoneda exacta y solo EUR consolidado; **no** es el libro contable ni fiscal de KOVA; los agregados de lectura (Commit 8) |
 
 Las frases que tienen que seguir siendo ciertas tras el hardening pre-M44 y la prueba que fija cada una (doce invariantes y veinte escenarios de caos) están en [`pre-m44-invariants-and-chaos-tests.md`](pre-m44-invariants-and-chaos-tests.md).
 
@@ -302,6 +304,7 @@ Las frases que tienen que seguir siendo ciertas tras el hardening pre-M44 y la p
 | [42](../milestones/milestone-42-demo.md) | Tipos de cambio de referencia del BCE: refresco explícito, fecha efectiva intacta y ventana propia (§23) |
 | [43](../milestones/milestone-43-demo.md) | Transposición nacional de directivas anclada en el BOE: declarada por una persona, verificada, corroborada de forma determinista y siempre marcada como informativa (§24) |
 | [44](../milestones/milestone-44-demo.md) | Pedidos, cobros, reembolsos y fulfillment, simulados y desde el backend: el dinero lo confirma un evento verificado, la evidencia financiera nunca se descarta, una unidad comprada no vuelve al pool y Operaciones lee pedidos reales (§25) |
+| [45](../milestones/milestone-45-demo.md) | Reconciliación programada, registro de ingresos verificados y pantallas sin dinero inventado: Panel, Finanzas y Proyectos leen el registro o dicen «Sin datos», y un error de lectura no es un dato; con una [prueba integral local paso a paso](../milestones/milestone-45-integral-test.md) (§26, §27) |
 
 ## 10. Cómo verlo funcionar
 
@@ -320,6 +323,10 @@ cd apps/control-center && npm run dev   # http://localhost:3000
   su captura, comprar, enviar, entregar y reembolsar; verlo en Control
   Center → **Operaciones**. Paso a paso, en
   [`milestone-44-demo.md`](../milestones/milestone-44-demo.md).
+- **La cadena entera, a mano (Milestone 45):** investigación → decisión → pedido → cobro simulado y verificado → registro de
+  ingresos → fulfillment → reconciliación → Panel → Finanzas → Proyectos, con lo que debe verse en cada pantalla y qué es PASS o
+  FAIL: [`milestone-45-integral-test.md`](../milestones/milestone-45-integral-test.md). Sobre una base PostgreSQL local
+  desechable, **nunca Supabase**.
 - **Trazabilidad de cualquier ejecución:** cada paso (Milestone 1 o
   Fase 3/Pipeline) tiene su propio `correlation_id` — reconstruible vía
   `GET /api/audit?correlation_id=` o la página **Audit**.
@@ -1030,10 +1037,15 @@ en el milestone donde se descubrieron.
 | **Ancla nacional para otros países y fuentes** | El BOE es el único adaptador de Derecho nacional. Otros países, Safety Gate y ECHA quedan fuera | Un adaptador por fuente tras `NationalNormSource`, cada uno con sus derechos y coste (ADR 0015) |
 | **~~Coste de adquisición (CAC) en Economics~~** *(cerrada en el Milestone 40)* | `EconomicAnalysis` tiene precio de venta, costes fijos y margen, y **no tiene CAC**. Un producto con 40 % de margen y un coste de adquisición del 60 % del precio pierde dinero, y hoy el sistema no puede verlo. **La evaluación económica de venta directa no puede considerarse completa sin esto**, y la venta directa es el canal prioritario | El plan maestro lo roza en §17 (límites de `max CPC` y `max CAC` para campañas) y en §18 (el embudo devolviendo datos a Economics), y **no le da ubicación inequívoca**. Se propone un milestone propio del dominio Economics: *«el coste de adquisición entra en la decisión»*, antes del `opportunity_score` v2 del §9, que lo necesita para su factor de margen |
 | **Reconciliadores programados (M44)** | **Parcialmente cerrada en el Milestone 45 (Commit 5, [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md)).** **Programado** (dentro del worker; se apaga con `reconciliation_enabled`): el barrido de acciones abandonadas (`reconcile.actions`: una `PENDING` se libera y su reserva vuelve; una `CALLING` pasa a `UNKNOWN_OUTCOME` y conserva su reserva), la reanudación de eventos `RECEIVED` (`reconcile.payment_events`, tope de 5 intentos por evento) y un estado de solo lectura (`reconcile.report`). **Sigue siendo manual**, a propósito: `resolve-action` (un `UNKNOWN_OUTCOME` de una acción, y con él el cobro, reembolso o fulfillment que depende de ella, solo lo cierra información autoritativa, una respuesta tardía o una persona; lo programado únicamente lo hace visible) y `retry-payment-event` (un evento `RECEIVED` atascado, por ejemplo el que llegó al tope); los comandos `reconcile-actions` y `reconcile-payment-events` siguen existiendo como órdenes manuales. **No está programado** el cierre por consulta al proveedor (`ExternalActionService.reconcile()`: ningún adaptador declara hoy un `lookup` autoritativo y ningún código de producción lo llama). **Sin reconciliador**: cobros `OPEN` y reembolsos `SENDING` sin confirmar (P2-3, P2-4) | Trabajos del runtime asíncrono (§13), antes de conectar ningún proveedor real. Lo programado, hecho en el Commit 5 de M45; antes del primer proveedor real quedan las condiciones de la ADR 0029 (techo de llamada externa y `lookup` autoritativo declarado) |
-| **Dashboard, CFO y Proyectos con pedidos reales (M44)** | Siguen mostrando pedidos inventados (`buildOrders`), etiquetados como demostración; Operaciones ya no coincide con ellos | Convertirlos a `GET /api/orders` y al libro económico de ingresos. Decidido por el propietario para el Milestone 45 |
-| **Libro económico de ingresos** | El dinero cobrado y reembolsado vive en `payments`, pero ninguna cifra económica (CFO, márgenes) lo usa: el presupuesto tiene una sola fuente de verdad y los ingresos todavía no | Un libro alimentado por capturas y reembolsos verificados. Propuesto para el Milestone 45 |
+| **~~Dashboard, CFO y Proyectos con pedidos reales (M44)~~** *(cerrada en el Milestone 45, Commits 9–11)* | Mostraban pedidos inventados (`buildOrders`). Ahora el Panel y Finanzas leen el registro de ingresos verificados, y Proyectos solo enseña proyectos reales del backend. **Queda:** el Panel conserva paneles de demostración etiquetados «Demo» que no son dinero (§27) | — |
+| **~~Libro económico de ingresos~~** *(cerrada en el Milestone 45, Commits 6–8: [ADR 0030](adr-0030-verified-revenue-ledger.md), §26)* | El dinero cobrado y reembolsado vivía solo como columnas mutables de `payments`. **Queda:** el gasto sigue sin moneda ni lectura (`financial_events`, `ExternalAction.amount`), así que no hay beneficio, EBITDA ni caja posibles | Un libro de gasto con moneda y una ruta de lectura; después, un P&L declarado |
 | **Cierre de un cobro `OPEN` sin evento del proveedor** | No existe `payment.cancel` ni caducidad: un intento abierto que el proveedor nunca cierra bloquea nuevos intentos de ese pedido | Antes de una pasarela real |
-| **Corregir P2-1 y P2-2 (M44)** | `ExternalActionStateError` no tiene tratamiento HTTP en cobros y reembolsos; Operaciones lee como máximo 500 pedidos sin avisar de que trunca | Decidido por el propietario: Milestone 45, con `fix:` propios |
+| **~~Corregir P2-1 y P2-2 (M44)~~** *(cerrada en el Milestone 45, Commits 1 y 3)* | `ExternalActionStateError` sin tratamiento HTTP en cobros y reembolsos (ahora un 409 de dominio) y Operaciones leyendo como máximo 500 pedidos sin avisar (ahora pagina por cursor y dice cuándo trunca) | — |
+| **Procedencia estructurada SIMULATED / REAL** (M45) | Un hecho de pago verificado no es una transacción real: puede pertenecer a un pedido simulado. `Order.is_simulated` existe, pero el registro de ingresos no lo guarda, y por eso ninguna pantalla puede decir «real». Hay que poder distinguir `VERIFIED_SIMULATED`, `VERIFIED_NON_SIMULATED`, `DECLARED`, `PLAN` y `DEMO` | **Antes de conectar una pasarela real.** Propagar la procedencia al `PaymentEvent` y al registro |
+| **Relación producto ↔ proyecto y reparto del ingreso** (M45) | Un proyecto del Director ejecutivo no está enlazado a un producto ni a un pedido, y un pedido puede llevar varios productos. Sin ese modelo **y sin una regla aprobada de reparto**, Proyectos no puede mostrar ingresos (repartir por precio, coste o unidades sería inventarlo) | Un modelo de relación explícito y la regla del propietario; después, el ingreso por proyecto |
+| **`finance_validation` sin moneda** (M45) | La proyección de Proyectos va sin símbolo y sin total porque la evidencia financiera del Director ejecutivo no declara moneda | Que el especialista de finanzas declare la moneda; entonces puede denominarse y sumarse |
+| **Agregados de backend para el CFO** (M45) | El CFO calcula el margen cargando como mucho 300 pedidos y 1 000 entradas del registro, y lo dice; un pedido antiguo cobrado hoy puede quedar fuera (su coste es entonces «desconocido», no cero) | Un agregado de backend por periodo, si el volumen real o una medición lo justifican |
+| **Lecturas silenciosas del Panel operativo** (M45) | 9 lecturas del Panel (agentes, ejecuciones, aprobaciones, revisiones y las del catálogo por producto) convierten un error en una lista vacía: «0 aprobaciones pendientes» cuando la lectura falló es engañoso. No son dinero | Anotarlas como no leídas (`UNREAD`), como ya hacen Finanzas y Proyectos; un trinquete (`m45-boundary.test.ts`) fija el número y solo puede bajar |
 
 ## 22. Requisitos legales declarados y anclados en una fuente (Milestone 41)
 
@@ -1279,8 +1291,8 @@ información autoritativa, una respuesta tardía o una persona, nunca un tick (P
 **Operaciones lee pedidos reales** (`GET /api/orders`) y deja de inventarlos: pedidos por estado, dinero realmente cobrado y
 reembolsado (suma exacta por moneda), el pipeline de fulfillment, los pedidos que requieren atención con los motivos del
 backend, el detalle de cada uno, y una tarjeta «Lo que esta pantalla todavía no puede mostrar» (transportistas, devoluciones
-físicas, SLA, rendimiento por proveedor, clientes y canal, automatizaciones) con «Sin datos». **Dashboard, CFO y Proyectos
-siguen mostrando pedidos inventados**, etiquetados como demostración (P1-2). Todavía **no hay formularios** para crear un
+físicas, SLA, rendimiento por proveedor, clientes y canal, automatizaciones) con «Sin datos». **El Panel, Finanzas y Proyectos
+dejaron de mostrar pedidos inventados en el Milestone 45** (§26 y §27). Todavía **no hay formularios** para crear un
 pedido, un cobro o un fulfillment desde la pantalla; las funciones de `api.ts` ya existen y exigen la clave de intención
 como parámetro obligatorio.
 
@@ -1291,16 +1303,16 @@ como parámetro obligatorio.
 | Dominio (pedidos, cobros, reembolsos, fulfillment), reglas, base de datos, API, permisos, auditoría, idempotencia | **Real**, probado sobre PostgreSQL |
 | Pasarela de pago, proveedor de abastecimiento y transportista | **Simulados** (`simulated-payments`, `simulated-fulfilment`); no existe ningún adaptador real |
 | Clientes, carrito, checkout, IVA/OSS, facturas, contabilidad, devoluciones físicas, seguimiento de envíos | **No existen** |
-| Migraciones de M44 en Supabase | **No aplicadas** (Supabase tiene 12; requiere autorización y procedimiento aparte) |
+| Migraciones de M44 y de M45 en Supabase | **No aplicadas** (Supabase tiene 12 y está en la revisión `ebc8b88725e2`; el repositorio tiene 43 hasta `e5a1d7c93b04`, así que **faltan 24**; requiere autorización y procedimiento aparte) |
 
 `staging` y `production` **no arrancan** hasta que existan adaptadores no simulados de pago y fulfillment (§12.2): es
 intencionado.
 
-## 26. Registro de ingresos verificados (Milestone 45, ADR 0030, implementado en el Commit 7)
+## 26. Registro de ingresos verificados (Milestone 45, ADR 0030, Commits 6 a 8)
 
 La [ADR 0030](adr-0030-verified-revenue-ledger.md) decide cómo dejar de inventar el dinero que muestran Dashboard, CFO y Proyectos
 (P1-2). Decidido en el Commit 6 e implementado en el Commit 7: la tabla `revenue_ledger_entries` (migración `c4e8b1d9a273`), el
-módulo `app/revenue/` y los tres puntos de escritura de `PaymentService`. Los agregados de lectura se añadieron en el Commit 8 (ver abajo); Dashboard, CFO y Proyectos siguen sin cambios.
+módulo `app/revenue/` y los tres puntos de escritura de `PaymentService`. Los agregados de lectura se añadieron en el Commit 8 (ver abajo); el Panel, Finanzas y Proyectos lo leen desde los Commits 9 a 11 (§27).
 
 - **Qué es.** Un *Verified Revenue Ledger* (*registro de ingresos verificados*; módulo `app/revenue/`, tabla `revenue_ledger_entries`):
   una lista **inmutable** de hechos monetarios operativos verificados, que es una **proyección determinista** de los hechos de pago
@@ -1325,3 +1337,52 @@ módulo `app/revenue/` y los tres puntos de escritura de `PaymentService`. Los a
   importes son texto exacto. **No** hay margen, beneficio, coste, impuestos, IVA/OSS, caja ni comisiones, y cada respuesta dice que no
   es contabilidad. Un índice `(occurred_at, id)` (migración `e5a1d7c93b04`) sirve el rango y el cursor (medido sobre 990 000
   entradas: página 140 → 1 ms, resumen de 30 días 126 → 12 ms).
+
+## 27. Panel, Finanzas y Proyectos sobre datos verificados, y cómo se prueba (Milestone 45, Commits 9 a 12)
+
+**La regla:** una cifra de dinero sale de un hecho que el backend registró, o dice «Sin datos» y por qué; nunca de un generador, de
+una constante ni de un pedido inventado. **Y un error de lectura no es un dato** («No se pudo leer» no es «Sin datos»).
+
+**Un solo vocabulario de procedencia** (el tipo `Verified` / `Declared` / `Planned` de `lib/provenance.ts`; sumar dos procedencias
+distintas **no compila**):
+
+| Etiqueta | Qué promete |
+|---|---|
+| **Registro verificado** | El backend tiene el hecho de pago verificado y registrado. **No** dice si la operación fue simulada: el registro todavía no guarda esa procedencia, así que ninguna pantalla afirma «real» |
+| **Declarado** | Lo declaró una cotización o una persona y el backend guarda su fuente (el coste de una línea de pedido). No es un pago comprobado |
+| **Proyección (PLAN)** | Lo que el modelo espera si sus supuestos se cumplen. No ha ocurrido |
+| **Demo** | Un dato de demostración, siempre etiquetado |
+| **Sin datos** / **No se pudo leer** | No hay fuente / la lectura falló. Nunca un cero, nunca una lista vacía a secas |
+
+- **Panel (Commit 9).** Ingresos verificados, reembolsos y neto (solo EUR consolidado; otras monedas aparte), dinero en revisión y
+  evidencia pendiente, con un selector de periodo y un estado vacío honesto. Lo demostrativo (agentes en curso, decisiones y
+  oportunidades de ejemplo) **conserva su etiqueta «Demo»**.
+- **Finanzas (Commit 10).** **Tres zonas, en orden y sin aritmética entre ellas**: *Registro verificado*; *Coste y margen declarados*
+  (margen de contribución **solo con cobertura de coste del 100 %**, en EUR; con cobertura parcial muestra «Costes conocidos: 6 / 8
+  líneas · 75 %» y el margen en «Sin datos»; nunca lo llama beneficio); y *Proyección (PLAN)* desde los análisis económicos. El
+  veredicto del agente CFO va **aparte**, sin cifras. Se retiraron 11 tarjetas de demostración (caja, runway, impuestos, tesorería,
+  cuentas…). Una tarjeta dice una vez qué no puede calcular.
+- **Proyectos (Commit 11).** Solo **proyectos reales del backend**: su estado, las cuatro etapas del grafo del Director ejecutivo, las
+  tareas, la decisión y su confianza, y la proyección PLAN que dejó el especialista de finanzas (sin moneda y sin total). Un producto
+  **no** es un proyecto; no hay «Beneficio real»; el identificador es el id real; la fecha de inicio sale de la auditoría o es
+  «Sin datos». Sin proyectos, un estado vacío honesto.
+- **Lo que no hace nadie (a propósito):** imputar ingreso a un proyecto, calcular beneficio neto, EBITDA, caja, impuestos o IVA/OSS,
+  convertir divisas, ni decir que el dinero es real. Cada pantalla lo dice.
+
+**Cómo se prueba (Commit 12).** Además de las pruebas de cada pieza:
+
+- Un **oráculo independiente del registro** (`backend/tests/integration/m45_invariants_test_support.py`, no importa el código que
+  prueba) que comprueba, tras cada paso de una caminata aleatoria, que cada entrada tiene su evento verificado, que cada cobro
+  cuadra con sus entradas, que ningún reembolso supera lo capturado, que ningún pedido está pagado sin ingreso, que los agregados
+  son iguales a las entradas y que el registro **no se reescribe** a lo largo del tiempo.
+- Un **recorrido extremo a extremo** por HTTP sobre PostgreSQL (`test_m45_end_to_end.py`) con cifras fijadas a mano: duplicado, otro
+  importe, otra moneda, reembolsos que caben y que no, evidencia pendiente, un desconocido y un proceso que muere a medias.
+- **Caos** (lease vencido en la reconciliación, eventos en los seis órdenes, una tormenta concurrente, la caída tras la frontera de
+  durabilidad) y **mutaciones** (22 de backend y 14 de frontend, todas detectadas).
+- Un **mapa** (`test_m45_coverage_map.py`) que dice qué prueba fija cada frase y falla si esa prueba desaparece.
+- La **frontera transversal** de las tres pantallas (`lib/m45-boundary.test.ts`): nada de lo retirado vuelve, ninguna cifra se llama
+  «real», PLAN nunca se viste de verificado, ninguna ausencia se vuelve cero, y un trinquete cuenta las lecturas silenciosas que
+  quedan en el Panel operativo.
+
+**Prueba integral a mano:** [`milestone-45-integral-test.md`](../milestones/milestone-45-integral-test.md). **Estado:** el CI del último
+commit de código (`815b094`) dio 4229 pruebas de backend y 642 de frontend en verde; Supabase no tiene nada de M44 ni de M45 (§25.6).

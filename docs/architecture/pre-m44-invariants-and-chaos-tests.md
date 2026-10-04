@@ -59,3 +59,22 @@ cualquier test que intente salir de la máquina.
 - Garantías de la base de datos: `test_database_identity_guards.py`, `test_database_identity_concurrency.py` y las pruebas de
   migración de `tests/unit/test_migration_*.py` (subir, bajar, volver a subir, con datos, con duplicados, RLS).
 - Frontera entre bandejas: `tests/unit/test_approval_boundary.py`, `test_approval_boundary_behaviour.py`.
+
+## M45: el registro de ingresos y la reconciliación (Commit 12)
+
+Lo de M44 y de M45 se completa con el oráculo del registro y el recorrido de punta a punta
+([`system-overview.md` §27](system-overview.md#27-panel-finanzas-y-proyectos-sobre-datos-verificados-y-cómo-se-prueba-milestone-45-commits-9-a-12)).
+El mapa de **qué prueba fija cada frase** —y que falla si esa prueba desaparece— es
+`backend/tests/integration/test_m45_coverage_map.py`. Lo nuevo:
+
+| Frase | Prueba |
+|---|---|
+| Ninguna entrada del registro sin un `PaymentEvent` válido, y cada cobro cuadra con sus entradas | `test_m45_end_to_end.py`, `test_m45_walk.py` (oráculo tras cada paso) |
+| Un `UNKNOWN_OUTCOME` solo lo cierra una consulta autoritativa o una persona; ningún barrido ni reconciliación lo toca | `test_m45_walk.py`, `test_m45_chaos.py` |
+| Una caída después de `begin_call` es desconocida y ningún barrido programado la libera | `test_m45_chaos.py` |
+| Un lease vencido en la reconciliación: otro worker recupera el tick y el dinero se cuenta una vez | `test_m45_chaos.py` |
+| Los eventos en cualquier orden dan el mismo ingreso verificado; el que no cabe es evidencia, no una entrada | `test_m45_chaos.py` |
+| Ningún `GET` escribe, ni sobre una base **llena** de datos de todos los dominios | `test_m45_end_to_end.py` |
+| El tope del reembolso se cumple **capa a capa** (servicio, `reserve`, `CHECK` de la base) | `test_m45_end_to_end.py` |
+| Ningún fichero de código contiene un byte de control (un `\b` que se vuelve 0x08 desactiva una expresión sin dar error) | `tests/unit/test_no_control_bytes_in_sources.py` |
+| Lo retirado de las pantallas no vuelve; PLAN no se viste de verificado; un error de lectura no es un dato | `apps/control-center/lib/m45-boundary.test.ts` |

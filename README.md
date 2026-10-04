@@ -59,6 +59,10 @@ npm install
 npm run dev
 ```
 
+Para recorrer **toda la cadena a mano** (investigación → decisión → pedido → cobro simulado y verificado → registro de ingresos →
+fulfillment → reconciliación → Panel → Finanzas → Proyectos), con qué debe verse en cada pantalla y qué es PASS o FAIL, sobre una
+base PostgreSQL local desechable (**nunca Supabase**): [`docs/milestones/milestone-45-integral-test.md`](docs/milestones/milestone-45-integral-test.md).
+
 `GET http://localhost:8000/health` debe responder `{"status": "ok", "service": "amazona-backend"}`.
 El Control Center queda disponible en http://localhost:3000.
 
