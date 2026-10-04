@@ -41,7 +41,9 @@ export function CfoWorkspace({
   orders,
   products,
   analyses,
+  planUnread,
   report,
+  verdictUnread,
 }: {
   days: number;
   summary: Settled<RevenueSummary>;
@@ -49,6 +51,8 @@ export function CfoWorkspace({
   orders: Settled<OrdersRead>;
   products: Product[];
   analyses: [string, EconomicAnalysis][];
+  planUnread: number;
+  verdictUnread: boolean;
   report?: CFOReport;
 }) {
   // El margen necesita las dos lecturas: las entradas del registro y los pedidos. Si falta cualquiera, no hay margen y
@@ -60,7 +64,7 @@ export function CfoWorkspace({
     });
   }, [entries, orders]);
 
-  const plan = useMemo(() => planView(products, new Map(analyses)), [products, analyses]);
+  const plan = useMemo(() => planView(products, new Map(analyses), planUnread), [products, analyses, planUnread]);
   const verdict = useMemo(() => (report === undefined ? null : verdictView(report)), [report]);
   const period = periodLabel(days);
 
@@ -117,7 +121,7 @@ export function CfoWorkspace({
             Un veredicto sobre los análisis del catálogo, no una magnitud financiera. Va aparte a propósito.
           </p>
         </div>
-        <VerdictCard verdict={verdict} />
+        <VerdictCard verdict={verdict} unread={verdictUnread} />
         <CannotComputeCard />
       </section>
     </div>

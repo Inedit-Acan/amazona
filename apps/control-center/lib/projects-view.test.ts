@@ -5,6 +5,7 @@ import {
   NOT_CALCULATED,
   NO_DATA,
   PLAN_ABSENCE_TEXT,
+  UNREAD,
   PROJECT_CODE_PREFIX,
   PROJECT_STATUS_LABEL,
   filterProjects,
@@ -290,4 +291,37 @@ test("NOT_CALCULATED dice qué falta y por qué, y «Sin datos» es el vocabular
   assert.ok(NOT_CALCULATED.some((item) => /ingresos|ventas/i.test(item.label)));
   assert.ok(NOT_CALCULATED.some((item) => /capital/i.test(item.label)));
   assert.equal(NO_DATA, "Sin datos");
+});
+
+// --- Un error de lectura no es un dato (M45, Commit 12) --------------------------------------------------------------
+//
+// Hasta el Commit 11, la página convertía en `[]` cualquier lectura que fallara (`.catch(() => [])`): un proyecto cuya
+// decisión no se PUDO leer enseñaba «todavía no tiene decisión registrada», que es una afirmación sobre el mundo, no
+// sobre la lectura. Estas pruebas fallan con ese código y pasan con el que distingue «no existe» de «no se pudo leer».
+
+test("una decisión que no se pudo leer no es un proyecto sin decisión", () => {
+  const card = projectCard({ ...source(), decision: null, unread: ["decision"] });
+  assert.deepEqual(card.unread, ["decision"]);
+  assert.equal(card.planAbsence, "decision_unread", "no se sabe si hay proyección: no se dice que no la haya");
+  assert.notEqual(card.planAbsence, "no_decision");
+  assert.equal(card.decisionLabel, null);
+  assert.equal(card.confidence, null);
+
+  const absent = projectCard({ ...source(), decision: null });
+  assert.deepEqual(absent.unread, []);
+  assert.equal(absent.planAbsence, "no_decision", "sin fallo de lectura, sin decisión es sin decisión");
+});
+
+test("unas tareas o una auditoría que no se pudieron leer se dicen, no se convierten en «sin tareas» ni en «sin fecha»", () => {
+  const card = projectCard({ ...source(), tasks: [], audit: [], unread: ["tasks", "audit"] });
+  assert.deepEqual([...card.unread].sort(), ["audit", "tasks"]);
+  assert.equal(card.progress.total, 0);
+  assert.equal(card.startedAt, null);
+  assert.ok(card.unread.includes("tasks") && card.unread.includes("audit"));
+  assert.deepEqual(projectCard(source()).unread, [], "con las lecturas bien, nada queda sin leer");
+});
+
+test("el texto de «no se pudo leer» es distinto del de «sin datos»", () => {
+  assert.notEqual(UNREAD, NO_DATA);
+  assert.match(PLAN_ABSENCE_TEXT.decision_unread, /no se pudo leer/i);
 });

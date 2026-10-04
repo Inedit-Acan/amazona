@@ -21,6 +21,7 @@ import {
   NOT_CALCULATED,
   NO_DATA,
   PLAN_ABSENCE_TEXT,
+  UNREAD,
   PLAN_NOTE,
   formatPlanAmount,
   formatPlanMargin,
@@ -217,7 +218,11 @@ export function DecisionCard({ project }: { project: ProjectCard }) {
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-2.5">
-        {project.decisionStatus === null ? (
+        {project.unread.includes("decision") ? (
+          <p className="text-sm text-muted-foreground">
+            {UNREAD} la decisión de este proyecto: el backend no respondió a esa lectura, así que no se sabe si la tiene.
+          </p>
+        ) : project.decisionStatus === null ? (
           <p className="text-sm text-muted-foreground">
             Este proyecto todavía no tiene decisión registrada. Sin decisión no hay veredicto, ni confianza, ni riesgos
             que leer: {NO_DATA}.
@@ -317,7 +322,7 @@ const AGENT_STATUS: Record<string, { label: string; tone: LevelTone }> = {
   OFFLINE: { label: "Fuera de servicio", tone: "bad" },
 };
 
-export function AgentsCard({ agents }: { agents: Agent[] }) {
+export function AgentsCard({ agents, unread }: { agents: Agent[]; unread: boolean }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -330,7 +335,9 @@ export function AgentsCard({ agents }: { agents: Agent[] }) {
         </CardAction>
       </CardHeader>
       <CardContent>
-        {agents.length === 0 ? (
+        {unread ? (
+          <p className="text-sm text-muted-foreground">{UNREAD} los agentes: el backend no respondió a esa lectura.</p>
+        ) : agents.length === 0 ? (
           <p className="text-sm text-muted-foreground">El backend no devuelve agentes registrados.</p>
         ) : (
           <ul className="space-y-2">
@@ -353,7 +360,7 @@ export function AgentsCard({ agents }: { agents: Agent[] }) {
   );
 }
 
-export function RisksCard({ risks }: { risks: ProjectRisk[] }) {
+export function RisksCard({ risks, unread }: { risks: ProjectRisk[]; unread: boolean }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -364,7 +371,9 @@ export function RisksCard({ risks }: { risks: ProjectRisk[] }) {
         </CardAction>
       </CardHeader>
       <CardContent>
-        {risks.length === 0 ? (
+        {unread ? (
+          <p className="text-sm text-muted-foreground">{UNREAD} la decisión, y con ella los riesgos que dejaron los especialistas.</p>
+        ) : risks.length === 0 ? (
           <p className="text-sm text-muted-foreground">Ningún especialista dejó riesgos escritos para este proyecto.</p>
         ) : (
           <ul className="space-y-2">
@@ -384,7 +393,7 @@ export function RisksCard({ risks }: { risks: ProjectRisk[] }) {
   );
 }
 
-export function MilestonesCard({ milestones }: { milestones: ProjectMilestone[] }) {
+export function MilestonesCard({ milestones, unread }: { milestones: ProjectMilestone[]; unread: boolean }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -404,7 +413,7 @@ export function MilestonesCard({ milestones }: { milestones: ProjectMilestone[] 
                 <Clock className="size-4 shrink-0 text-muted-foreground" />
               )}
               <span className={cn("min-w-0 leading-tight", milestone.state !== "done" && "text-muted-foreground")}>{milestone.label}</span>
-              <span className="text-muted-foreground tabular-nums">{formatDayOrNoData(milestone.at)}</span>
+              <span className="text-muted-foreground tabular-nums">{unread ? UNREAD : formatDayOrNoData(milestone.at)}</span>
             </li>
           ))}
         </ul>
@@ -413,7 +422,7 @@ export function MilestonesCard({ milestones }: { milestones: ProjectMilestone[] 
   );
 }
 
-export function ActivityCard({ entries, limit = 6 }: { entries: AuditEntry[]; limit?: number }) {
+export function ActivityCard({ entries, limit = 6, unread = false }: { entries: AuditEntry[]; limit?: number; unread?: boolean }) {
   const sorted = [...entries].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   return (
     <Card className="min-w-0">
@@ -426,7 +435,9 @@ export function ActivityCard({ entries, limit = 6 }: { entries: AuditEntry[]; li
         </CardAction>
       </CardHeader>
       <CardContent>
-        {sorted.length === 0 ? (
+        {unread ? (
+          <p className="text-sm text-muted-foreground">{UNREAD} la auditoría de este proyecto: el backend no respondió a esa lectura.</p>
+        ) : sorted.length === 0 ? (
           <p className="text-sm text-muted-foreground">Sin actividad registrada para este proyecto.</p>
         ) : (
           <ul className="space-y-2">

@@ -5,9 +5,9 @@ import { AlertTriangle, Coins, Database, FileSignature, FlaskConical, LineChart,
 import type { RevenueSummary } from "@/lib/api";
 import { amountText, coverageText, BLOCKED_TEXT, type MarginSummary, type OrderMargin } from "@/lib/cfo-margin";
 import { PLAN_BLOCKED_TEXT, PLAN_NOTE, type PlanView } from "@/lib/cfo-plan";
-import { NO_VERDICT_TEXT, type VerdictView } from "@/lib/cfo-verdict";
+import { NO_VERDICT_TEXT, UNREAD_VERDICT_TEXT, type VerdictView } from "@/lib/cfo-verdict";
 import { PROVENANCE_MEANING, type Provenance } from "@/lib/provenance";
-import { formatMoney, NO_DATA, summaryView, type Settled } from "@/lib/revenue-view";
+import { formatMoney, NO_DATA, summaryView, UNREAD, type Settled } from "@/lib/revenue-view";
 import { DataProvenanceBadge, type DataProvenance } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
@@ -362,11 +362,22 @@ export function PlanCard({ plan }: { plan: PlanView }) {
         <CardTitle>Margen de contribución proyectado, por producto</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2.5">
+        {plan.unread > 0 ? (
+          <Alert variant="destructive">
+            <AlertTriangle />
+            <AlertTitle>{UNREAD} el análisis económico de {plan.unread} producto(s)</AlertTitle>
+            <AlertDescription>{PLAN_BLOCKED_TEXT.unread}</AlertDescription>
+          </Alert>
+        ) : null}
         {plan.rows.length === 0 ? (
           <EmptyState
             icon={LineChart}
-            title="Sin análisis económicos"
-            description="Ningún producto del catálogo tiene todavía un análisis económico del que proyectar."
+            title={plan.unread > 0 ? UNREAD : "Sin análisis económicos"}
+            description={
+              plan.unread > 0
+                ? "El backend no respondió a la lectura: no se sabe si algún producto tiene análisis económico."
+                : "Ningún producto del catálogo tiene todavía un análisis económico del que proyectar."
+            }
           />
         ) : (
           <>
@@ -432,7 +443,7 @@ export function PlanCard({ plan }: { plan: PlanView }) {
 
 const VERDICT_TONE: Record<VerdictView["tone"], LevelTone> = { ok: "ok", warn: "warn", bad: "bad" };
 
-export function VerdictCard({ verdict }: { verdict: VerdictView | null }) {
+export function VerdictCard({ verdict, unread }: { verdict: VerdictView | null; unread: boolean }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -443,7 +454,7 @@ export function VerdictCard({ verdict }: { verdict: VerdictView | null }) {
       </CardHeader>
       <CardContent className="space-y-3 text-xs">
         {verdict === null ? (
-          <p className="text-muted-foreground">{NO_VERDICT_TEXT}</p>
+          <p className="text-muted-foreground">{unread ? UNREAD_VERDICT_TEXT : NO_VERDICT_TEXT}</p>
         ) : (
           <>
             <p>{verdict.detail}</p>

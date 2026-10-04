@@ -86,14 +86,20 @@ export default async function CFOPage({ searchParams }: PageProps<"/cfo">) {
 
   // La proyección (PLAN) sale de los análisis económicos y el veredicto del agente CFO. Ambos son opcionales: sin
   // ellos la pantalla sigue en pie y lo dice.
-  const analyses: [string, EconomicAnalysis][] = [];
-  await Promise.all(
-    products.slice(0, PRODUCT_LIMIT).map(async (product) => {
-      const [latest] = await api.listProductEconomics(product.id).catch((): EconomicAnalysis[] => []);
-      if (latest !== undefined) analyses.push([product.id, latest]);
-    }),
+  // Un error de lectura NO es «sin análisis» ni «sin evaluación»: se cuenta y se dice que no se pudo leer.
+  const analysisReads = await Promise.all(
+    products.slice(0, PRODUCT_LIMIT).map(async (product) => ({
+      product,
+      read: await settle<EconomicAnalysis[]>(() => api.listProductEconomics(product.id)),
+    })),
   );
-  const reports = await api.listCFORuns().catch((): CFOReport[] => []);
+  const analyses = analysisReads.flatMap(({ product, read }): [string, EconomicAnalysis][] =>
+    read.ok && read.data[0] !== undefined ? [[product.id, read.data[0]]] : [],
+  );
+  const planUnread = analysisReads.filter(({ read }) => !read.ok).length;
+  const reportsRead = await settle<CFOReport[]>(() => api.listCFORuns());
+  const reports = reportsRead.ok ? reportsRead.data : [];
+  const verdictUnread = !reportsRead.ok;
 
   if (error) {
     return (
@@ -112,7 +118,9 @@ export default async function CFOPage({ searchParams }: PageProps<"/cfo">) {
       orders={orders}
       products={products.slice(0, PRODUCT_LIMIT)}
       analyses={analyses}
+      planUnread={planUnread}
       report={reports[0]}
+      verdictUnread={verdictUnread}
     />
   );
 }

@@ -8,6 +8,7 @@ import { formatInteger, formatPercent } from "@/lib/format";
 import {
   NO_DATA,
   PORTFOLIO_TABS,
+  UNREAD,
   PROJECT_STATUS_LABEL,
   filterProjects,
   formatPlanAmount,
@@ -80,10 +81,12 @@ function syncUrl(id: string) {
 export function ProjectsWorkspace({
   sources,
   agents,
+  agentsUnread,
   initialSelection,
 }: {
   sources: ProjectSource[];
   agents: Agent[];
+  agentsUnread: boolean;
   initialSelection?: string;
 }) {
   const [tab, setTab] = useState<PortfolioTab>("all");
@@ -172,11 +175,16 @@ export function ProjectsWorkspace({
           <Card className="min-w-0">
             <CardHeader>
               <CardTitle>Cartera</CardTitle>
-              <CardAction>
+              <CardAction className="flex gap-1.5">
                 <DataProvenanceBadge
                   status="verified"
                   compact
-                  tooltip="Estado, progreso e inicio salen del backend y de su registro de auditoría. La columna de proyección es PLAN y está marcada como tal."
+                  tooltip="Estado, tareas e inicio salen del backend y de su registro de auditoría. No cubre la columna de proyección."
+                />
+                <DataProvenanceBadge
+                  status="planned"
+                  compact
+                  tooltip="Solo la columna «Proyección (PLAN)»: lo que el modelo espera si los supuestos del objetivo se cumplen. No ha ocurrido."
                 />
               </CardAction>
             </CardHeader>
@@ -237,12 +245,20 @@ export function ProjectsWorkspace({
                           <LevelChip tone={project.statusTone}>{project.statusLabel}</LevelChip>
                         </td>
                         <td className="py-1.5 text-right tabular-nums">
-                          {project.progress.total === 0 ? NO_DATA : `${project.progress.done}/${project.progress.total}`}
+                          {project.unread.includes("tasks")
+                            ? UNREAD
+                            : project.progress.total === 0
+                              ? NO_DATA
+                              : `${project.progress.done}/${project.progress.total}`}
                         </td>
                         <td className="py-1.5 text-right tabular-nums">
-                          {project.plannedMonthlyProfit === null ? NO_DATA : formatPlanAmount(project.plannedMonthlyProfit.value)}
+                          {project.plannedMonthlyProfit === null
+                            ? project.planAbsence === "decision_unread"
+                              ? UNREAD
+                              : NO_DATA
+                            : formatPlanAmount(project.plannedMonthlyProfit.value)}
                         </td>
-                        <td className="py-1.5 text-right whitespace-nowrap text-muted-foreground">{formatDayOrNoData(project.startedAt)}</td>
+                        <td className="py-1.5 text-right whitespace-nowrap text-muted-foreground">{project.unread.includes("audit") ? UNREAD : formatDayOrNoData(project.startedAt)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -311,12 +327,16 @@ export function ProjectsWorkspace({
                   <RingGauge
                     value={selected.progress.ratio}
                     size={52}
-                    centerLabel={selected.progress.total === 0 ? "—" : formatPercent(selected.progress.ratio, 0)}
+                    centerLabel={selected.unread.includes("tasks") || selected.progress.total === 0 ? "—" : formatPercent(selected.progress.ratio, 0)}
                   />
                   <span className="min-w-0">
                     <span className="block text-[11px] leading-tight text-muted-foreground">Tareas completadas</span>
                     <span className="block text-sm font-semibold">
-                      {selected.progress.total === 0 ? NO_DATA : `${selected.progress.done}/${selected.progress.total}`}
+                      {selected.unread.includes("tasks")
+                        ? UNREAD
+                        : selected.progress.total === 0
+                          ? NO_DATA
+                          : `${selected.progress.done}/${selected.progress.total}`}
                     </span>
                   </span>
                 </div>
@@ -324,11 +344,11 @@ export function ProjectsWorkspace({
                   { label: "Estado del backend", value: selected.statusLabel },
                   {
                     label: "Inicio registrado",
-                    value: formatDayOrNoData(selected.startedAt),
+                    value: selected.unread.includes("audit") ? UNREAD : formatDayOrNoData(selected.startedAt),
                   },
                   {
                     label: "Decisión",
-                    value: selected.decisionLabel ?? NO_DATA,
+                    value: selected.decisionLabel ?? (selected.unread.includes("decision") ? UNREAD : NO_DATA),
                   },
                 ].map((item) => (
                   <div key={item.label} className="flex min-w-0 flex-col justify-center rounded-xl border bg-background/40 p-2.5">
@@ -349,8 +369,8 @@ export function ProjectsWorkspace({
                 <DecisionCard project={selected} />
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                <RisksCard risks={selected.risks} />
-                <AgentsCard agents={agents} />
+                <RisksCard risks={selected.risks} unread={selected.unread.includes("decision")} />
+                <AgentsCard agents={agents} unread={agentsUnread} />
               </div>
               <PlanCard project={selected} />
             </>
@@ -358,12 +378,12 @@ export function ProjectsWorkspace({
 
           {detailTab === "etapas" ? <StagesCard stages={selected.stages} /> : null}
 
-          {detailTab === "hitos" ? <MilestonesCard milestones={selected.milestones} /> : null}
+          {detailTab === "hitos" ? <MilestonesCard milestones={selected.milestones} unread={selected.unread.includes("audit") || selected.unread.includes("tasks")} /> : null}
 
           {detailTab === "proyeccion" ? <PlanCard project={selected} /> : null}
 
           {detailTab === "actividad" ? (
-            <ActivityCard entries={sources.find((source) => source.project.id === selected.id)?.audit ?? []} limit={20} />
+            <ActivityCard entries={sources.find((source) => source.project.id === selected.id)?.audit ?? []} limit={20} unread={selected.unread.includes("audit")} />
           ) : null}
         </div>
       </div>

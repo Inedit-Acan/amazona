@@ -220,7 +220,12 @@ test("7 · «sin datos» nunca se convierte en cero", () => {
 test("8 · un error del backend no se convierte en demostración ni en cero", () => {
   const page = read("app/cfo/page.tsx");
   const reads = page.split("\n").filter((line) => /settle[<(]/.test(line) && /api\.|read[A-Z]/.test(line));
-  assert.equal(reads.length, 3, "las tres lecturas de dinero pasan por settle()");
+  // Las tres lecturas de dinero pasan por settle(). (Desde el Commit 12 también pasan por settle() las del análisis
+  // económico de cada producto y las del agente CFO: un error de lectura no es «sin análisis» ni «sin evaluación».)
+  for (const money of [/api\.revenueSummary/, /readEntries\(/, /readOrders\(/]) {
+    assert.equal(reads.filter((line) => money.test(line)).length, 1, `la lectura ${money} pasa por settle()`);
+  }
+  assert.ok(reads.length >= 3);
   for (const line of reads) assert.ok(!/\.catch\(/.test(line), `una lectura de dinero se traga el error: ${line.trim()}`);
   const panels = read("app/cfo/cfo-panels.tsx");
   assert.match(panels, /export function ReadFailed/);

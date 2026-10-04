@@ -1,6 +1,6 @@
 import type { AuditEntry, Decision, DecisionStatus, Project, ProjectStatus, Task } from "./api.ts";
 import { planned, type Planned } from "./provenance.ts";
-import { NO_DATA } from "./revenue-view.ts";
+import { NO_DATA, UNREAD } from "./revenue-view.ts";
 import {
   DECISION_VERDICT,
   pipelineSteps,
@@ -90,10 +90,16 @@ export const PROJECT_STATUS_TONE: Record<ProjectStatus, StatusTone> = {
 
 // --- La proyección (PLAN) ------------------------------------------------------------------------------------------
 
+/** Qué lecturas de un proyecto fallaron. Un error de lectura **no es un dato**: no es «sin tareas», ni «sin decisión», ni
+ * «sin fecha». Se dice que no se pudo leer. */
+export type ReadName = "tasks" | "decision" | "audit";
+
+
 /** Por qué un proyecto no tiene proyección. Nunca se sustituye por cero. */
-export type PlanAbsence = "no_decision" | "no_finance_evidence" | "not_projected";
+export type PlanAbsence = "no_decision" | "decision_unread" | "no_finance_evidence" | "not_projected";
 
 export const PLAN_ABSENCE_TEXT: Record<PlanAbsence, string> = {
+  decision_unread: "No se pudo leer la decisión de este proyecto: no se sabe si tiene proyección.",
   no_decision: "El proyecto todavía no tiene decisión del Director ejecutivo: no hay ninguna proyección que leer.",
   no_finance_evidence: "La decisión no trae la evidencia de validación financiera: nadie proyectó este proyecto.",
   not_projected:
@@ -183,6 +189,8 @@ export interface ProjectCard {
   plannedMargin: Planned<number> | null;
   /** Por qué no hay proyección, cuando no la hay. */
   planAbsence: PlanAbsence | null;
+  /** Las lecturas de este proyecto que fallaron. Vacío = todas bien. */
+  unread: ReadName[];
   /** Momento del `project.created` de la auditoría; `null` = no registrado. */
   startedAt: number | null;
   milestones: ProjectMilestone[];
@@ -196,6 +204,8 @@ export interface ProjectSource {
   decision: Decision | null;
   /** Auditoría de la ejecución de este proyecto (la de su correlación). */
   audit: AuditEntry[];
+  /** Lo que no se pudo leer: `tasks`, `decision` o `audit` están vacíos **porque falló la lectura**, no porque no existan. */
+  unread?: ReadName[];
 }
 
 /** La primera vez que la auditoría registró una acción con esta forma exacta. `null` si no hay ninguna. */
@@ -208,13 +218,15 @@ function firstAuditAt(audit: AuditEntry[], action: string, resource: string): nu
 }
 
 /** Un proyecto real del backend, con cada campo en su procedencia y sin ningún hueco relleno. */
-export function projectCard({ project, tasks, decision, audit }: ProjectSource): ProjectCard {
+export function projectCard({ project, tasks, decision, audit, unread = [] }: ProjectSource): ProjectCard {
   const stages = pipelineSteps(tasks, decision);
   const finance = projectedFinance(decision);
 
   const planAbsence: PlanAbsence | null =
     decision === null
-      ? "no_decision"
+      ? unread.includes("decision")
+        ? "decision_unread"
+        : "no_decision"
       : !decision.evidence.some((evidence) => evidence.source === "finance_validation")
         ? "no_finance_evidence"
         : finance === null
@@ -248,6 +260,7 @@ export function projectCard({ project, tasks, decision, audit }: ProjectSource):
     plannedMonthlyProfit: finance === null ? null : planned(finance.monthlyProfit),
     plannedMargin: finance === null || finance.margin === null ? null : planned(finance.margin),
     planAbsence,
+    unread: [...unread],
     startedAt: firstAuditAt(audit, "project.created", `project:${project.id}`),
     milestones,
     risks: risksFromDecision(decision),
@@ -344,4 +357,4 @@ export function nextStep(project: ProjectCard): NextStep {
 }
 
 /** Una fecha o una cifra ausente se dice con el mismo vocabulario que Finanzas y el Panel. */
-export { NO_DATA };
+export { NO_DATA, UNREAD };

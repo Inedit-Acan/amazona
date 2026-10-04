@@ -294,7 +294,10 @@ test("12 · ninguna llamada de Proyectos escribe en el backend", () => {
 
 test("13 · «Sin datos» es el mismo de Finanzas y del Panel, no una copia local", () => {
   const view = read("lib/projects-view.ts");
-  assert.ok(/import\s*\{\s*NO_DATA\s*\}\s*from\s*"\.\/revenue-view\.ts"/.test(view), "projects-view define su propio «Sin datos» en vez de compartirlo");
+  assert.ok(
+    /import\s*\{[^}]*\bNO_DATA\b[^}]*\}\s*from\s*"\.\/revenue-view\.ts"/.test(view),
+    "projects-view define su propio «Sin datos» en vez de compartirlo",
+  );
   for (const file of projectFiles()) {
     const code = stripComments(read(file));
     assert.ok(!/"Sin datos"/.test(code), `${file} escribe «Sin datos» a mano en vez de usar NO_DATA`);

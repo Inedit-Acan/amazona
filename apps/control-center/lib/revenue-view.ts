@@ -20,6 +20,10 @@ import type {
 // No importa nada de `lib/demo` ni del P&L modelado (`cfo-view`, `operations-view`): lo que hay aquí es medido.
 
 export const NO_DATA = "Sin datos";
+
+/** Lo que se dice cuando una lectura FALLÓ. No es «Sin datos» (el backend no lo tiene): es «no sé si lo tiene». Un error
+ * de lectura no es un dato, y no se convierte en una lista vacía ni en un cero. */
+export const UNREAD = "No se pudo leer";
 const CONSOLIDATION_CURRENCY = "EUR";
 const DAY_MS = 86_400_000;
 

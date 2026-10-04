@@ -169,3 +169,32 @@ test("los datos que usó se enseñan tal como los dio", () => {
 test("sin informe no hay veredicto neutro inventado", () => {
   assert.match(NO_VERDICT_TEXT, /no ha emitido/);
 });
+
+// --- Un error de lectura no es «sin análisis» (M45, Commit 12) --------------------------------------------------------
+
+test("un análisis que no se pudo leer bloquea el total: no se suman huecos ni se dice «sin análisis»", () => {
+  const products = [product("p1", "Alpha"), product("p2", "Beta")];
+  const readable = new Map([["p1", analysis({ product_id: "p1" })]]);
+
+  const complete = planView(products.slice(0, 1), readable);
+  assert.equal(complete.blockedBy, null);
+  assert.notEqual(complete.totalPerOrder, null);
+  assert.equal(complete.unread, 0);
+
+  // El de Beta no se pudo leer: el de Alpha sigue ahí, pero el total ya no es de todos.
+  const partial = planView(products, readable, 1);
+  assert.equal(partial.unread, 1);
+  assert.equal(partial.blockedBy, "unread");
+  assert.equal(partial.totalPerOrder, null, "un total sobre una lectura fallida sumaría un hueco como si fuera cero");
+  assert.equal(partial.rows.length, 1, "lo que sí se leyó se conserva");
+  assert.match(PLAN_BLOCKED_TEXT.unread, /no se pudo leer/i);
+
+  // Todas fallaron: no es «ningún producto tiene análisis».
+  const none = planView(products, new Map(), 2);
+  assert.equal(none.blockedBy, "unread");
+  assert.notEqual(none.blockedBy, "no_analyses");
+});
+
+test("sin fallos de lectura, «sin análisis» sigue siendo «sin análisis»", () => {
+  assert.equal(planView([product("p1", "Alpha")], new Map()).blockedBy, "no_analyses");
+});

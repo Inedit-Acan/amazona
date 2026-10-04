@@ -113,3 +113,6 @@ export function verdictView(report: CFOReport): VerdictView {
 
 /** Sin informe no hay veredicto: no se inventa uno neutro. */
 export const NO_VERDICT_TEXT = "El agente CFO no ha emitido ninguna evaluación todavía.";
+
+/** La lectura de las evaluaciones del agente CFO falló: no se sabe si hay alguna. */
+export const UNREAD_VERDICT_TEXT = "No se pudo leer la evaluación del agente CFO: no se sabe si existe alguna.";

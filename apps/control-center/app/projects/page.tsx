@@ -1,6 +1,7 @@
 import { api } from "@/lib/api-server";
 import { type Agent, type AuditEntry, type Decision, type Project, type Task } from "@/lib/api";
-import type { ProjectSource } from "@/lib/projects-view";
+import type { ProjectSource, ReadName } from "@/lib/projects-view";
+import { settle } from "@/lib/revenue-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
 import { PROJECTS_DESCRIPTION, PROJECTS_TITLE } from "./copy";
@@ -29,16 +30,32 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
 
   const sources: ProjectSource[] = await Promise.all(
     projects.map(async (project) => {
-      const tasks = await api.listTasks(project.id).catch(() => [] as Task[]);
-      const decision = (await api.listDecisionsForProject(project.id).catch(() => [] as Decision[]))[0] ?? null;
-      const audit = decision
-        ? await api.listAudit(decision.correlation_id).catch(() => [] as AuditEntry[])
-        : ([] as AuditEntry[]);
-      return { project, tasks, decision, audit };
+      // Un error de lectura NO es un dato: no se convierte en `[]`. Cada lectura que falla se anota, y la pantalla dice
+      // «No se pudo leer» en lugar de «sin tareas», «sin decisión» o «sin fecha».
+      const [tasksRead, decisionsRead] = await Promise.all([
+        settle<Task[]>(() => api.listTasks(project.id)),
+        settle<Decision[]>(() => api.listDecisionsForProject(project.id)),
+      ]);
+      const decision = decisionsRead.ok ? (decisionsRead.data[0] ?? null) : null;
+      const auditRead = decision ? await settle<AuditEntry[]>(() => api.listAudit(decision.correlation_id)) : null;
+      const unread: ReadName[] = [
+        ...(tasksRead.ok ? [] : (["tasks"] as const)),
+        ...(decisionsRead.ok ? [] : (["decision"] as const)),
+        ...(auditRead === null || auditRead.ok ? [] : (["audit"] as const)),
+      ];
+      return {
+        project,
+        tasks: tasksRead.ok ? tasksRead.data : [],
+        decision,
+        audit: auditRead?.ok ? auditRead.data : [],
+        unread,
+      };
     }),
   );
 
-  const agents: Agent[] = await api.listAgents().catch(() => []);
+  const agentsRead = await settle<Agent[]>(() => api.listAgents());
+  const agents = agentsRead.ok ? agentsRead.data : [];
+  const agentsUnread = !agentsRead.ok;
 
   if (error) {
     return (
@@ -49,5 +66,5 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
     );
   }
 
-  return <ProjectsWorkspace sources={sources} agents={agents} initialSelection={requested} />;
+  return <ProjectsWorkspace sources={sources} agents={agents} agentsUnread={agentsUnread} initialSelection={requested} />;
 }

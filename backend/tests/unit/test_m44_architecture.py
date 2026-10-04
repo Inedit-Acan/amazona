@@ -173,7 +173,10 @@ def test_no_service_writes_the_domain_state_that_an_observer_owns():
 # --- 3. Las lecturas no escriben
 # --------------------------------------------------------------------------------------------
 
-WRITES = re.compile(r"\.commit\(|\.add\(|\.flush\(|update\(|delete\(|insert\(|\.execute\(\s*(?:update|insert|delete)")
+WRITES = re.compile(
+    r"\.commit\(|\.add\(|\.flush\(|\bupdate\(|\bdelete\(|\binsert\(|"
+    r"\.execute\(\s*(?:update|insert|delete)"
+)
 API_MODULES = [APP / "api" / "orders.py", APP / "api" / "payments.py", APP / "api" / "fulfillments.py"]
 
 
@@ -271,7 +274,7 @@ def test_no_test_loads_the_env_file_or_names_the_real_supabase_database():
     forbidden = [
         re.compile("load_" + "dotenv"),
         re.compile("dotenv_" + "values"),
-        re.compile(r"[a-z0-9]{20}\." + "supa" + r"base\.co"),  # la referencia de un proyecto real (20 caracteres)
+        re.compile(r"\b[a-z0-9]{20}\." + "supa" + r"base\.co\b"),  # la referencia de un proyecto real (20 caracteres)
         re.compile(r"db\.[a-z0-9]{20}\." + "supa" + "base"),
         re.compile(r"pooler\." + "supa" + "base"),
         re.compile(r"read_text\([^)]*[\"']\.env[\"']"),

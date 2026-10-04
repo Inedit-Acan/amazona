@@ -36,13 +36,15 @@ export interface PlanView {
   totalPerOrder: Planned<Decimal> | null;
   currency: string | null;
   /** Por qué no hay total, cuando no lo hay. */
-  blockedBy: "no_analyses" | "not_evaluable" | "mixed_currencies" | null;
+  blockedBy: "unread" | "no_analyses" | "not_evaluable" | "mixed_currencies" | null;
+  /** Cuántos análisis no se pudieron LEER. No son «sin análisis»: no se sabe si existen. */
+  unread: number;
   evaluable: number;
   analysed: number;
 }
 
 /** La proyección de cada producto con análisis económico, y el total sólo cuando todas son evaluables. */
-export function planView(products: Product[], analyses: Map<string, EconomicAnalysis>): PlanView {
+export function planView(products: Product[], analyses: Map<string, EconomicAnalysis>, unread = 0): PlanView {
   const names = new Map(products.map((product) => [product.id, product.name] as const));
   const rows: PlanRow[] = [];
 
@@ -68,7 +70,8 @@ export function planView(products: Product[], analyses: Map<string, EconomicAnal
   const currencies = [...new Set(rows.map((row) => row.currency).filter((currency): currency is string => currency !== null))];
 
   let blockedBy: PlanView["blockedBy"] = null;
-  if (rows.length === 0) blockedBy = "no_analyses";
+  if (unread > 0) blockedBy = "unread";
+  else if (rows.length === 0) blockedBy = "no_analyses";
   else if (currencies.length > 1) blockedBy = "mixed_currencies";
   else if (evaluableRows.length !== rows.length) blockedBy = "not_evaluable";
 
@@ -82,10 +85,12 @@ export function planView(products: Product[], analyses: Map<string, EconomicAnal
     blockedBy,
     evaluable: evaluableRows.length,
     analysed: rows.length,
+    unread,
   };
 }
 
 export const PLAN_BLOCKED_TEXT: Record<NonNullable<PlanView["blockedBy"]>, string> = {
+  unread: "No se pudo leer el análisis económico de algún producto: la proyección está incompleta y no se calcula ningún total.",
   no_analyses: "Ningún producto tiene análisis económico todavía.",
   not_evaluable: "Alguna proyección no se puede evaluar: el total sumaría huecos y no se calcula.",
   mixed_currencies: "Hay análisis en varias monedas: no se suman ni se convierten.",
