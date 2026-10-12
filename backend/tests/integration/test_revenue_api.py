@@ -107,7 +107,10 @@ def test_the_summary_answers_with_exact_text_amounts_and_says_it_is_not_accounti
     assert (eur["revenue"], eur["refunds"], eur["net"]) == ("100.0000", "20.0000", "80.0000")
     assert all(isinstance(eur[k], str) for k in ("revenue", "refunds", "net")), "never a JSON number (a float)"
     assert body["under_review"][0]["classification"] == "DUPLICATE_RECEIPT"
-    assert body["consolidated_eur"]["net"] == "80.0000"
+    assert [(r["provider_kind"], r["net"]) for r in body["consolidated_eur_by_origin"]] == [("mock", "80.0000")]
+    assert "consolidated_eur" not in body, "the figure that added every origin together no longer exists"
+    assert all(r["provider_kind"] == "mock" for r in body["verified"] + body["under_review"])
+    assert body["entries_by_provider_kind"] == [{"provider_kind": "mock", "entries": 5}]
     assert [r["currency"] for r in body["non_aggregable_currencies"]] == ["USD"]
     assert body["scope"]["is_accounting_ledger"] is False
     assert {"costs", "margin", "profit", "taxes", "vat_oss", "cash", "gateway_fees", "fx_conversion"} <= set(
@@ -151,8 +154,8 @@ def test_the_entries_page_lists_the_facts_behind_the_figures(client: TestClient,
 
     assert len(body["items"]) == 2 and body["has_more"] is True and body["next_cursor"]
     assert set(body["items"][0]) == {
-        "id", "kind", "classification", "payment_event_id", "payment_id", "order_id", "refund_id",
-        "capture_entry_id", "amount", "currency", "occurred_at", "recorded_at",
+        "id", "kind", "provider_kind", "classification", "payment_event_id", "payment_id", "order_id",
+        "refund_id", "capture_entry_id", "amount", "currency", "occurred_at", "recorded_at",
     }  # fmt: skip
     assert body["items"][0]["currency"] == "USD" and body["items"][0]["amount"] == "30.0000"
     assert body["items"][0]["occurred_at"].endswith("+00:00"), "always UTC, whatever the time zone of the session"
@@ -222,7 +225,7 @@ def test_a_date_without_a_zone_is_utc_and_another_zone_is_carried_to_utc(client:
 def test_the_period_filters_the_http_summary(client: TestClient, world):
     body = client.get("/api/revenue/summary?from=2026-10-06T00:00:00Z").json()
 
-    assert [r["currency"] for r in body["verified"]] == ["USD"] and body["consolidated_eur"] is None
+    assert [r["currency"] for r in body["verified"]] == ["USD"] and body["consolidated_eur_by_origin"] == []
 
 
 # --- Solo lectura -----------------------------------------------------------------------------------------------------

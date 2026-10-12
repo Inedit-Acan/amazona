@@ -58,6 +58,7 @@ function entry(orderId: string, kind: "CAPTURE" | "REFUND", amount: string, over
   return {
     id: `${orderId}-${kind}-${amount}`,
     kind,
+    provider_kind: "mock",
     classification: "ORDER_PAYMENT",
     payment_event_id: "ev",
     payment_id: "pay",

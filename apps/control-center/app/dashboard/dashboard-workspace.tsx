@@ -41,7 +41,7 @@ const DEMO_TOOLTIP =
 
 /** Qué demuestra el backend detrás de las cifras de ingresos, y qué NO demuestra. */
 const LEDGER_TOOLTIP =
-  "Hechos de pago verificados y registrados por el backend (ADR 0030): no es un modelo ni una estimación. No dice si la operación fue simulada — el registro todavía no guarda esa procedencia.";
+  "Hechos de pago verificados y registrados por el backend (ADR 0030): no es un modelo ni una estimación. Cada cifra lleva el origen (provider_kind) que el backend guardó en el hecho; un hecho verificado no es dinero liquidado.";
 
 const ACTIVITY_LIMIT = 5;
 const DECISION_LIMIT = 4;

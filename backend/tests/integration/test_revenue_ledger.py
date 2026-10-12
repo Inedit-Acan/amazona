@@ -165,7 +165,7 @@ def test_a_capture_in_another_currency_is_kept_as_pending_evidence_and_is_not_re
     assert Decimal(str(reload(db, payment).captured_amount)) == 0
     evidence = pending_economic_evidence(db)
     assert evidence["by_currency"] == [
-        {"currency": "USD", "event_type": "payment.succeeded", "count": 1, "amount": "50.0000"}
+        {"provider_kind": "mock", "currency": "USD", "event_type": "payment.succeeded", "count": 1, "amount": "50.0000"}
     ]
     stored = events(db)[0]
     assert stored.processing_status == "CONFLICT" and stored.currency == "USD" and stored.amount == Decimal("50")
@@ -227,8 +227,8 @@ def test_pending_evidence_carries_no_body_hash_or_data(db: Session, provider):
     (item,) = pending_economic_evidence(db)["items"]
 
     assert set(item) == {
-        "id", "status", "event_type", "provider", "amount", "currency", "payment_id", "refund_id", "note",
-        "occurred_at", "age_seconds",
+        "id", "status", "event_type", "provider", "provider_kind", "amount", "currency", "payment_id", "refund_id",
+        "note", "occurred_at", "age_seconds",
     }  # fmt: skip
 
 

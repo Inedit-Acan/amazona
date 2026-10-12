@@ -21,14 +21,14 @@ const PROVENANCE_CONFIG: Record<
   DataProvenance,
   { label: string; short: string; description: string; icon: ComponentType<{ className?: string }>; className: string }
 > = {
-  // M45: lo que el backend registró como hecho de pago verificado (ADR 0030). Dice QUÉ demuestra el backend, no de
-  // dónde salió el dinero: el registro todavía no guarda esa procedencia, así que esta etiqueta nunca puede leerse
-  // como «dinero que se movió fuera del simulador» (decisión del propietario, 2026-10-03).
+  // M45: lo que el backend registró como hecho de pago verificado (ADR 0030). Dice QUÉ demuestra el backend. Desde M46
+  // (ADR 0031) cada hecho lleva su origen (`provider_kind`), pero esta etiqueta sigue sin poder leerse como «dinero que
+  // se movió fuera del simulador»: el origen se enseña aparte, con su valor, y el texto final es del Commit 4.
   ledger: {
     label: "Registro verificado",
     short: "Registro",
     description:
-      "El backend tiene este hecho de pago o reembolso verificado y registrado: no es un modelo ni una estimación. No dice si la operación fue simulada — el registro todavía no guarda esa procedencia.",
+      "El backend tiene este hecho de pago o reembolso verificado y registrado: no es un modelo ni una estimación. Cada cifra lleva el origen (provider_kind) que el backend guardó en el hecho; un hecho verificado no es dinero liquidado.",
     icon: Database,
     className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
   },

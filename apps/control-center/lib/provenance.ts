@@ -60,7 +60,7 @@ export const PROVENANCE_LABEL: Record<Provenance, string> = {
 
 export const PROVENANCE_MEANING: Record<Provenance, string> = {
   verified:
-    "Hecho de pago verificado y registrado por el backend (ADR 0030). No dice si la operación fue simulada: el registro todavía no guarda esa procedencia.",
+    "Hecho de pago verificado y registrado por el backend (ADR 0030). Cada cifra lleva el origen (provider_kind) que el backend guardó en el hecho; un hecho verificado no es dinero liquidado.",
   declared:
     "Dato que alguien declaró y que el backend guarda con su fuente (una cotización de proveedor o una declaración manual). No es un pago comprobado.",
   planned:

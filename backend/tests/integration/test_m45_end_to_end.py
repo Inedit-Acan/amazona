@@ -482,10 +482,14 @@ def test_conflict_unmatched_and_duplicate_money_is_never_confirmed_revenue(journ
     assert _dec(review[("EUR", "DUPLICATE_RECEIPT")]["received"]) == Decimal("30")
     assert _dec(review[("EUR", "MISMATCH_RECEIPT")]["received"]) == Decimal("12.5")
     pending = {(r["currency"], r["event_type"]): r for r in summary["pending_evidence"]["by_currency"]}
+    assert {r["provider_kind"] for r in summary["pending_evidence"]["by_currency"]} == {"mock"}
     assert _dec(pending[("EUR", "payment.succeeded")]["amount"]) == Decimal("148"), (
         "49.00 conflicting + 99.00 unmatched"
     )
-    assert _dec(summary["consolidated_eur"]["revenue"]) == Decimal("133"), "the headline excludes review and pending"
+    (headline,) = summary["consolidated_eur_by_origin"]
+    assert headline["provider_kind"] == "mock" and _dec(headline["revenue"]) == Decimal("133"), (
+        "the headline excludes review and pending"
+    )
 
 
 def test_a_currency_is_never_added_to_another(journey):
@@ -493,7 +497,8 @@ def test_a_currency_is_never_added_to_another(journey):
     verified = {row["currency"]: row for row in summary["verified"]}
     assert set(verified) == {"EUR", "USD"}
     assert _dec(verified["USD"]["revenue"]) == Decimal("30")
-    assert _dec(summary["consolidated_eur"]["revenue"]) == Decimal("133"), "the 30.00 USD is not in the EUR headline"
+    (headline,) = summary["consolidated_eur_by_origin"]
+    assert _dec(headline["revenue"]) == Decimal("133"), "the 30.00 USD is not in the EUR headline"
     assert [row["currency"] for row in summary["non_aggregable_currencies"]] == ["USD"]
     for row in journey.client.get("/api/revenue/entries", params={"limit": 50}).json()["items"]:
         assert row["currency"] in {"EUR", "USD"}

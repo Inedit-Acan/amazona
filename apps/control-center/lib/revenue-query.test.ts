@@ -62,3 +62,12 @@ test("revenuePath: la misma petición da siempre la misma URL", () => {
 test("el tamaño de página del Panel cabe en lo que admite el backend (1..200)", () => {
   assert.ok(REVENUE_ENTRIES_PAGE_SIZE >= 1 && REVENUE_ENTRIES_PAGE_SIZE <= 200);
 });
+
+test("revenuePath: el filtro de origen viaja como provider_kind y sin él no se envía nada", () => {
+  assert.equal(revenuePath("summary", { provider_kind: "sandbox" }), "/api/revenue/summary?provider_kind=sandbox");
+  assert.equal(revenuePath("summary", { provider_kind: undefined }), "/api/revenue/summary");
+  assert.equal(
+    revenuePath("entries", { provider_kind: "real", limit: 25 }),
+    "/api/revenue/entries?limit=25&provider_kind=real",
+  );
+});

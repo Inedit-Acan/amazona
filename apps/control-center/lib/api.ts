@@ -1,5 +1,6 @@
 import { IDEMPOTENCY_HEADER, withIdempotencyKey } from "@/lib/idempotency";
 import { revenuePath, type RevenueWindow } from "@/lib/revenue-query";
+import { assertRevenueEntries, assertRevenueSeries, assertRevenueSummary } from "@/lib/revenue-contract";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -1253,6 +1254,8 @@ export interface OrderPayment {
   id: string;
   attempt_number: number;
   provider: string;
+  /** De dónde viene el dinero de este cobro (ADR 0031), tal como se guardó al abrirlo. No se deduce del pedido. */
+  provider_kind: RevenueProviderKind;
   status: PaymentStatus;
   amount: MoneyAmount;
   captured_amount: MoneyAmount;
@@ -1270,7 +1273,10 @@ export interface OrderPayment {
 export interface OrderRefund {
   id: string;
   payment_id: string;
+  /** Quién inició el reembolso (`OPERATOR` o `PROVIDER`). NO es el origen del dinero: para eso, `provider_kind`. */
   origin: string;
+  /** El origen del dinero que devuelve: el de su cobro. */
+  provider_kind: RevenueProviderKind;
   /** `REQUESTED` · `SENDING` · `UNKNOWN_OUTCOME` · `SUCCEEDED` · `FAILED`: solo un hecho verificado lo da por devuelto. */
   status: string;
   amount: MoneyAmount;
@@ -1318,6 +1324,8 @@ export interface Order {
   customer_ref: string;
   market: string;
   status: string;
+  /** Contexto del pedido (¿era una simulación cuando se creó?). NO es la procedencia del dinero: cada cobro y cada
+   * reembolso llevan su `provider_kind`, y un pedido no tiene uno propio. */
   is_simulated: boolean;
   amount_due: MoneyAmount;
   items: OrderItem[];
@@ -1360,7 +1368,11 @@ export interface RevenueScope {
   excludes: string[];
 }
 
+/** El origen del dinero, tal como lo guardó el backend (ADR 0031): nunca se deduce ni se completa. */
+export type RevenueProviderKind = "mock" | "sandbox" | "real";
+
 export interface RevenueVerifiedRow {
+  provider_kind: RevenueProviderKind;
   currency: string;
   revenue: DecimalText;
   refunds: DecimalText;
@@ -1370,6 +1382,7 @@ export interface RevenueVerifiedRow {
 }
 
 export interface RevenueUnderReviewRow {
+  provider_kind: RevenueProviderKind;
   currency: string;
   /** `DUPLICATE_RECEIPT` o `MISMATCH_RECEIPT`: dinero en revisión, nunca suma a lo verificado. */
   classification: string;
@@ -1381,6 +1394,7 @@ export interface RevenueUnderReviewRow {
 }
 
 export interface RevenueEvidenceTotal {
+  provider_kind: RevenueProviderKind;
   currency: string;
   event_type: string;
   count: number;
@@ -1388,6 +1402,7 @@ export interface RevenueEvidenceTotal {
 }
 
 export interface RevenueConsolidatedEur {
+  provider_kind: RevenueProviderKind;
   currency: string;
   revenue: DecimalText;
   refunds: DecimalText;
@@ -1398,12 +1413,15 @@ export interface RevenueConsolidatedEur {
 export interface RevenueSummary {
   period: Record<string, string | null>;
   entries: number;
+  /** Un recuento de registros por origen (no dinero). La suma es `entries`. Un origen sin entradas no aparece. */
+  entries_by_provider_kind: { provider_kind: RevenueProviderKind; entries: number }[];
   verified: RevenueVerifiedRow[];
   under_review: RevenueUnderReviewRow[];
   /** Eventos de dinero sin asentar (`CONFLICT`, `UNMATCHED`): ni ingreso ni reembolso, fuera de todo total. */
   pending_evidence: { count: number; by_currency: RevenueEvidenceTotal[] };
-  /** Solo EUR. `null` = no hay ninguna entrada en EUR en el periodo («Sin datos», nunca un 0). */
-  consolidated_eur: RevenueConsolidatedEur | null;
+  /** Solo EUR, una fila por origen que tenga entradas en EUR; vacío = «Sin datos», nunca un 0. Sustituye a
+   * `consolidated_eur`, que sumaba todos los orígenes y ya no existe. */
+  consolidated_eur_by_origin: RevenueConsolidatedEur[];
   non_aggregable_currencies: { currency: string; reason: string }[];
   scope: RevenueScope;
 }
@@ -1411,6 +1429,7 @@ export interface RevenueSummary {
 export interface RevenueSeriesBucket {
   /** `YYYY-MM-DD` (día UTC) o `YYYY-MM` (mes). Solo existen los cubos con entradas. */
   bucket: string;
+  provider_kind: RevenueProviderKind;
   currency: string;
   revenue: DecimalText;
   refunds: DecimalText;
@@ -1431,6 +1450,8 @@ export interface RevenueEntry {
   id: string;
   /** `CAPTURE` o `REFUND`. */
   kind: string;
+  /** El origen guardado en la entrada (copiado de su cobro al escribirla). */
+  provider_kind: RevenueProviderKind;
   /** `ORDER_PAYMENT` (verificado), `DUPLICATE_RECEIPT` o `MISMATCH_RECEIPT` (en revisión). */
   classification: string;
   payment_event_id: string;
@@ -1520,9 +1541,17 @@ export const api = {
   getOrder: (orderId: string) => request<Order>(`/api/orders/${orderId}`),
   // Registro de ingresos verificados (ADR 0030): solo `GET`. Ninguna de estas llamadas escribe ni lleva clave de
   // idempotencia; el Panel las usa tal cual, sin sustituir un error por datos de demostración.
-  revenueSummary: (window?: RevenueWindow) => request<RevenueSummary>(revenuePath("summary", { ...window })),
-  revenueSeries: (window?: RevenueWindow, granularity: "day" | "month" = "day") =>
-    request<RevenueSeries>(revenuePath("series", { ...window, granularity })),
+  // Cada respuesta pasa por `lib/revenue-contract.ts`: un backend con el contrato antiguo (que sumaba orígenes) o sin
+  // `provider_kind` falla a la vista, no se enseña como «Sin datos». `providerKind` acota la lectura a un origen; sin él
+  // salen todos, siempre separados.
+  revenueSummary: (window?: RevenueWindow, providerKind?: RevenueProviderKind) =>
+    request<RevenueSummary>(revenuePath("summary", { ...window, provider_kind: providerKind })).then(
+      assertRevenueSummary,
+    ),
+  revenueSeries: (window?: RevenueWindow, granularity: "day" | "month" = "day", providerKind?: RevenueProviderKind) =>
+    request<RevenueSeries>(revenuePath("series", { ...window, granularity, provider_kind: providerKind })).then(
+      assertRevenueSeries,
+    ),
   revenueEntries: (options?: {
     window?: RevenueWindow;
     cursor?: string;
@@ -1530,6 +1559,7 @@ export const api = {
     currency?: string;
     classification?: string;
     kind?: string;
+    providerKind?: RevenueProviderKind;
   }) =>
     request<RevenueEntriesPage>(
       revenuePath("entries", {
@@ -1539,8 +1569,9 @@ export const api = {
         currency: options?.currency,
         classification: options?.classification,
         kind: options?.kind,
+        provider_kind: options?.providerKind,
       }),
-    ),
+    ).then(assertRevenueEntries),
   createObjective: (payload: { title: string; description?: string; created_by: string; context?: unknown }) =>
     request<Objective>("/api/objectives", { method: "POST", body: JSON.stringify(payload) }),
   runObjective: (objectiveId: string, options?: Keyed) =>

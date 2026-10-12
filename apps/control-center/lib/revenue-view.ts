@@ -2,6 +2,7 @@ import type {
   DecimalText,
   RevenueEntriesPage,
   RevenueEntry,
+  RevenueProviderKind,
   RevenueSeries,
   RevenueSummary,
 } from "./api.ts";
@@ -10,12 +11,15 @@ import type {
 // por moneda, separando lo verificado, lo que está en revisión y la evidencia pendiente. Este módulo solo decide QUÉ SE
 // ENSEÑA y CÓMO SE DICE, con tres reglas que las pruebas fijan:
 //
-//   1. «Sin datos» no es un cero. Un `consolidated_eur` nulo se dice «Sin datos»; un cero solo sale cuando el backend
-//      lo midió (hay entradas en EUR y su suma es cero).
+//   1. «Sin datos» no es un cero. Sin filas en `consolidated_eur_by_origin` se dice «Sin datos»; un cero solo sale cuando
+//      el backend lo midió (hay entradas en EUR de ese origen y su suma es cero).
 //   2. Las monedas no se suman ni se convierten. Cada una sale en su línea; lo único consolidado es EUR, y lo dice el
 //      backend, no esta vista.
 //   3. Lo verificado, lo que está en revisión y la evidencia pendiente son tres cosas distintas: ninguna cifra de una
 //      se construye con las otras, y esta vista no hace ninguna suma de importes.
+//   4. (M46, ADR 0031) Cada cifra es de UN origen (`provider_kind`), tal como lo guardó el backend.
+//      Esta vista nunca suma orígenes distintos, y no pone etiquetas finales: enseña el valor tal cual (el texto de cara
+//      al usuario es del Commit 4). Un origen ausente o desconocido no se completa jamás: ver `revenue-contract.ts`.
 //
 // No importa nada de `lib/demo` ni del P&L modelado (`cfo-view`, `operations-view`): lo que hay aquí es medido.
 
@@ -76,8 +80,8 @@ export const isVerified = (classification: string) => classification === "ORDER_
 
 export const REVENUE_SCOPE_NOTE =
   "Cifras tomadas del registro de hechos de pago verificados; no son un modelo ni contabilidad: no incluyen costes, margen, " +
-  "beneficio, impuestos, IVA/OSS, caja, comisiones ni conversión de divisas. Un hecho verificado tampoco dice si la operación " +
-  "fue simulada: el registro todavía no guarda esa procedencia.";
+  "beneficio, impuestos, IVA/OSS, caja, comisiones ni conversión de divisas. Cada cifra es de un origen (provider_kind), " +
+  "tal como lo guardó el backend: nunca se suman orígenes distintos, y un hecho verificado no es dinero liquidado.";
 
 export function periodLabel(days: number): string {
   return `últimos ${days} días`;
@@ -117,6 +121,7 @@ export async function settle<T>(read: () => Promise<T>): Promise<Settled<T>> {
 // --- Resumen ------------------------------------------------------------------------------------------------------
 
 export interface VerifiedLine {
+  providerKind: RevenueProviderKind;
   currency: string;
   revenue: string;
   refunds: string;
@@ -126,6 +131,7 @@ export interface VerifiedLine {
 }
 
 export interface UnderReviewLine {
+  providerKind: RevenueProviderKind;
   currency: string;
   classification: string;
   label: string;
@@ -137,17 +143,28 @@ export interface UnderReviewLine {
 }
 
 export interface EvidenceLine {
+  providerKind: RevenueProviderKind;
   currency: string;
   label: string;
   count: string;
   amount: string;
 }
 
+export interface EurLine {
+  providerKind: RevenueProviderKind;
+  revenue: string;
+  refunds: string;
+  net: string;
+  underReview: string;
+}
+
 export interface SummaryView {
   /** Hay algo que enseñar: alguna entrada del registro o algún evento sin asentar. */
   hasAnyData: boolean;
-  /** `null` = «Sin datos» en EUR. */
-  eur: { revenue: string; refunds: string; net: string; underReview: string } | null;
+  /** Una fila por origen con entradas en EUR; vacío = «Sin datos» en EUR. Nunca hay una fila que sume orígenes. */
+  eurByOrigin: EurLine[];
+  /** Orígenes con algún dato (entradas), en el orden del backend. */
+  origins: RevenueProviderKind[];
   verified: VerifiedLine[];
   underReview: UnderReviewLine[];
   pendingEvidence: { count: number; lines: EvidenceLine[] };
@@ -155,24 +172,36 @@ export interface SummaryView {
   otherCurrencies: string[];
 }
 
+/** Primero por origen (el orden del backend: alfabético) y dentro de cada uno EUR antes que el resto. */
+const byOriginThenCurrency = <T extends { currency: string; provider_kind: string }>(a: T, b: T) => {
+  const rank = (currency: string) => (currency === CONSOLIDATION_CURRENCY ? 0 : 1);
+  return (
+    a.provider_kind.localeCompare(b.provider_kind) ||
+    rank(a.currency) - rank(b.currency) ||
+    a.currency.localeCompare(b.currency)
+  );
+};
+
 const byCurrency = <T extends { currency: string }>(a: T, b: T) => {
   const rank = (currency: string) => (currency === CONSOLIDATION_CURRENCY ? 0 : 1);
   return rank(a.currency) - rank(b.currency) || a.currency.localeCompare(b.currency);
 };
 
 export function summaryView(summary: RevenueSummary): SummaryView {
-  const eur = summary.consolidated_eur;
   return {
     hasAnyData: summary.entries > 0 || summary.pending_evidence.count > 0,
-    eur: eur
-      ? {
-          revenue: formatMoney(eur.revenue, eur.currency),
-          refunds: formatMoney(eur.refunds, eur.currency),
-          net: formatMoney(eur.net, eur.currency),
-          underReview: formatMoney(eur.under_review_outstanding, eur.currency),
-        }
-      : null,
-    verified: [...summary.verified].sort(byCurrency).map((row) => ({
+    eurByOrigin: [...summary.consolidated_eur_by_origin]
+      .sort((a, b) => a.provider_kind.localeCompare(b.provider_kind))
+      .map((eur) => ({
+        providerKind: eur.provider_kind,
+        revenue: formatMoney(eur.revenue, eur.currency),
+        refunds: formatMoney(eur.refunds, eur.currency),
+        net: formatMoney(eur.net, eur.currency),
+        underReview: formatMoney(eur.under_review_outstanding, eur.currency),
+      })),
+    origins: summary.entries_by_provider_kind.map((row) => row.provider_kind),
+    verified: [...summary.verified].sort(byOriginThenCurrency).map((row) => ({
+      providerKind: row.provider_kind,
       currency: row.currency,
       revenue: formatMoney(row.revenue, row.currency),
       refunds: formatMoney(row.refunds, row.currency),
@@ -180,7 +209,8 @@ export function summaryView(summary: RevenueSummary): SummaryView {
       captures: formatCount(row.captures),
       refundCount: formatCount(row.refund_count),
     })),
-    underReview: [...summary.under_review].sort(byCurrency).map((row) => ({
+    underReview: [...summary.under_review].sort(byOriginThenCurrency).map((row) => ({
+      providerKind: row.provider_kind,
       currency: row.currency,
       classification: row.classification,
       label: classificationLabel(row.classification),
@@ -192,7 +222,8 @@ export function summaryView(summary: RevenueSummary): SummaryView {
     })),
     pendingEvidence: {
       count: summary.pending_evidence.count,
-      lines: [...summary.pending_evidence.by_currency].sort(byCurrency).map((row) => ({
+      lines: [...summary.pending_evidence.by_currency].sort(byOriginThenCurrency).map((row) => ({
+        providerKind: row.provider_kind,
         currency: row.currency,
         label: evidenceLabel(row.event_type),
         count: formatCount(row.count),
@@ -219,28 +250,49 @@ export interface RevenueKpis {
 const othersText = (currencies: string[]) =>
   currencies.length === 0 ? "" : ` Hay entradas en ${currencies.join(", ")}: se enseñan aparte, no se suman ni se convierten.`;
 
-/** Las tres cifras de cabecera. EUR es lo único consolidado; sin entradas en EUR el valor es «Sin datos», no 0,00 €. */
+/** Lo que dice una cifra de cabecera cuando hay datos de más de un origen: ninguna cifra, porque no existe un total que
+ * cruce orígenes (ADR 0031 A2). El texto final de cara al usuario es del Commit 4. */
+export const SEVERAL_ORIGINS = "Varios orígenes";
+
+const perOrigin = (lines: EurLine[], pick: (line: EurLine) => string) =>
+  lines.map((line) => `${line.providerKind} ${pick(line)}`).join(" · ");
+
+/** Las tres cifras de cabecera. EUR es lo único consolidado; sin entradas en EUR el valor es «Sin datos», no 0,00 €. Con
+ * un solo origen se enseña su cifra y su origen; con varios NO hay cifra (cada uno va aparte en el caption), porque
+ * sumarlos sería mezclar dinero de procedencias distintas. */
 export function revenueKpis(summary: RevenueSummary): RevenueKpis {
   const view = summaryView(summary);
   const others = view.otherCurrencies;
-  const verified: KpiText = view.eur
-    ? {
-        value: view.eur.revenue,
-        caption: `Reembolsos ${view.eur.refunds} · Neto ${view.eur.net}.${othersText(others)}`,
-        isNoData: false,
-      }
-    : {
-        value: NO_DATA,
-        caption: `Ninguna entrada en EUR en el periodo.${othersText(others)}`,
-        isNoData: true,
-      };
-  const underReview: KpiText = view.eur
-    ? {
-        value: view.eur.underReview,
-        caption: "Duplicados y discrepancias pendientes de resolver. No suman a lo verificado.",
-        isNoData: false,
-      }
-    : { value: NO_DATA, caption: "Ninguna entrada en EUR en el periodo. No suma a lo verificado.", isNoData: true };
+  const eur = view.eurByOrigin;
+  const [single] = eur;
+  const verified: KpiText =
+    eur.length === 0
+      ? { value: NO_DATA, caption: `Ninguna entrada en EUR en el periodo.${othersText(others)}`, isNoData: true }
+      : eur.length === 1
+        ? {
+            value: single.revenue,
+            caption: `Origen: ${single.providerKind}. Reembolsos ${single.refunds} · Neto ${single.net}.${othersText(others)}`,
+            isNoData: false,
+          }
+        : {
+            value: SEVERAL_ORIGINS,
+            caption: `${perOrigin(eur, (line) => line.revenue)}. Cada origen va por separado: no se suman.${othersText(others)}`,
+            isNoData: true,
+          };
+  const underReview: KpiText =
+    eur.length === 0
+      ? { value: NO_DATA, caption: "Ninguna entrada en EUR en el periodo. No suma a lo verificado.", isNoData: true }
+      : eur.length === 1
+        ? {
+            value: single.underReview,
+            caption: `Origen: ${single.providerKind}. Duplicados y discrepancias pendientes de resolver. No suman a lo verificado.`,
+            isNoData: false,
+          }
+        : {
+            value: SEVERAL_ORIGINS,
+            caption: `${perOrigin(eur, (line) => line.underReview)}. Cada origen va por separado: no se suman.`,
+            isNoData: true,
+          };
   const evidence = view.pendingEvidence;
   const pending: KpiText = {
     value: formatCount(evidence.count),
@@ -276,6 +328,9 @@ export interface SeriesRow {
 }
 
 export interface CurrencySeries {
+  /** `<origen>·<moneda>`: una serie es de UN origen y UNA moneda, nunca de dos. */
+  key: string;
+  providerKind: RevenueProviderKind;
   currency: string;
   columns: SeriesColumn[];
   /** De más reciente a más antiguo. */
@@ -283,8 +338,9 @@ export interface CurrencySeries {
 }
 
 export interface SeriesView {
-  currencies: string[];
-  byCurrency: Record<string, CurrencySeries>;
+  /** Las series que hay, por origen y moneda (EUR primero dentro de cada origen). */
+  keys: string[];
+  bySeries: Record<string, CurrencySeries>;
   /** Días de la ventana. Los que no tienen cubo no tienen barra: sin datos, no cero. */
   windowDays: number;
 }
@@ -304,7 +360,14 @@ export function seriesView(series: RevenueSeries, windowFrom: string, windowTo: 
     const at = Date.parse(`${bucket.bucket}T00:00:00Z`);
     const x = Math.round((at - from) / DAY_MS);
     if (x < 0 || x >= windowDays) continue;
-    const current = grouped.get(bucket.currency) ?? { currency: bucket.currency, columns: [], rows: [] };
+    const key = `${bucket.provider_kind}·${bucket.currency}`;
+    const current = grouped.get(key) ?? {
+      key,
+      providerKind: bucket.provider_kind,
+      currency: bucket.currency,
+      columns: [],
+      rows: [],
+    };
     current.columns.push({
       x,
       at,
@@ -321,16 +384,16 @@ export function seriesView(series: RevenueSeries, windowFrom: string, windowTo: 
       underReviewRefunded: formatMoney(bucket.under_review_refunded, bucket.currency),
       entries: formatCount(bucket.entries),
     });
-    grouped.set(bucket.currency, current);
+    grouped.set(key, current);
   }
-  const all = [...grouped.values()].sort(byCurrency);
+  const all = [...grouped.values()].sort((a, b) => a.providerKind.localeCompare(b.providerKind) || byCurrency(a, b));
   for (const entry of all) {
     entry.columns.sort((a, b) => a.x - b.x);
     entry.rows.sort((a, b) => b.bucket.localeCompare(a.bucket));
   }
   return {
-    currencies: all.map((entry) => entry.currency),
-    byCurrency: Object.fromEntries(all.map((entry) => [entry.currency, entry])),
+    keys: all.map((entry) => entry.key),
+    bySeries: Object.fromEntries(all.map((entry) => [entry.key, entry])),
     windowDays,
   };
 }
@@ -339,6 +402,7 @@ export function seriesView(series: RevenueSeries, windowFrom: string, windowTo: 
 
 export interface EntryRow {
   id: string;
+  providerKind: RevenueProviderKind;
   kind: string;
   kindLabel: string;
   classification: string;
@@ -352,6 +416,7 @@ export interface EntryRow {
 export function entryRow(entry: RevenueEntry): EntryRow {
   return {
     id: entry.id,
+    providerKind: entry.provider_kind,
     kind: entry.kind,
     kindLabel: kindLabel(entry.kind),
     classification: entry.classification,

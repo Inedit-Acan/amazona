@@ -78,8 +78,8 @@ export function CfoWorkspace({
 
       <section className="space-y-3" aria-label="Registro verificado">
         <ZoneHeading step={1} title={`Registro verificado · ${period}`} provenance="verified">
-          Hechos de pago verificados y registrados por el backend. No dicen si la operación fue simulada: el registro
-          todavía no guarda esa procedencia.
+          Hechos de pago verificados y registrados por el backend. Cada cifra lleva el origen (provider_kind) que el
+          backend guardó en el hecho; un hecho verificado no es dinero liquidado.
         </ZoneHeading>
         <VerifiedFigures summary={summary} />
         <div className="grid gap-3 lg:grid-cols-2">

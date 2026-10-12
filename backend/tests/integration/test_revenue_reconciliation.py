@@ -272,7 +272,7 @@ def test_the_http_status_exposes_the_revenue_block_without_bodies_or_hashes(db: 
     body = response.json()
     assert set(body) == {"enabled", "settings", "actions", "events", "runs", "revenue"}
     assert body["revenue"]["pending_evidence"]["by_currency"] == [
-        {"currency": "EUR", "event_type": "payment.succeeded", "count": 1, "amount": "49.0000"}
+        {"provider_kind": "mock", "currency": "EUR", "event_type": "payment.succeeded", "count": 1, "amount": "49.0000"}
     ]
     assert "payload_hash" not in response.text and "hash" not in str(body["revenue"]).lower()
 

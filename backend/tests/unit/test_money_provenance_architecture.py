@@ -36,6 +36,8 @@ from app.integrations.registry import ProviderBinding, ProviderRegistry
 
 APP = Path(__file__).resolve().parents[2] / "app"
 SCOPE = ("orders", "payments", "revenue", "reconciliation")
+#: Los serializadores de la API que dicen de dónde viene el dinero (M46, Commit 3): exponen lo guardado y no lo deducen.
+API_FILES = ("api/orders.py", "api/payments.py", "api/reconciliation.py", "api/revenue.py")
 
 #: Lo que lee o construye una señal de «es simulado», de entorno o de configuración del proveedor.
 SIGNAL_ATTRIBUTES = {
@@ -181,6 +183,14 @@ ALLOWED: dict[tuple[str, str, str], str] = {
         "la comprobación de arranque decide qué adaptadores de escritura validar frente al techo de la llamada "
         "externa; lee la configuración para validar, no para clasificar ningún importe"
     ),
+    ("api/orders.py", "signal", "is_simulated"): (
+        "la lectura de `order.is_simulated` al serializar el pedido: el contexto en que se creó, documentado como tal "
+        "en el contrato (ADR 0031 §12); los cobros y reembolsos llevan su propio `provider_kind`"
+    ),
+    ("api/orders.py", "signal", "is_simulated="): (
+        "el campo `OrderOut.is_simulated`, que se escribe con ese nombre al construir la respuesta: el mismo contexto "
+        "del pedido, sin relación con la procedencia del dinero"
+    ),
     ("orders/domain.py", "name_call", "customer_ref.startswith"): (
         "valida que la referencia del cliente lleve el prefijo `sim_` solo en una simulación (el CHECK del pedido); no "
         "toca ningún cobro"
@@ -189,7 +199,8 @@ ALLOWED: dict[tuple[str, str, str], str] = {
 
 
 def repository_files() -> list[Path]:
-    return sorted(p for scope in SCOPE for p in (APP / scope).rglob("*.py") if "__pycache__" not in p.parts)
+    found = {p for scope in SCOPE for p in (APP / scope).rglob("*.py") if "__pycache__" not in p.parts}
+    return sorted(found | {APP / name for name in API_FILES})
 
 
 def repository_violations() -> dict[tuple[str, str, str], list[int]]:
@@ -217,6 +228,9 @@ def test_the_scan_covers_the_files_where_the_origin_travels():
         "orders/refunds.py",
         "orders/service.py",
         "reconciliation/report.py",
+        "api/revenue.py",
+        "api/orders.py",
+        "api/reconciliation.py",
     } <= relatives, "a directory moved: the guard would pass for nothing"
 
 

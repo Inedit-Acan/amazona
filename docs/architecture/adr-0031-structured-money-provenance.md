@@ -1,6 +1,6 @@
 # ADR 0031: Procedencia estructurada del dinero — dos ejes (evidencia y origen operativo), persistidos como propiedad del hecho
 
-- **Estado:** Aceptada (decisiones del propietario del 2026-10-12, con una segunda ronda el mismo día que retira toda inferencia por nombre: §6 y §18). **Implementada en parte**: el Commit 2A de M46 implementa el origen en el cobro, el evento y el registro, y el emparejado (ver el **addendum, §21**); el Commit 1 de M46 (este ADR) fue solo documentación. El Commit 2B añade `check_ledger` C5/C6, la guarda arquitectónica contra la inferencia, el caos y las mutaciones (**addendum, §22**). Faltan la API, la interfaz y el cierre (§20).
+- **Estado:** Aceptada (decisiones del propietario del 2026-10-12, con una segunda ronda el mismo día que retira toda inferencia por nombre: §6 y §18). **Implementada en parte**: el Commit 2A de M46 implementa el origen en el cobro, el evento y el registro, y el emparejado (ver el **addendum, §21**); el Commit 1 de M46 (este ADR) fue solo documentación. El Commit 2B añade `check_ledger` C5/C6, la guarda arquitectónica contra la inferencia, el caos y las mutaciones (**addendum, §22**). El Commit 3 lleva la procedencia a la API de ingresos, pedidos y reconciliación (**addendum, §23**). Faltan la interfaz final y el cierre (§20).
 - **Fecha:** 2026-10-12
 - **Depende de:** [ADR 0003](adr-0003-rls-deny-by-default.md), [ADR 0026](adr-0026-database-identity-guards.md), [ADR 0028](adr-0028-orders-payments-fulfilment-core.md), [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md), [ADR 0030](adr-0030-verified-revenue-ledger.md)
 - **Enmienda a:** [ADR 0030](adr-0030-verified-revenue-ledger.md) (el registro hoy «no distingue de forma estructural una operación simulada de una que no lo sea»: deja de ser cierto) y [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (el alcance de `Order.is_simulated`, §12)
@@ -291,7 +291,7 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 | 1 | **docs: ADR 0031** (este) | no |
 | 2A | backend: migración 44.ª, dominio, propagación del tipo y emparejado (**implementado**, §21) | **sí (44.ª)** |
 | 2B | backend: `check_ledger` C5/C6, defensas, prueba de uso prohibido, caos y mutaciones (**implementado**, §22) | no |
-| 3 | API: agregados por origen, `OrderOut`/pagos con origen, `SCOPE` | no |
+| 3 | API: agregados por origen, `OrderOut`/pagos con origen, `SCOPE` (**implementado**, §23) | no |
 | 4 | frontend: `Verified<T>` con origen, etiquetas, fuera «Real»; prueba de frontera actualizada | no |
 | 5 | `POST /api/economics/runs`: canal desconocido → 422 | no |
 | 6 | Las 9 lecturas silenciosas del Panel → `UNREAD` | no |
@@ -405,6 +405,35 @@ Este apartado documenta **exactamente** el Commit 2B (sin migración, sin cambio
 **Mutaciones** (fuera del repositorio; prefijo `B` para no chocar con las M01–M29 de 2A ni con las M1–M15 del ADR): 33, 33 muertas, 0 supervivientes, incluidas M12 (segunda lectura de `Settings`), M13 (inferir por nombre), M14 (adoptar el origen tras emparejar) y M15 (`ProviderBinding.is_simulated`), esta última también como lectura muerta que solo el veneno detecta.
 
 **Residuales anotados.** (1) Un `PaymentEvent` también tiene `refund_id`; C6 compara con `payment_id` (un reembolso pertenece al cobro del evento por construcción). (2) `check_ledger` sigue leyendo en varias sentencias: C1 y C4 pueden ver una foto intermedia bajo escrituras concurrentes (ya era así); C5 y C6 no. (3) La guarda no cubre `api/` ni `cli.py`: `OrderOut.is_simulated` y la clave `simulated` de `/api/status` son deuda de los Commits 3–4. (4) Un origen fuera de `mock|sandbox|real` solo existiría sin el `CHECK`; no hay comprobación aparte.
+
+### 23. Addendum del Commit 3 (2026-10-12): la procedencia llega a la API, sin deducirse y sin mezclarse
+
+Este apartado documenta **exactamente** el Commit 3 (sin migración, sin cambios de esquema; `check_ledger` no cambia). Donde difiere de lo previsto en §10 y §20, manda este apartado.
+
+**`SCOPE` ya existía, y no es un filtro.** `aggregates.SCOPE` es el bloque `scope` de cada respuesta de ingresos: declara lo que las cifras **no** son (`is_accounting_ledger`, `basis`, `excludes`). Se **reutiliza**: `basis` dice ahora que toda cifra va separada por `provider_kind` y nunca se suma entre orígenes, y `excludes` añade `cross_origin_totals`. El filtro que pide el consumidor se llama **`provider_kind`** (y no `scope`, para no chocar con ese bloque ni con `RefundOut.origin`, que significa quién inició el reembolso, `OPERATOR` o `PROVIDER`).
+
+**El filtro `?provider_kind=`** (`summary`, `series`, `entries`): `mock`, `sandbox` o `real` (el vocabulario cerrado del puerto de pagos, no una lista escrita aparte); cualquier otro valor, incluido `""`, `composite` o `REAL`, es un **422**. Sin filtro se devuelven **todos los orígenes, siempre separados**: no existe un modo «todo sumado». Un origen sin datos no aparece (sin datos, no un cero).
+
+**Contratos (antes → después)**
+
+| Respuesta | Antes | Ahora |
+|---|---|---|
+| `GET /api/revenue/summary` | `verified[]`, `under_review[]`, `pending_evidence.by_currency[]` por moneda; `consolidated_eur` (objeto o `null`) **sumaba todos los orígenes** | las mismas filas con `provider_kind` (clave `(origen, moneda[, clase / tipo])`); **`consolidated_eur` desaparece**, lo sustituye `consolidated_eur_by_origin[]` (una fila por origen con EUR; vacío = «Sin datos»); `entries_by_provider_kind[]` (A5: Σ = `entries`); `scope` ampliado |
+| `GET /api/revenue/series` | cubos `(día, moneda)` | cubos `(día, origen, moneda)` |
+| `GET /api/revenue/entries` | sin origen | `EntryOut.provider_kind` y filtro |
+| `GET /api/reconciliation/status` | evidencia y eventos con tope sin origen | `provider_kind` en cada total, cada elemento y cada evento con tope |
+| `PaymentOut` / `RefundOut` | sin origen | `provider_kind` (el persistido; el del reembolso, el de su cobro: D4, `refunds` sigue sin columna) |
+| `OrderOut` | `is_simulated` | **sin** `provider_kind`: un pedido puede reunir cobros de varios orígenes. `is_simulated` se mantiene, documentado en el esquema OpenAPI como **contexto del pedido**, no procedencia (§12) |
+
+**Compatibilidad y migración del contrato.** Los campos de fila existentes siguen y solo se añade `provider_kind`: un lector que los ignore no se rompe. Lo único que se retira es lo que **mezclaba orígenes**: `consolidated_eur`. En el Control Center, `lib/revenue-contract.ts` valida cada respuesta (`revenueSummary/Series/Entries`) y **falla a la vista** con `RevenueContractError` si llega el contrato antiguo (`consolidated_eur`), si falta `consolidated_eur_by_origin` o si una fila no trae un `provider_kind` válido: nunca se lee como «Sin datos» ni se completa con `mock`. Los consumidores de la API que quieran la cifra de un origen usan `consolidated_eur_by_origin[provider_kind=…]` o `?provider_kind=`. Una repetición con la misma `Idempotency-Key` de una respuesta de cobro o reembolso **guardada antes de este cambio** no trae `provider_kind` y fallaría al validarse: solo afecta a una base con M44 y claves sin caducar (Supabase no tiene M44).
+
+**Fuente única.** Los agregados leen **solo** las columnas guardadas (`revenue_ledger_entries.provider_kind`, `payment_events.provider_kind`, `payments.provider_kind`); no recrean `check_ledger` (C5/C6 validan lo que ellos leen). La guarda arquitectónica de 2B se amplía a `api/revenue.py`, `api/orders.py`, `api/payments.py` y `api/reconciliation.py` (excepción nombrada: la lectura de `order.is_simulated` y el campo `OrderOut.is_simulated`). Prueba dinámica: con `ProviderBinding.is_simulated` y el registro envenenados, `Order.is_simulated` invertido por SQL y unos `Settings` que dicen otro proveedor, la respuesta de ingresos es idéntica.
+
+**Frontend (mínimo, solo contratos y vistas; sin etiquetas finales, que son del Commit 4).** `lib/api.ts` (tipos y `RevenueProviderKind`), `lib/revenue-contract.ts` (nuevo), `lib/revenue-view.ts` (vista por origen: líneas con `providerKind`; `eurByOrigin` en lugar de `eur`; series por `<origen>·<moneda>`), las tarjetas de ingresos del Panel y del CFO (el valor del origen **tal cual**, sin traducir). Las cifras de cabecera: con **un** origen se enseña su cifra y su origen; con **varios** no hay cifra («Varios orígenes») y cada uno va aparte. Los textos que decían que «el registro todavía no guarda esa procedencia» eran ya falsos y se corrigen (sin la palabra «real»), y `dashboard-revenue-boundary.test.ts` se **actualiza conscientemente** (lo pedía su propio mensaje; el ADR §11 lo situaba en el Commit 4): ahora exige que la procedencia sea estructurada (`provider_kind`) y que ninguna señal débil (`is_simulated`, `environment`…) entre en los tipos del registro, y sigue prohibiendo la palabra «real» como etiqueta.
+
+**Coste.** Medido en PostgreSQL local con 300 000 entradas: agrupar también por `provider_kind` no cambia el plan ni el tiempo (ventana de 30 días 16 → 19 ms; todo el registro 112 → 114 ms). Sin migración ni índice nuevo.
+
+**Residuales anotados.** (1) `lib/cfo-margin.ts` suma por pedido todas las entradas sin mirar su origen (A6): hoy solo existe `mock`; un pedido con cobros de dos orígenes mezclaría sus importes en el margen. Es del Commit 4 (`Verified<T>` con origen). (2) `app/operations/operations-panels.tsx:363` sigue rotulando «Simulado»/«Real» según `Order.is_simulated` y `/api/status` conserva la clave `simulated` (deuda P3): son del Commit 4 (§11); el Commit 3 no toca esa pantalla. (3) Las etiquetas de cara al usuario («Simulado», «Entorno de pruebas», …) siguen sin fijarse: el valor del origen se enseña en crudo. (4) Las repeticiones de claves de idempotencia anteriores (arriba).
 
 ## Contrastado contra el código el 2026-10-12
 

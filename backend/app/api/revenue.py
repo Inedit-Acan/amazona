@@ -6,6 +6,12 @@ cualquier cifra. **Un `GET` no escribe nada.** Ninguna respuesta lleva margen, b
 caja ni comisiones: el registro no puede demostrarlos (ver `scope`). Los importes son texto exacto, nunca un número
 JSON (que sería un `float`).
 
+**Origen (Milestone 46, ADR 0031).** Cada fila lleva el `provider_kind` (`mock`, `sandbox`, `real`) **guardado** en el
+hecho, y ninguna cifra suma orígenes distintos: no existe un total que los cruce. `?provider_kind=` acota la lectura a
+uno; sin él salen todos, siempre separados. Un origen sin datos no aparece (sin datos, no un cero). Migración del
+contrato: `consolidated_eur` (que sumaba todos los orígenes) deja de existir y lo sustituye
+`consolidated_eur_by_origin`.
+
 Qué es cada cifra, cómo se trata la moneda y por qué: `app/revenue/aggregates.py` y el ADR 0030.
 """
 
@@ -30,6 +36,8 @@ class Scope(BaseModel):
 
 
 class VerifiedRow(BaseModel):
+    #: El origen guardado en las entradas que suman esta fila: `mock`, `sandbox` o `real`. Nunca deducido.
+    provider_kind: str
     currency: str
     revenue: str
     refunds: str
@@ -39,6 +47,7 @@ class VerifiedRow(BaseModel):
 
 
 class UnderReviewRow(BaseModel):
+    provider_kind: str
     currency: str
     classification: str
     received: str
@@ -49,6 +58,7 @@ class UnderReviewRow(BaseModel):
 
 
 class EvidenceTotal(BaseModel):
+    provider_kind: str
     currency: str
     event_type: str
     count: int
@@ -56,11 +66,15 @@ class EvidenceTotal(BaseModel):
 
 
 class PendingEvidenceTotals(BaseModel):
+    #: Un recuento de eventos (no dinero); el dinero va en `by_currency`, separado por origen.
     count: int
     by_currency: list[EvidenceTotal]
 
 
 class ConsolidatedEur(BaseModel):
+    """Solo EUR y solo **un** origen."""
+
+    provider_kind: str
     currency: str
     revenue: str
     refunds: str
@@ -73,23 +87,31 @@ class NonAggregable(BaseModel):
     reason: str
 
 
+class EntriesByProviderKind(BaseModel):
+    provider_kind: str
+    entries: int
+
+
 class SummaryOut(BaseModel):
     period: dict[str, str | None]
+    #: Un recuento de **registros**, no dinero. `Σ entries_by_provider_kind[*].entries == entries`.
     entries: int
+    entries_by_provider_kind: list[EntriesByProviderKind]
     #: Ingreso y reembolso verificados (`ORDER_PAYMENT`), por moneda.
     verified: list[VerifiedRow]
     #: Dinero en revisión (`DUPLICATE_RECEIPT`, `MISMATCH_RECEIPT`), por moneda y clase; nunca suma al verificado.
     under_review: list[UnderReviewRow]
     #: Eventos de dinero sin asentar (`CONFLICT`, `UNMATCHED`): ni ingreso ni reembolso.
     pending_evidence: PendingEvidenceTotals
-    #: Solo EUR; `null` si no hay ninguna entrada en EUR en el periodo («Sin datos»).
-    consolidated_eur: ConsolidatedEur | None
+    #: Solo EUR, una fila por origen que tenga entradas en EUR; vacío = «Sin datos». Nunca suma orígenes.
+    consolidated_eur_by_origin: list[ConsolidatedEur]
     non_aggregable_currencies: list[NonAggregable]
     scope: Scope
 
 
 class SeriesBucket(BaseModel):
     bucket: str
+    provider_kind: str
     currency: str
     revenue: str
     refunds: str
@@ -109,6 +131,8 @@ class SeriesOut(BaseModel):
 class EntryOut(BaseModel):
     id: str
     kind: str
+    #: El origen guardado en la entrada (copiado de su cobro al escribirla; inmutable).
+    provider_kind: str
     classification: str
     payment_event_id: str
     payment_id: str
@@ -147,9 +171,10 @@ def _stamp(value: datetime.datetime) -> str:
 def revenue_summary(
     start: datetime.datetime | None = Query(None, alias="from"),
     end: datetime.datetime | None = Query(None, alias="to"),
+    provider_kind: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> SummaryOut:
-    return SummaryOut.model_validate(aggregates.summary(db, _period(start, end)))
+    return SummaryOut.model_validate(aggregates.summary(db, _period(start, end), provider_kind=provider_kind))
 
 
 @router.get("/series", response_model=SeriesOut)
@@ -157,11 +182,14 @@ def revenue_series(
     granularity: str = Query("day"),
     start: datetime.datetime | None = Query(None, alias="from"),
     end: datetime.datetime | None = Query(None, alias="to"),
+    provider_kind: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> SeriesOut:
     now = datetime.datetime.now(datetime.UTC)
     period = aggregates.resolve_series_period(granularity, _period(start, end), now=now)
-    return SeriesOut.model_validate(aggregates.series(db, granularity=granularity, period=period))
+    return SeriesOut.model_validate(
+        aggregates.series(db, granularity=granularity, period=period, provider_kind=provider_kind)
+    )
 
 
 @router.get("/entries", response_model=EntriesPageOut)
@@ -173,6 +201,7 @@ def revenue_entries(
     kind: str | None = Query(None),
     start: datetime.datetime | None = Query(None, alias="from"),
     end: datetime.datetime | None = Query(None, alias="to"),
+    provider_kind: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> EntriesPageOut:
     page = aggregates.entries_page(
@@ -183,12 +212,14 @@ def revenue_entries(
         currency=currency,
         classification=classification,
         kind=kind,
+        provider_kind=provider_kind,
     )
     return EntriesPageOut(
         items=[
             EntryOut(
                 id=entry.id,
                 kind=entry.kind,
+                provider_kind=entry.provider_kind,
                 classification=entry.classification,
                 payment_event_id=entry.payment_event_id,
                 payment_id=entry.payment_id,

@@ -33,7 +33,7 @@ const DAY_MS = 86_400_000;
 
 /** Qué demuestra el backend detrás de estas cifras, y qué NO demuestra. */
 const LEDGER_TOOLTIP =
-  "Hechos de pago verificados y registrados por el backend (ADR 0030): no es un modelo ni una estimación. No dice si la operación fue simulada — el registro todavía no guarda esa procedencia.";
+  "Hechos de pago verificados y registrados por el backend (ADR 0030): no es un modelo ni una estimación. Cada fila lleva el origen (provider_kind) que el backend guardó en el hecho; nunca se suman orígenes distintos.";
 
 /** Un error de lectura se enseña como error. Nunca se sustituye por datos de demostración. */
 export function RevenueUnavailable({ what, message }: { what: string; message: string }) {
@@ -64,8 +64,8 @@ export function RevenueSeriesCard({
     () => (series.ok ? seriesView(series.data, window.from, window.to) : null),
     [series, window.from, window.to],
   );
-  const currency = view && (chosen && view.currencies.includes(chosen) ? chosen : view.currencies[0]);
-  const current = view && currency ? view.byCurrency[currency] : null;
+  const key = view && (chosen && view.keys.includes(chosen) ? chosen : view.keys[0]);
+  const current = view && key ? view.bySeries[key] : null;
   const fromMs = Date.parse(window.from);
 
   return (
@@ -75,17 +75,17 @@ export function RevenueSeriesCard({
           Ingresos verificados por día · {periodLabel(days)}
           <DataProvenanceBadge status="ledger" compact tooltip={LEDGER_TOOLTIP} />
         </CardTitle>
-        {view && view.currencies.length > 1 ? (
+        {view && view.keys.length > 1 ? (
           <CardAction>
             <select
-              value={currency ?? ""}
+              value={key ?? ""}
               onChange={(event) => setChosen(event.target.value)}
-              aria-label="Moneda de la serie"
+              aria-label="Origen y moneda de la serie"
               className="rounded-md border bg-background px-2 py-1 text-xs"
             >
-              {view.currencies.map((value) => (
+              {view.keys.map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {view.bySeries[value].providerKind} · {view.bySeries[value].currency}
                 </option>
               ))}
             </select>
@@ -113,11 +113,11 @@ export function RevenueSeriesCard({
               }))}
               formatY={(value) => formatInteger(value)}
               formatX={(x) => dayLabel(fromMs + x * DAY_MS)}
-              ariaLabel={`Ingresos verificados por día en ${current.currency}, ${periodLabel(days)}`}
+              ariaLabel={`Ingresos verificados por día, origen ${current.providerKind}, en ${current.currency}, ${periodLabel(days)}`}
             />
             <p className="text-[11px] text-muted-foreground">
-              Serie en {current.currency}. Los días sin barra no tienen ninguna entrada: sin datos, no cero. Las monedas no se
-              suman ni se convierten.
+              Serie de origen {current.providerKind} en {current.currency}. Los días sin barra no tienen ninguna entrada: sin
+              datos, no cero. Ni los orígenes ni las monedas se suman ni se convierten.
             </p>
             <div className="max-h-56 overflow-auto">
               <Table className="[&_td]:px-2 [&_td]:py-1.5">
@@ -178,6 +178,7 @@ export function RevenueBreakdownCard({ summary, days }: { summary: Settled<Reven
             <Table className="[&_td]:px-2 [&_td]:py-2">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
+                  <TableHead>Origen</TableHead>
                   <TableHead>Moneda</TableHead>
                   <TableHead className="text-right">Ingresos</TableHead>
                   <TableHead className="text-right">Reembolsos</TableHead>
@@ -187,7 +188,8 @@ export function RevenueBreakdownCard({ summary, days }: { summary: Settled<Reven
               </TableHeader>
               <TableBody>
                 {view?.verified.map((row) => (
-                  <TableRow key={row.currency}>
+                  <TableRow key={`${row.providerKind}-${row.currency}`}>
+                    <TableCell>{row.providerKind}</TableCell>
                     <TableCell className="font-medium">{row.currency}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.revenue}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.refunds}</TableCell>
@@ -239,6 +241,7 @@ export function OutsideVerifiedCard({ summary, days }: { summary: Settled<Revenu
                   <Table className="[&_td]:px-2 [&_td]:py-1.5">
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
+                        <TableHead>Origen</TableHead>
                         <TableHead>Clase</TableHead>
                         <TableHead className="text-right">Recibido</TableHead>
                         <TableHead className="text-right">Devuelto</TableHead>
@@ -247,7 +250,8 @@ export function OutsideVerifiedCard({ summary, days }: { summary: Settled<Revenu
                     </TableHeader>
                     <TableBody>
                       {view.underReview.map((row) => (
-                        <TableRow key={`${row.currency}-${row.classification}`}>
+                        <TableRow key={`${row.providerKind}-${row.currency}-${row.classification}`}>
+                          <TableCell>{row.providerKind}</TableCell>
                           <TableCell className="whitespace-normal">
                             <LevelChip tone="warn">{row.label}</LevelChip>
                           </TableCell>
@@ -273,9 +277,12 @@ export function OutsideVerifiedCard({ summary, days }: { summary: Settled<Revenu
               ) : (
                 <ul className="divide-y text-xs">
                   {view.pendingEvidence.lines.map((line) => (
-                    <li key={`${line.currency}-${line.label}`} className="flex items-center justify-between gap-3 py-1.5">
+                    <li
+                      key={`${line.providerKind}-${line.currency}-${line.label}`}
+                      className="flex items-center justify-between gap-3 py-1.5"
+                    >
                       <span>
-                        {line.label} · {line.count}
+                        {line.providerKind} · {line.label} · {line.count}
                       </span>
                       <span className="tabular-nums">{line.amount}</span>
                     </li>
@@ -364,6 +371,7 @@ export function RevenueEntriesCard({
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Fecha</TableHead>
+                  <TableHead>Origen</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Clase</TableHead>
                   <TableHead className="text-right">Importe</TableHead>
@@ -374,6 +382,7 @@ export function RevenueEntriesCard({
                 {rows.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell className="whitespace-nowrap">{formatMoment(row.occurredAt)}</TableCell>
+                    <TableCell>{row.providerKind}</TableCell>
                     <TableCell>{row.kindLabel}</TableCell>
                     <TableCell>
                       <LevelChip tone={row.verified ? "ok" : "warn"}>{row.classificationLabel}</LevelChip>

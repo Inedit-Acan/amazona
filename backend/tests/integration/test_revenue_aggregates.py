@@ -100,8 +100,10 @@ def test_the_summary_of_everything_splits_verified_review_and_pending_money_by_c
     result = aggregates.summary(db, Period())
 
     assert result["entries"] == 8
+    assert result["entries_by_provider_kind"] == [{"provider_kind": "mock", "entries": 8}]
     assert result["verified"] == [
         {
+            "provider_kind": "mock",
             "currency": "EUR",
             "revenue": "100.0000",
             "refunds": "20.0000",
@@ -110,6 +112,7 @@ def test_the_summary_of_everything_splits_verified_review_and_pending_money_by_c
             "refund_count": 1,
         },
         {
+            "provider_kind": "mock",
             "currency": "USD",
             "revenue": "30.0000",
             "refunds": "5.0000",
@@ -120,6 +123,7 @@ def test_the_summary_of_everything_splits_verified_review_and_pending_money_by_c
     ]
     assert result["under_review"] == [
         {
+            "provider_kind": "mock",
             "currency": "EUR",
             "classification": "DUPLICATE_RECEIPT",
             "received": "50.0000",
@@ -129,6 +133,7 @@ def test_the_summary_of_everything_splits_verified_review_and_pending_money_by_c
             "refund_count": 1,
         },
         {
+            "provider_kind": "mock",
             "currency": "EUR",
             "classification": "MISMATCH_RECEIPT",
             "received": "12.5000",
@@ -141,8 +146,20 @@ def test_the_summary_of_everything_splits_verified_review_and_pending_money_by_c
     assert result["pending_evidence"] == {
         "count": 2,
         "by_currency": [
-            {"currency": "EUR", "event_type": "payment.succeeded", "count": 1, "amount": "5.0000"},
-            {"currency": "USD", "event_type": "payment.succeeded", "count": 1, "amount": "50.0000"},
+            {
+                "provider_kind": "mock",
+                "currency": "EUR",
+                "event_type": "payment.succeeded",
+                "count": 1,
+                "amount": "5.0000",
+            },
+            {
+                "provider_kind": "mock",
+                "currency": "USD",
+                "event_type": "payment.succeeded",
+                "count": 1,
+                "amount": "50.0000",
+            },
         ],
     }
     assert result["scope"]["is_accounting_ledger"] is False
@@ -184,13 +201,17 @@ def test_only_eur_is_consolidated_and_the_other_currencies_are_declared_not_aggr
 
     result = aggregates.summary(db, Period())
 
-    assert result["consolidated_eur"] == {
-        "currency": "EUR",
-        "revenue": "100.0000",
-        "refunds": "20.0000",
-        "net": "80.0000",
-        "under_review_outstanding": "12.5000",
-    }
+    assert result["consolidated_eur_by_origin"] == [
+        {
+            "provider_kind": "mock",
+            "currency": "EUR",
+            "revenue": "100.0000",
+            "refunds": "20.0000",
+            "net": "80.0000",
+            "under_review_outstanding": "12.5000",
+        }
+    ]
+    assert "consolidated_eur" not in result, "the figure that added every origin together no longer exists"
     assert [row["currency"] for row in result["non_aggregable_currencies"]] == ["USD"]
     assert "never added" in result["non_aggregable_currencies"][0]["reason"]
 
@@ -201,7 +222,7 @@ def test_without_any_eur_entry_there_is_no_consolidated_block_and_nothing_is_con
 
     result = aggregates.summary(db, Period())
 
-    assert result["consolidated_eur"] is None, "«Sin datos»: no EUR fact, and no conversion of the USD one"
+    assert result["consolidated_eur_by_origin"] == [], "«Sin datos»: no EUR fact, and no conversion of the USD one"
     assert verified(result, "USD")["revenue"] == "30.0000"
     assert [row["currency"] for row in result["non_aggregable_currencies"]] == ["USD"]
 
@@ -210,7 +231,8 @@ def test_an_empty_ledger_has_no_data_and_no_invented_zeros(db: Session):
     result = aggregates.summary(db, Period())
 
     assert result["entries"] == 0 and result["verified"] == [] and result["under_review"] == []
-    assert result["consolidated_eur"] is None and result["non_aggregable_currencies"] == []
+    assert result["entries_by_provider_kind"] == [], "no origin has data: none is listed, and none is a zero"
+    assert result["consolidated_eur_by_origin"] == [] and result["non_aggregable_currencies"] == []
     assert result["pending_evidence"] == {"count": 0, "by_currency": []}
 
 
@@ -229,7 +251,8 @@ def test_the_period_is_occurred_at_with_from_inclusive_and_to_exclusive(db: Sess
     # `from` = ese mismo instante: ahora **sí** entra.
     after = aggregates.summary(db, Period(start=at(6, 0)))
     assert [r["currency"] for r in after["verified"]] == ["USD"]
-    assert after["entries"] == 2 and after["consolidated_eur"] is None and after["pending_evidence"]["count"] == 2
+    assert after["entries"] == 2 and after["consolidated_eur_by_origin"] == []
+    assert after["pending_evidence"]["count"] == 2
 
 
 def test_a_window_with_only_a_refund_has_a_negative_net_not_a_hidden_zero(db: Session, provider):
@@ -238,6 +261,7 @@ def test_a_window_with_only_a_refund_has_a_negative_net_not_a_hidden_zero(db: Se
     result = aggregates.summary(db, Period(start=at(2, 0), end=at(3, 0)))
 
     assert verified(result, "EUR") == {
+        "provider_kind": "mock",
         "currency": "EUR",
         "revenue": "0.0000",
         "refunds": "20.0000",

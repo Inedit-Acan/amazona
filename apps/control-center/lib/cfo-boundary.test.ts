@@ -79,6 +79,7 @@ const order = (id: string, items: OrderItem[]): Order => ({
 const entry = (orderId: string, kind: "CAPTURE" | "REFUND", amount: string, currency = "EUR"): RevenueEntry => ({
   id: `${orderId}${kind}${amount}${currency}`,
   kind,
+  provider_kind: "mock",
   classification: "ORDER_PAYMENT",
   payment_event_id: "e",
   payment_id: "p",
@@ -97,7 +98,8 @@ const summary = (over: Partial<RevenueSummary> = {}): RevenueSummary => ({
   verified: [],
   under_review: [],
   pending_evidence: { count: 0, by_currency: [] },
-  consolidated_eur: null,
+  entries_by_provider_kind: [],
+  consolidated_eur_by_origin: [],
   non_aggregable_currencies: [],
   scope: { is_accounting_ledger: false, basis: "x", excludes: [] },
   ...over,
@@ -167,13 +169,13 @@ test("4 · monedas distintas no se suman nunca, ni en el margen ni en el resumen
     summary({
       entries: 2,
       verified: [
-        { currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", captures: 1, refund_count: 0 },
-        { currency: "USD", revenue: "50.0000", refunds: "0.0000", net: "50.0000", captures: 1, refund_count: 0 },
+        { provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", captures: 1, refund_count: 0 },
+        { provider_kind: "mock", currency: "USD", revenue: "50.0000", refunds: "0.0000", net: "50.0000", captures: 1, refund_count: 0 },
       ],
-      consolidated_eur: { currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", under_review_outstanding: "0.0000" },
+      consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", under_review_outstanding: "0.0000" }],
     }),
   );
-  assert.equal(view.eur!.revenue, "100,00 €");
+  assert.equal(view.eurByOrigin[0].revenue, "100,00 €");
   assert.ok(!view.verified.some((row) => row.revenue.startsWith("150")));
 });
 
@@ -205,7 +207,7 @@ test("6 · no queda ningún dato de demostración en el CFO", () => {
 
 test("7 · «sin datos» nunca se convierte en cero", () => {
   const empty = summaryView(summary());
-  assert.equal(empty.eur, null);
+  assert.deepEqual(empty.eurByOrigin, []);
   const result = marginSummary([], [], complete);
   assert.equal(result.margin, null);
   assert.equal(result.net, null);
@@ -239,12 +241,12 @@ test("8 · un error del backend no se convierte en demostración ni en cero", ()
 test("9 · las cifras verificadas son las que dio /api/revenue/*, sin recalcular", () => {
   const data = summary({
     entries: 3,
-    verified: [{ currency: "EUR", revenue: "703.8000", refunds: "10.0000", net: "693.8000", captures: 9, refund_count: 1 }],
-    consolidated_eur: { currency: "EUR", revenue: "703.8000", refunds: "10.0000", net: "693.8000", under_review_outstanding: "42.5000" },
+    verified: [{ provider_kind: "mock", currency: "EUR", revenue: "703.8000", refunds: "10.0000", net: "693.8000", captures: 9, refund_count: 1 }],
+    consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "703.8000", refunds: "10.0000", net: "693.8000", under_review_outstanding: "42.5000" }],
   });
   const view = summaryView(data);
-  assert.equal(view.eur!.revenue, "703,80 €");
-  assert.equal(view.eur!.net, "693,80 €");
+  assert.equal(view.eurByOrigin[0].revenue, "703,80 €");
+  assert.equal(view.eurByOrigin[0].net, "693,80 €");
   // La vista formatea el texto del backend; no vuelve a restar ingresos menos reembolsos por su cuenta.
   assert.ok(!/revenue\s*-\s*refunds|revenue\s*−\s*refunds/.test(stripComments(read("lib/revenue-view.ts"))));
 });

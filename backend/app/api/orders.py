@@ -111,6 +111,9 @@ class PaymentOut(BaseModel):
     id: str
     attempt_number: int
     provider: str
+    #: De dónde viene el dinero de este cobro (ADR 0031): `mock`, `sandbox` o `real`, **tal como se guardó** al abrirlo,
+    #: tomado del adaptador que lo abrió. Nunca se deduce del nombre del proveedor, del pedido ni de la configuración.
+    provider_kind: str
     #: `REQUESTED` (nada enviado) · `OPENING` (pudo salir) · `UNKNOWN_OUTCOME` · `OPEN` · `SUCCEEDED` · `FAILED` ·
     #: `EXPIRED` · `DUPLICATE_CAPTURE` · `CAPTURE_MISMATCH`.
     status: str
@@ -130,7 +133,11 @@ class PaymentOut(BaseModel):
 class RefundOut(BaseModel):
     id: str
     payment_id: str
+    #: Quién inició el reembolso: `OPERATOR` o `PROVIDER`. **No** es el origen del dinero (para eso, `provider_kind`).
     origin: str
+    #: El origen del dinero que devuelve: el del cobro al que pertenece (`payment_id` es obligatorio; ADR 0031 D4, un
+    #: reembolso no tiene columna propia). `mock`, `sandbox` o `real`.
+    provider_kind: str
     status: str
     amount: MoneyOut
     reason: str
@@ -173,7 +180,15 @@ class OrderOut(BaseModel):
     customer_ref: str
     market: str
     status: str
-    is_simulated: bool
+    #: Contexto del pedido: si el despliegue era una simulación **cuando se creó**. No es la procedencia del dinero
+    #: y no puede usarse para clasificar un cobro, un reembolso ni un ingreso (ADR 0031 §12): un pedido puede reunir
+    #: cobros de varios orígenes, y cada uno lleva el suyo en `payments[].provider_kind`.
+    is_simulated: bool = Field(
+        description=(
+            "Contexto del pedido: si el despliegue era una simulación cuando se creó. NO es la procedencia del dinero: "
+            "para eso, `provider_kind` de cada cobro (`payments[]`) y de cada reembolso (`refunds[]`)."
+        )
+    )
     amount_due: MoneyOut
     items: list[OrderItemOut]
     payments: list[PaymentOut] = Field(default_factory=list)
@@ -234,6 +249,7 @@ def payment_out(payment: PaymentModel) -> PaymentOut:
         id=payment.id,
         attempt_number=payment.attempt_number,
         provider=payment.provider,
+        provider_kind=payment.provider_kind,
         status=payment.status,
         amount=_money(payment.amount, cur),
         captured_amount=_money(payment.captured_amount, cur),
@@ -249,11 +265,15 @@ def payment_out(payment: PaymentModel) -> PaymentOut:
     )
 
 
-def refund_out(refund: RefundModel) -> RefundOut:
+def refund_out(db: Session, refund: RefundModel) -> RefundOut:
+    # El origen del reembolso es el de su cobro, leído de lo guardado (un reembolso siempre tiene cobro).
+    payment = db.get(PaymentModel, refund.payment_id)
+    assert payment is not None, "a refund always belongs to a payment"
     return RefundOut(
         id=refund.id,
         payment_id=refund.payment_id,
         origin=refund.origin,
+        provider_kind=payment.provider_kind,
         status=refund.status,
         amount=_money(refund.amount, refund.currency),
         reason=refund.reason,
@@ -325,7 +345,7 @@ def order_out(db: Session, order: OrderModel) -> OrderOut:
         amount_due=_money(order.amount_due, order.currency),
         items=[_item(item, order.currency) for item in order.items],
         payments=[payment_out(p) for p in payments],
-        refunds=[refund_out(r) for r in refunds],
+        refunds=[refund_out(db, r) for r in refunds],
         fulfillments=[
             fulfillment_out(db, f)
             for f in db.scalars(
@@ -479,7 +499,7 @@ def request_refund(
             requester=Requester(name=identity.audit_name, role=identity.role.value if identity.role else None),
             order_id=order_id,
         )
-        return refund_out(refund)
+        return refund_out(db, refund)
 
     return run_idempotent(
         db,

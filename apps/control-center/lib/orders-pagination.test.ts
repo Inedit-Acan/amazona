@@ -27,6 +27,7 @@ function payment(captured: string, currency = "EUR"): OrderPayment {
     id: `pay-${captured}-${currency}`,
     attempt_number: 1,
     provider: "mock",
+    provider_kind: "mock",
     status: "SUCCEEDED",
     amount: money(captured, currency),
     captured_amount: money(captured, currency),

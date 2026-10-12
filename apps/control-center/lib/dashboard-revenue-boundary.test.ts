@@ -120,13 +120,14 @@ test("lo demostrativo y lo estimado nunca se etiquetan como del registro", () =>
 
 // --- Nada afirma que el dinero sea real (decisión del propietario, 2026-10-03) -------------------------------------
 //
-// El registro guarda un hecho de pago VERIFICADO, y nada más: hoy no distingue de forma estructural una operación
-// simulada de una que no lo sea. Así que la etiqueta dice lo que el backend demuestra («Registro verificado») y
-// ninguna pantalla puede afirmar que el dinero es real. Estas dos pruebas son el cierre de esa decisión: la primera
-// impide la palabra, la segunda impide la procedencia mientras el backend no la traiga.
+// El registro guarda un hecho de pago VERIFICADO. Desde M46 (ADR 0031) cada hecho trae además su origen estructurado
+// (`provider_kind`: lo guardó el backend al recibir el hecho), pero la etiqueta sigue diciendo lo que el backend
+// demuestra («Registro verificado») y ninguna pantalla afirma que el dinero es real: el texto final de cada origen es del
+// Commit 4. Estas dos pruebas siguen siendo el cierre de esa decisión: la primera impide que la procedencia se DEDUZCA
+// de una señal débil (o que alguien invente una etiqueta «Real»), la segunda impide la palabra en los textos medidos.
 
-/** Lo que haría demostrable la afirmación: un campo de procedencia en lo que devuelven las rutas del registro. */
-const STRUCTURED_ORIGIN = /\b(is_simulated|simulated|sandbox|origin|provenance|environment)\b/;
+/** Señales débiles que NUNCA pueden ser la procedencia de lo que devuelven las rutas del registro. */
+const WEAK_ORIGIN_SIGNAL = /\b(is_simulated|simulated|provenance|environment)\b/;
 
 function revenueTypes(): string {
   const source = read("lib/api.ts");
@@ -136,15 +137,15 @@ function revenueTypes(): string {
   return source.slice(start, end);
 }
 
-test("ninguna etiqueta REAL mientras el registro no traiga una procedencia estructurada", () => {
-  const hasStructuredOrigin = STRUCTURED_ORIGIN.test(revenueTypes());
-  assert.equal(
-    hasStructuredOrigin,
-    false,
-    "el registro ya trae una procedencia estructurada: revisa esta prueba y decide conscientemente qué puede afirmar la UI",
-  );
+test("la procedencia es estructurada (provider_kind) y ninguna etiqueta REAL se deriva de una señal débil", () => {
+  const types = revenueTypes();
+  // El registro SÍ trae el origen estructurado, con el vocabulario cerrado del backend…
+  assert.match(types, /export type RevenueProviderKind = "mock" \| "sandbox" \| "real";/);
+  assert.ok((types.match(/provider_kind: RevenueProviderKind;/g) ?? []).length >= 5, "cada fila del registro lleva su origen");
+  // …y las rutas del registro no traen ninguna señal débil que pudiera hacerse pasar por él.
+  assert.equal(WEAK_ORIGIN_SIGNAL.test(types.replace(/\/\*[\s\S]*?\*\//g, "")), false, "una señal débil entró en los tipos del registro");
 
-  // Mientras no la traiga, «real» no puede ser una procedencia ni una etiqueta en ninguna parte del Panel.
+  // «real» no puede ser una procedencia ni una etiqueta de cara al usuario en ninguna parte del Panel (Commit 4).
   const badge = read("components/data-provenance-badge.tsx");
   assert.ok(!/\breal\b\s*:/.test(badge), "existe una procedencia «real» sin una fuente que la demuestre");
   assert.ok(!/label:\s*"Real"/i.test(badge), "existe una etiqueta «Real» sin una fuente que la demuestre");
@@ -165,9 +166,10 @@ test("los textos del Panel sobre ingresos no afirman que el dinero sea real", ()
     assert.ok(text.length > 0);
     assert.ok(!claims.test(text), `un texto del Panel dice «real»: ${text.slice(0, 80)}…`);
   }
-  // Y lo que sí dice: qué demuestra el backend y qué no.
-  assert.match(read("lib/revenue-view.ts"), /tampoco dice si la operación/);
-  assert.match(workspace, /no guarda esa procedencia/);
+  // Y lo que sí dice: de qué origen es cada cifra, que no se suman orígenes y que «verificado» no es «liquidado».
+  assert.match(read("lib/revenue-view.ts"), /nunca se suman orígenes distintos/);
+  assert.match(workspace, /provider_kind/);
+  assert.match(workspace, /no es dinero\s+liquidado/);
 });
 
 test("el Panel no presenta como medido el margen, el beneficio, los impuestos, la caja ni las comisiones", () => {

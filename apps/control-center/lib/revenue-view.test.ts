@@ -33,7 +33,8 @@ function summary(over: Partial<RevenueSummary> = {}): RevenueSummary {
     verified: [],
     under_review: [],
     pending_evidence: { count: 0, by_currency: [] },
-    consolidated_eur: null,
+    entries_by_provider_kind: [],
+    consolidated_eur_by_origin: [],
     non_aggregable_currencies: [],
     scope: SCOPE,
     ...over,
@@ -42,8 +43,8 @@ function summary(over: Partial<RevenueSummary> = {}): RevenueSummary {
 
 const EUR_SUMMARY = summary({
   entries: 3,
-  verified: [{ currency: "EUR", revenue: "100.0000", refunds: "10.0000", net: "90.0000", captures: 2, refund_count: 1 }],
-  consolidated_eur: { currency: "EUR", revenue: "100.0000", refunds: "10.0000", net: "90.0000", under_review_outstanding: "0.0000" },
+  verified: [{ provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "10.0000", net: "90.0000", captures: 2, refund_count: 1 }],
+  consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "10.0000", net: "90.0000", under_review_outstanding: "0.0000" }],
 });
 
 // --- Importes: texto exacto, nunca float --------------------------------------------------------------------------
@@ -79,7 +80,7 @@ test("formatMoney: nada se redondea en silencio; un texto roto se ve tal cual", 
 
 // --- Sin datos ---------------------------------------------------------------------------------------------------
 
-test("sin datos: consolidated_eur nulo se dice «Sin datos», nunca 0", () => {
+test("sin datos: sin filas en consolidated_eur_by_origin se dice «Sin datos», nunca 0", () => {
   const kpis = revenueKpis(summary());
   assert.equal(kpis.verified.value, NO_DATA);
   assert.equal(kpis.verified.isNoData, true);
@@ -89,7 +90,7 @@ test("sin datos: consolidated_eur nulo se dice «Sin datos», nunca 0", () => {
     assert.ok(!/\d/.test(text), `«${text}» no debe parecer una cifra`);
   }
   const view = summaryView(summary());
-  assert.equal(view.eur, null);
+  assert.deepEqual(view.eurByOrigin, []);
   assert.equal(view.hasAnyData, false);
   assert.deepEqual(view.verified, []);
 });
@@ -103,7 +104,7 @@ test("sin datos: la evidencia pendiente SÍ es una cuenta medida; cero eventos e
 test("sin datos EUR pero con otra moneda: «Sin datos» en EUR y la otra moneda aparte", () => {
   const usdOnly = summary({
     entries: 1,
-    verified: [{ currency: "USD", revenue: "50.0000", refunds: "0.0000", net: "50.0000", captures: 1, refund_count: 0 }],
+    verified: [{ provider_kind: "mock", currency: "USD", revenue: "50.0000", refunds: "0.0000", net: "50.0000", captures: 1, refund_count: 0 }],
     non_aggregable_currencies: [{ currency: "USD", reason: "no valid accounting conversion exists yet" }],
   });
   const kpis = revenueKpis(usdOnly);
@@ -116,7 +117,7 @@ test("sin datos EUR pero con otra moneda: «Sin datos» en EUR y la otra moneda 
 test("serie y entradas sin datos: ninguna columna, ninguna fila, ningún cero inventado", () => {
   const empty: RevenueSeries = { granularity: "day", period: {}, buckets: [], scope: SCOPE };
   const view = seriesView(empty, "2026-09-27T00:00:00.000Z", "2026-10-04T00:00:00.000Z");
-  assert.deepEqual(view.currencies, []);
+  assert.deepEqual(view.keys, []);
   assert.equal(view.windowDays, 7);
   assert.equal(entriesSummaryText(entriesFromPage({ items: [], has_more: false, next_cursor: null })), "No hay entradas en este periodo.");
 });
@@ -130,17 +131,19 @@ test("datos del registro: ingresos, reembolsos y neto en EUR salen tal cual los 
   assert.match(kpis.verified.caption, /Neto 90,00 €/);
   assert.equal(kpis.verified.isNoData, false);
   const view = summaryView(EUR_SUMMARY);
-  assert.deepEqual(view.eur, { revenue: "100,00 €", refunds: "10,00 €", net: "90,00 €", underReview: "0,00 €" });
+  assert.deepEqual(view.eurByOrigin, [
+    { providerKind: "mock", revenue: "100,00 €", refunds: "10,00 €", net: "90,00 €", underReview: "0,00 €" },
+  ]);
   assert.deepEqual(view.verified, [
-    { currency: "EUR", revenue: "100,00 €", refunds: "10,00 €", net: "90,00 €", captures: "2", refundCount: "1" },
+    { providerKind: "mock", currency: "EUR", revenue: "100,00 €", refunds: "10,00 €", net: "90,00 €", captures: "2", refundCount: "1" },
   ]);
 });
 
 test("datos del registro: un cero medido (hay entradas en EUR y suman cero) SÍ se enseña como cero", () => {
   const measuredZero = summary({
     entries: 2,
-    verified: [{ currency: "EUR", revenue: "20.0000", refunds: "20.0000", net: "0.0000", captures: 1, refund_count: 1 }],
-    consolidated_eur: { currency: "EUR", revenue: "20.0000", refunds: "20.0000", net: "0.0000", under_review_outstanding: "0.0000" },
+    verified: [{ provider_kind: "mock", currency: "EUR", revenue: "20.0000", refunds: "20.0000", net: "0.0000", captures: 1, refund_count: 1 }],
+    consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "20.0000", refunds: "20.0000", net: "0.0000", under_review_outstanding: "0.0000" }],
   });
   assert.equal(revenueKpis(measuredZero).underReview.value, "0,00 €");
   assert.equal(revenueKpis(measuredZero).underReview.isNoData, false);
@@ -151,11 +154,11 @@ test("datos del registro: un cero medido (hay entradas en EUR y suman cero) SÍ 
 const MIXED = summary({
   entries: 5,
   verified: [
-    { currency: "USD", revenue: "50.0000", refunds: "0.0000", net: "50.0000", captures: 1, refund_count: 0 },
-    { currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", captures: 2, refund_count: 0 },
-    { currency: "GBP", revenue: "7.0000", refunds: "0.0000", net: "7.0000", captures: 1, refund_count: 0 },
+    { provider_kind: "mock", currency: "USD", revenue: "50.0000", refunds: "0.0000", net: "50.0000", captures: 1, refund_count: 0 },
+    { provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", captures: 2, refund_count: 0 },
+    { provider_kind: "mock", currency: "GBP", revenue: "7.0000", refunds: "0.0000", net: "7.0000", captures: 1, refund_count: 0 },
   ],
-  consolidated_eur: { currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", under_review_outstanding: "0.0000" },
+  consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", under_review_outstanding: "0.0000" }],
   non_aggregable_currencies: [
     { currency: "USD", reason: "x" },
     { currency: "GBP", reason: "x" },
@@ -181,9 +184,9 @@ test("monedas distintas: ninguna cifra de la vista es la suma de monedas", () =>
 const REVIEWED = summary({
   ...EUR_SUMMARY,
   under_review: [
-    { currency: "EUR", classification: "DUPLICATE_RECEIPT", received: "40.0000", refunded: "0.0000", outstanding: "40.0000", receipts: 1, refund_count: 0 },
+    { provider_kind: "mock", currency: "EUR", classification: "DUPLICATE_RECEIPT", received: "40.0000", refunded: "0.0000", outstanding: "40.0000", receipts: 1, refund_count: 0 },
   ],
-  consolidated_eur: { currency: "EUR", revenue: "100.0000", refunds: "10.0000", net: "90.0000", under_review_outstanding: "40.0000" },
+  consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "10.0000", net: "90.0000", under_review_outstanding: "40.0000" }],
 });
 
 test("en revisión: no aumenta lo verificado ni se muestra sumado a ello", () => {
@@ -200,8 +203,8 @@ test("en revisión: cambiar lo que está en revisión no cambia NI UNA cifra ver
   const withReview = revenueKpis(REVIEWED);
   assert.deepEqual(withReview.verified.value, without.verified.value);
   assert.deepEqual(summaryView(REVIEWED).verified, summaryView(EUR_SUMMARY).verified);
-  assert.equal(summaryView(REVIEWED).eur?.revenue, summaryView(EUR_SUMMARY).eur?.revenue);
-  assert.equal(summaryView(REVIEWED).eur?.net, summaryView(EUR_SUMMARY).eur?.net);
+  assert.equal(summaryView(REVIEWED).eurByOrigin[0].revenue, summaryView(EUR_SUMMARY).eurByOrigin[0].revenue);
+  assert.equal(summaryView(REVIEWED).eurByOrigin[0].net, summaryView(EUR_SUMMARY).eurByOrigin[0].net);
 });
 
 test("en revisión: cada clase lleva su etiqueta y no se funden", () => {
@@ -209,7 +212,7 @@ test("en revisión: cada clase lleva su etiqueta y no se funden", () => {
     ...REVIEWED,
     under_review: [
       ...REVIEWED.under_review,
-      { currency: "EUR", classification: "MISMATCH_RECEIPT", received: "5.0000", refunded: "0.0000", outstanding: "5.0000", receipts: 1, refund_count: 0 },
+      { provider_kind: "mock", currency: "EUR", classification: "MISMATCH_RECEIPT", received: "5.0000", refunded: "0.0000", outstanding: "5.0000", receipts: 1, refund_count: 0 },
     ],
   });
   assert.deepEqual(summaryView(both).underReview.map((row) => row.label), ["Duplicado · en revisión", "Discrepancia · en revisión"]);
@@ -221,7 +224,7 @@ test("evidencia pendiente: no aumenta ningún total", () => {
     ...EUR_SUMMARY,
     pending_evidence: {
       count: 3,
-      by_currency: [{ currency: "EUR", event_type: "payment.succeeded", count: 3, amount: "999.0000" }],
+      by_currency: [{ provider_kind: "mock", currency: "EUR", event_type: "payment.succeeded", count: 3, amount: "999.0000" }],
     },
   });
   const before = revenueKpis(EUR_SUMMARY);
@@ -229,19 +232,19 @@ test("evidencia pendiente: no aumenta ningún total", () => {
   assert.equal(after.verified.value, before.verified.value);
   assert.equal(after.verified.caption, before.verified.caption);
   assert.equal(after.underReview.value, before.underReview.value);
-  assert.deepEqual(summaryView(withEvidence).eur, summaryView(EUR_SUMMARY).eur);
+  assert.deepEqual(summaryView(withEvidence).eurByOrigin, summaryView(EUR_SUMMARY).eurByOrigin);
   assert.deepEqual(summaryView(withEvidence).verified, summaryView(EUR_SUMMARY).verified);
   // Y se enseña aparte, con su propia etiqueta.
   assert.equal(after.pending.value, "3");
   assert.match(after.pending.caption, /No son ingreso ni reembolso/);
   assert.deepEqual(summaryView(withEvidence).pendingEvidence.lines, [
-    { currency: "EUR", label: "Cobro sin asentar", count: "3", amount: "999,00 €" },
+    { providerKind: "mock", currency: "EUR", label: "Cobro sin asentar", count: "3", amount: "999,00 €" },
   ]);
 });
 
 test("evidencia pendiente sola cuenta como dato (no es 'sin datos'), pero no crea ingreso", () => {
   const onlyEvidence = summary({
-    pending_evidence: { count: 1, by_currency: [{ currency: "EUR", event_type: "refund.succeeded", count: 1, amount: "5.0000" }] },
+    pending_evidence: { count: 1, by_currency: [{ provider_kind: "mock", currency: "EUR", event_type: "refund.succeeded", count: 1, amount: "5.0000" }] },
     non_aggregable_currencies: [],
   });
   assert.equal(summaryView(onlyEvidence).hasAnyData, true);
@@ -252,6 +255,7 @@ test("evidencia pendiente sola cuenta como dato (no es 'sin datos'), pero no cre
 
 const bucket = (day: string, currency: string, revenue: string, over: Partial<RevenueSeriesBucket> = {}): RevenueSeriesBucket => ({
   bucket: day,
+  provider_kind: "mock",
   currency,
   revenue,
   refunds: "0.0000",
@@ -272,7 +276,7 @@ test("serie: los días sin entradas NO tienen columna (sin datos, no cero)", () 
     scope: SCOPE,
   };
   const view = seriesView(series, ...WINDOW);
-  const eur = view.byCurrency.EUR;
+  const eur = view.bySeries["mock·EUR"];
   assert.equal(view.windowDays, 7);
   assert.deepEqual(eur.columns.map((column) => column.x), [1, 4]);
   assert.equal(eur.columns.length, 2, "5 de los 7 días no existen en el registro y no se dibujan");
@@ -287,10 +291,10 @@ test("serie: cada moneda tiene su propia serie y nunca se mezclan", () => {
     scope: SCOPE,
   };
   const view = seriesView(series, ...WINDOW);
-  assert.deepEqual(view.currencies, ["EUR", "USD"]);
-  assert.equal(view.byCurrency.EUR.rows[0].revenue, "10,00 €");
-  assert.equal(view.byCurrency.USD.rows[0].revenue, "50,00 USD");
-  assert.equal(view.byCurrency.EUR.columns.length, 1);
+  assert.deepEqual(view.keys, ["mock·EUR", "mock·USD"]);
+  assert.equal(view.bySeries["mock·EUR"].rows[0].revenue, "10,00 €");
+  assert.equal(view.bySeries["mock·USD"].rows[0].revenue, "50,00 USD");
+  assert.equal(view.bySeries["mock·EUR"].columns.length, 1);
 });
 
 test("serie: fuera de la ventana o en cubos mensuales no se dibuja nada", () => {
@@ -300,12 +304,12 @@ test("serie: fuera de la ventana o en cubos mensuales no se dibuja nada", () => 
     buckets: [bucket("2026-09-01", "EUR", "10.0000"), bucket("2026-10-04", "EUR", "10.0000"), bucket("2026-09", "EUR", "10.0000")],
     scope: SCOPE,
   };
-  assert.deepEqual(seriesView(series, ...WINDOW).currencies, []);
+  assert.deepEqual(seriesView(series, ...WINDOW).keys, []);
 });
 
 test("serie: el importe del tooltip es el texto exacto; solo la altura de la barra pasa por número", () => {
   const series: RevenueSeries = { granularity: "day", period: {}, buckets: [bucket("2026-09-28", "EUR", "12345678901234567.8900")], scope: SCOPE };
-  const column = seriesView(series, ...WINDOW).byCurrency.EUR.columns[0];
+  const column = seriesView(series, ...WINDOW).bySeries["mock·EUR"].columns[0];
   assert.equal(column.revenueText, "12.345.678.901.234.567,89 €");
   assert.equal(typeof column.plot, "number");
 });
@@ -317,7 +321,7 @@ test("serie: un día con solo reembolsos (neto negativo) se ve en la tabla y su 
     buckets: [bucket("2026-09-29", "EUR", "0.0000", { refunds: "8.0000", net: "-8.0000" })],
     scope: SCOPE,
   };
-  const eur = seriesView(series, ...WINDOW).byCurrency.EUR;
+  const eur = seriesView(series, ...WINDOW).bySeries["mock·EUR"];
   assert.equal(eur.rows[0].net, "−8,00 €");
   assert.equal(eur.columns[0].plot, 0);
 });
@@ -327,6 +331,7 @@ test("serie: un día con solo reembolsos (neto negativo) se ve en la tabla y su 
 const entry = (id: string, over: Partial<RevenueEntry> = {}): RevenueEntry => ({
   id,
   kind: "CAPTURE",
+  provider_kind: "mock",
   classification: "ORDER_PAYMENT",
   payment_event_id: `ev-${id}`,
   payment_id: `pay-${id}`,
@@ -427,4 +432,126 @@ test("revenueErrorText: un 422 y un 5xx dicen qué pasó", () => {
   assert.match(revenueErrorText(422, "bad window"), /rechazó/);
   assert.match(revenueErrorText(503, "down"), /503/);
   assert.equal(revenueErrorText(undefined, ""), "Error desconocido");
+});
+
+// --- Procedencia (M46, ADR 0031): cada cifra es de UN origen y la vista nunca los suma -----------------------------
+
+const EUR_ROW = (provider_kind: "mock" | "sandbox" | "real", revenue: string) => ({
+  provider_kind,
+  currency: "EUR",
+  revenue,
+  refunds: "5.0000",
+  net: revenue,
+  captures: 1,
+  refund_count: 1,
+});
+const EUR_CONSOLIDATED = (provider_kind: "mock" | "sandbox" | "real", revenue: string) => ({
+  provider_kind,
+  currency: "EUR",
+  revenue,
+  refunds: "5.0000",
+  net: revenue,
+  under_review_outstanding: "0.0000",
+});
+
+const TWO_ORIGINS = summary({
+  entries: 4,
+  entries_by_provider_kind: [
+    { provider_kind: "mock", entries: 2 },
+    { provider_kind: "sandbox", entries: 2 },
+  ],
+  verified: [EUR_ROW("sandbox", "40.0000"), EUR_ROW("mock", "20.0000")],
+  consolidated_eur_by_origin: [EUR_CONSOLIDATED("sandbox", "40.0000"), EUR_CONSOLIDATED("mock", "20.0000")],
+});
+
+test("origen: la vista conserva el provider_kind de cada línea, sin completarlo ni deducirlo", () => {
+  const view = summaryView(TWO_ORIGINS);
+  assert.deepEqual(view.verified.map((line) => [line.providerKind, line.revenue]), [
+    ["mock", "20,00 €"],
+    ["sandbox", "40,00 €"],
+  ]);
+  assert.deepEqual(view.eurByOrigin.map((line) => line.providerKind), ["mock", "sandbox"]);
+  assert.deepEqual(view.origins, ["mock", "sandbox"]);
+});
+
+test("origen: con varios orígenes la cabecera NO es una cifra: cada origen va aparte y nada se suma", () => {
+  const kpis = revenueKpis(TWO_ORIGINS);
+  assert.equal(kpis.verified.value, "Varios orígenes");
+  assert.equal(kpis.verified.isNoData, true);
+  assert.match(kpis.verified.caption, /mock 20,00 € · sandbox 40,00 €/);
+  const everything = JSON.stringify([summaryView(TWO_ORIGINS), kpis]);
+  for (const sum of ["60,00", "60.0000", "70,00"]) {
+    assert.ok(!everything.includes(sum), `aparece ${sum}: se han sumado orígenes distintos`);
+  }
+});
+
+test("origen: con un solo origen se enseña su cifra y se dice de qué origen es", () => {
+  const kpis = revenueKpis(EUR_SUMMARY);
+  assert.equal(kpis.verified.value, "100,00 €");
+  assert.match(kpis.verified.caption, /Origen: mock\./);
+  assert.match(kpis.underReview.caption, /Origen: mock\./);
+});
+
+test("origen: tres orígenes tampoco se suman en las cabeceras de revisión", () => {
+  const three = summary({
+    ...TWO_ORIGINS,
+    consolidated_eur_by_origin: [
+      { ...EUR_CONSOLIDATED("mock", "20.0000"), under_review_outstanding: "1.0000" },
+      { ...EUR_CONSOLIDATED("real", "80.0000"), under_review_outstanding: "2.0000" },
+      { ...EUR_CONSOLIDATED("sandbox", "40.0000"), under_review_outstanding: "3.0000" },
+    ],
+  });
+  const kpis = revenueKpis(three);
+  assert.equal(kpis.underReview.value, "Varios orígenes");
+  assert.match(kpis.underReview.caption, /mock 1,00 € · real 2,00 € · sandbox 3,00 €/);
+  assert.ok(!JSON.stringify(kpis).includes("6,00"), "1 + 2 + 3 no es la cifra de nadie");
+});
+
+test("origen: la evidencia pendiente y el dinero en revisión se quedan en su origen", () => {
+  const data = summary({
+    entries: 1,
+    entries_by_provider_kind: [{ provider_kind: "real", entries: 1 }],
+    under_review: [
+      { provider_kind: "real", currency: "EUR", classification: "DUPLICATE_RECEIPT", received: "9.0000", refunded: "0.0000", outstanding: "9.0000", receipts: 1, refund_count: 0 },
+    ],
+    pending_evidence: {
+      count: 2,
+      by_currency: [
+        { provider_kind: "sandbox", currency: "EUR", event_type: "payment.succeeded", count: 1, amount: "3.0000" },
+        { provider_kind: "mock", currency: "EUR", event_type: "payment.succeeded", count: 1, amount: "4.0000" },
+      ],
+    },
+  });
+  const view = summaryView(data);
+  assert.deepEqual(view.underReview.map((line) => line.providerKind), ["real"]);
+  assert.deepEqual(view.pendingEvidence.lines.map((line) => [line.providerKind, line.amount]), [
+    ["mock", "4,00 €"],
+    ["sandbox", "3,00 €"],
+  ]);
+  assert.ok(!JSON.stringify(view).includes("7,00"), "3 + 4 no es la cifra de nadie");
+});
+
+test("origen: una serie es de un origen y una moneda, y dos orígenes no comparten barras", () => {
+  const series: RevenueSeries = {
+    granularity: "day",
+    period: {},
+    buckets: [
+      bucket("2026-09-28", "EUR", "10.0000", { provider_kind: "sandbox" }),
+      bucket("2026-09-28", "EUR", "20.0000"),
+      bucket("2026-09-28", "USD", "50.0000", { provider_kind: "sandbox" }),
+    ],
+    scope: SCOPE,
+  };
+  const view = seriesView(series, ...WINDOW);
+  assert.deepEqual(view.keys, ["mock·EUR", "sandbox·EUR", "sandbox·USD"]);
+  assert.equal(view.bySeries["mock·EUR"].columns.length, 1);
+  assert.equal(view.bySeries["sandbox·EUR"].columns.length, 1);
+  assert.equal(view.bySeries["mock·EUR"].rows[0].revenue, "20,00 €");
+  assert.equal(view.bySeries["sandbox·EUR"].rows[0].revenue, "10,00 €");
+  assert.ok(!JSON.stringify(view).includes("30,00"), "10 + 20 no es la cifra de nadie");
+});
+
+test("origen: cada entrada enseña el provider_kind que guardó el backend", () => {
+  assert.equal(entryRow(entry("a")).providerKind, "mock");
+  assert.equal(entryRow(entry("b", { provider_kind: "real" })).providerKind, "real");
 });

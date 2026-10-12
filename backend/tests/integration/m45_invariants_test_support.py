@@ -230,13 +230,13 @@ def _no_event_that_is_not_settled_moves_the_ledger(entries, events) -> list[str]
 
 
 def _the_aggregates_say_what_the_entries_say(db: Session, entries, events) -> list[str]:
-    """Calcula a mano, por moneda, lo verificado y lo que está en revisión, y lo compara con lo que responde
-    `summary`. Si los dos coinciden en TODO, ni las monedas se mezclan, ni la revisión entra en el titular, ni la
-    evidencia pendiente suma, ni nada se cuenta dos veces."""
+    """Calcula a mano, **por origen** y por moneda, lo verificado y lo que está en revisión, y lo compara con lo que
+    responde `summary`. Si los dos coinciden en TODO, ni los orígenes ni las monedas se mezclan, ni la revisión entra
+    en el titular, ni la evidencia pendiente suma, ni nada se cuenta dos veces (ADR 0031 §10, A1 y A5)."""
     broken: list[str] = []
-    expected: dict[tuple[str, str, str], list] = defaultdict(lambda: [0, ZERO])
+    expected: dict[tuple[str, str, str, str], list] = defaultdict(lambda: [0, ZERO])
     for entry in entries:
-        cell = expected[(entry.currency, entry.classification, entry.kind)]
+        cell = expected[(entry.provider_kind, entry.currency, entry.classification, entry.kind)]
         cell[0] += 1
         cell[1] += _dec(entry.amount)
 
@@ -244,15 +244,29 @@ def _the_aggregates_say_what_the_entries_say(db: Session, entries, events) -> li
     if answer["entries"] != len(entries):
         broken.append(f"summary counts {answer['entries']} entries, there are {len(entries)}")
 
-    reported_verified = {row["currency"]: row for row in answer["verified"]}
-    currencies = sorted({currency for currency, _, _ in expected})
-    for currency in currencies:
-        captured = expected.get((currency, "ORDER_PAYMENT", "CAPTURE"), [0, ZERO])
-        returned = expected.get((currency, "ORDER_PAYMENT", "REFUND"), [0, ZERO])
-        row = reported_verified.get(currency)
+    # A5: Σ por origen = total de registros, y un origen sin entradas no aparece (ni como cero).
+    per_origin: dict[str, int] = defaultdict(int)
+    for entry in entries:
+        per_origin[entry.provider_kind] += 1
+    reported_origins = {row["provider_kind"]: row["entries"] for row in answer["entries_by_provider_kind"]}
+    if reported_origins != dict(per_origin):
+        broken.append(f"entries_by_provider_kind {reported_origins} is not what the entries say {dict(per_origin)}")
+    if sum(reported_origins.values()) != answer["entries"]:
+        broken.append("the entries per origin do not add up to the total number of entries")
+
+    reported_verified = {(row["provider_kind"], row["currency"]): row for row in answer["verified"]}
+    reported_review = {(r["provider_kind"], r["currency"], r["classification"]): r for r in answer["under_review"]}
+    reported_eur = {row["provider_kind"]: row for row in answer["consolidated_eur_by_origin"]}
+    if "consolidated_eur" in answer:
+        broken.append("the old consolidated_eur, which added every origin together, is back")
+    pairs = sorted({(origin, currency) for origin, currency, _, _ in expected})
+    for origin, currency in pairs:
+        captured = expected.get((origin, currency, "ORDER_PAYMENT", "CAPTURE"), [0, ZERO])
+        returned = expected.get((origin, currency, "ORDER_PAYMENT", "REFUND"), [0, ZERO])
+        row = reported_verified.get((origin, currency))
         if captured[0] or returned[0]:
             if row is None:
-                broken.append(f"summary has no verified block for {currency}")
+                broken.append(f"summary has no verified block for {origin} {currency}")
             else:
                 for key, value in (
                     ("revenue", captured[1]),
@@ -260,32 +274,49 @@ def _the_aggregates_say_what_the_entries_say(db: Session, entries, events) -> li
                     ("net", captured[1] - returned[1]),
                 ):
                     if _dec(row[key]) != value:
-                        broken.append(f"summary {currency} {key} is {row[key]}, the entries add up to {value}")
+                        broken.append(f"summary {origin} {currency} {key} is {row[key]}, the entries add up to {value}")
         elif row is not None:
-            broken.append(f"summary reports verified revenue in {currency} with no ORDER_PAYMENT entries")
+            broken.append(f"summary reports verified revenue in {origin} {currency} with no ORDER_PAYMENT entries")
 
-        reported_review = {(r["currency"], r["classification"]): r for r in answer["under_review"]}
         for classification in UNDER_REVIEW:
-            received = expected.get((currency, classification, "CAPTURE"), [0, ZERO])
-            refunded = expected.get((currency, classification, "REFUND"), [0, ZERO])
-            row = reported_review.get((currency, classification))
+            received = expected.get((origin, currency, classification, "CAPTURE"), [0, ZERO])
+            refunded = expected.get((origin, currency, classification, "REFUND"), [0, ZERO])
+            review_row = reported_review.get((origin, currency, classification))
             if received[0] or refunded[0]:
-                if row is None or _dec(row["received"]) != received[1] or _dec(row["refunded"]) != refunded[1]:
-                    broken.append(f"summary under_review {currency} {classification} differs from the entries")
-            elif row is not None:
-                broken.append(f"summary reports {classification} money in {currency} that no entry has")
+                if (
+                    review_row is None
+                    or _dec(review_row["received"]) != received[1]
+                    or _dec(review_row["refunded"]) != refunded[1]
+                ):
+                    broken.append(f"summary under_review {origin} {currency} {classification} differs from the entries")
+            elif review_row is not None:
+                broken.append(f"summary reports {classification} money in {origin} {currency} that no entry has")
 
-    # La revisión **nunca** entra en el titular: el consolidado EUR es solo ORDER_PAYMENT.
-    eur = answer["consolidated_eur"]
-    if eur is not None:
-        captured = expected.get(("EUR", "ORDER_PAYMENT", "CAPTURE"), [0, ZERO])[1]
-        returned = expected.get(("EUR", "ORDER_PAYMENT", "REFUND"), [0, ZERO])[1]
+    # Nada en la respuesta que no salga de las entradas: ni un origen ni una moneda inventados.
+    for origin, currency in reported_verified:
+        if (origin, currency) not in pairs:
+            broken.append(f"summary reports verified {origin} {currency}, which has no entries")
+    for origin, currency, _ in reported_review:
+        if (origin, currency) not in pairs:
+            broken.append(f"summary reports review money in {origin} {currency}, which has no entries")
+
+    # La revisión **nunca** entra en el titular: el consolidado EUR es solo ORDER_PAYMENT, **de un solo origen**.
+    for origin in sorted({origin for origin, currency in pairs if currency == "EUR"}):
+        eur = reported_eur.get(origin)
+        if eur is None:
+            broken.append(f"there are {origin} EUR entries and no consolidated EUR block for {origin}")
+            continue
+        captured = expected.get((origin, "EUR", "ORDER_PAYMENT", "CAPTURE"), [0, ZERO])[1]
+        returned = expected.get((origin, "EUR", "ORDER_PAYMENT", "REFUND"), [0, ZERO])[1]
         if _dec(eur["revenue"]) != captured or _dec(eur["net"]) != captured - returned:
-            broken.append(f"consolidated EUR {eur['revenue']}/{eur['net']} is not the ORDER_PAYMENT entries alone")
-    elif any(currency == "EUR" for currency, _, _ in expected):
-        broken.append("there are EUR entries and no consolidated EUR block")
+            broken.append(
+                f"consolidated {origin} EUR {eur['revenue']}/{eur['net']} is not that origin's ORDER_PAYMENT alone"
+            )
+    for origin in reported_eur:
+        if not any(o == origin and c == "EUR" for o, c in pairs):
+            broken.append(f"consolidated EUR block for {origin}, which has no EUR entries")
 
-    # La evidencia pendiente es dinero **sin asentar**: cuenta aparte y nunca estuvo en las entradas.
+    # La evidencia pendiente es dinero **sin asentar**: cuenta aparte, por origen, y nunca estuvo en las entradas.
     pending = sum(
         1
         for e in events.values()
@@ -295,6 +326,19 @@ def _the_aggregates_say_what_the_entries_say(db: Session, entries, events) -> li
     )
     if answer["pending_evidence"]["count"] > pending:
         broken.append(f"summary counts {answer['pending_evidence']['count']} pending events, only {pending} can be")
+    expected_pending: dict[str, int] = defaultdict(int)
+    for e in events.values():
+        if (
+            e.processing_status in ("CONFLICT", "UNMATCHED")
+            and e.amount is not None
+            and e.event_type in (CAPTURE_EVENT, REFUND_EVENT)
+        ):
+            expected_pending[e.provider_kind] += 1
+    reported_pending: dict[str, int] = defaultdict(int)
+    for row in answer["pending_evidence"]["by_currency"]:
+        reported_pending[row["provider_kind"]] += row["count"]
+    if dict(reported_pending) != dict(expected_pending):
+        broken.append(f"pending evidence per origin {dict(reported_pending)} is not {dict(expected_pending)}")
     return broken
 
 

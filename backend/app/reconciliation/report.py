@@ -137,6 +137,7 @@ def _events(db: Session, settings: Settings, now: datetime.datetime) -> dict:
                 {
                     "id": event.id,
                     "provider": event.provider,
+                    "provider_kind": event.provider_kind,
                     "event_type": event.event_type,
                     "attempts": event.reconcile_attempts,
                     "age_seconds": _age(now, event.received_at),

@@ -42,6 +42,8 @@ class ActionsStatus(BaseModel):
 class CappedEvent(BaseModel):
     id: str
     provider: str
+    #: El origen guardado en el evento al recibirlo (`mock`, `sandbox` o `real`), no el nombre del proveedor.
+    provider_kind: str
     event_type: str
     attempts: int
     age_seconds: int | None
@@ -97,6 +99,8 @@ class LedgerStatus(BaseModel):
 
 
 class EvidenceTotal(BaseModel):
+    #: Cada total es de **un** origen: la evidencia de orígenes distintos no se suma (ADR 0031 A4).
+    provider_kind: str
     currency: str
     event_type: str
     count: int
@@ -108,6 +112,7 @@ class EvidenceItem(BaseModel):
     status: str
     event_type: str
     provider: str
+    provider_kind: str
     amount: str
     currency: str
     payment_id: str | None

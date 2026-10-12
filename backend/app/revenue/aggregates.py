@@ -13,6 +13,14 @@ en el registro, y se muestra **aparte**: no suma en ningún total. Aquí no hay 
   captura y solo esa.
 - **Evidencia pendiente**: dinero de eventos que no se pudieron asentar; ni ingreso ni reembolso.
 
+## Origen (Milestone 46, ADR 0031 §10)
+
+Todo va también **por origen** (`provider_kind`: `mock`, `sandbox`, `real`), tal como está guardado en cada entrada y
+en cada evento: nunca se deduce del nombre del proveedor, de `Order.is_simulated` ni de la configuración de ahora.
+Una cifra de un origen **no se suma jamás** con la de otro (A1): no existe ningún total que cruce orígenes. Un
+origen sin entradas en el periodo no aparece (sin datos, no un cero). `?provider_kind=` acota la lectura a uno; sin él
+se devuelven todos, siempre separados.
+
 ## Moneda
 
 Todo va **por moneda**; una moneda nunca se suma con otra. EUR es la única moneda de cálculo consolidado de M45
@@ -41,7 +49,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import ValidationError
 from app.db.models.revenue import RevenueLedgerEntry as Entry
 from app.revenue.domain import Classification, EntryKind
-from app.revenue.evidence import money, pending_evidence_totals
+from app.revenue.evidence import money, pending_evidence_totals, validate_provider_kind
 from app.revenue.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, EntryCursor
 
 #: La única moneda en la que M45 consolida (decisión D3 del propietario). No es un ajuste ni sale de `Settings`.
@@ -59,8 +67,22 @@ _PLACES = Decimal("0.0001")
 #: Lo que estos agregados no son ni contienen. Se devuelve en cada respuesta para que ninguna pantalla lo invente.
 SCOPE = {
     "is_accounting_ledger": False,
-    "basis": "operational verified payment facts (ADR 0030); occurred_at in UTC, from inclusive, to exclusive",
-    "excludes": ["costs", "margin", "profit", "taxes", "vat_oss", "cash", "gateway_fees", "fx_conversion"],
+    "basis": (
+        "operational verified payment facts (ADR 0030); occurred_at in UTC, from inclusive, to exclusive; "
+        "every figure is separated by provider_kind (mock, sandbox, real) as persisted and never added across "
+        "origins (ADR 0031)"
+    ),
+    "excludes": [
+        "costs",
+        "margin",
+        "profit",
+        "taxes",
+        "vat_oss",
+        "cash",
+        "gateway_fees",
+        "fx_conversion",
+        "cross_origin_totals",
+    ],
 }
 
 
@@ -105,7 +127,7 @@ class Period:
 
 
 class _Cell:
-    """Lo que suman las entradas de una moneda, una clase y un tipo: cuántas y cuánto."""
+    """Lo que suman las entradas de un origen, una moneda, una clase y un tipo: cuántas y cuánto."""
 
     __slots__ = ("count", "total")
 
@@ -114,71 +136,96 @@ class _Cell:
         self.total = _ZERO
 
 
-def _cells(rows) -> dict[tuple[str, str, str], _Cell]:
-    cells: dict[tuple[str, str, str], _Cell] = {}
-    for currency, classification, kind, count, total in rows:
-        cell = cells.setdefault((currency, classification, kind), _Cell())
+def _cells(rows) -> dict[tuple[str, str, str, str], _Cell]:
+    """La clave incluye el origen: dos orígenes nunca caen en la misma celda, así que no hay forma de sumarlos aquí."""
+    cells: dict[tuple[str, str, str, str], _Cell] = {}
+    for provider_kind, currency, classification, kind, count, total in rows:
+        cell = cells.setdefault((provider_kind, currency, classification, kind), _Cell())
         cell.count += int(count)
         cell.total += _dec(total)
     return cells
 
 
-def _cell(cells: dict, currency: str, classification: str, kind: EntryKind) -> _Cell:
-    return cells.get((currency, classification, kind.value)) or _Cell()
+def _cell(cells: dict, provider_kind: str, currency: str, classification: str, kind: EntryKind) -> _Cell:
+    return cells.get((provider_kind, currency, classification, kind.value)) or _Cell()
 
 
-def summary(db: Session, period: Period) -> dict:
-    """Lo verificado, lo que está en revisión y la evidencia pendiente, por moneda, en un periodo. Solo `SELECT`."""
+def summary(db: Session, period: Period, *, provider_kind: str | None = None) -> dict:
+    """Lo verificado, lo que está en revisión y la evidencia pendiente, **por origen** y por moneda, en un periodo.
+    Con `provider_kind` se acota a un origen. Solo `SELECT`."""
+    provider_kind = validate_provider_kind(provider_kind)
+    conditions = [*period.conditions(), *([Entry.provider_kind == provider_kind] if provider_kind is not None else [])]
     rows = db.execute(
-        select(Entry.currency, Entry.classification, Entry.kind, func.count(Entry.id), func.sum(Entry.amount))
-        .where(*period.conditions())
-        .group_by(Entry.currency, Entry.classification, Entry.kind)
-        .order_by(Entry.currency, Entry.classification, Entry.kind)
+        select(
+            Entry.provider_kind,
+            Entry.currency,
+            Entry.classification,
+            Entry.kind,
+            func.count(Entry.id),
+            func.sum(Entry.amount),
+        )
+        .where(*conditions)
+        .group_by(Entry.provider_kind, Entry.currency, Entry.classification, Entry.kind)
+        .order_by(Entry.provider_kind, Entry.currency, Entry.classification, Entry.kind)
     ).all()
     cells = _cells(rows)
-    currencies = sorted({currency for currency, _, _ in cells})
+    origins = sorted({origin for origin, _, _, _ in cells})
+    currencies = sorted({currency for _, currency, _, _ in cells})
 
     verified = []
     under_review = []
-    for currency in currencies:
-        captured = _cell(cells, currency, Classification.ORDER_PAYMENT.value, EntryKind.CAPTURE)
-        refunded = _cell(cells, currency, Classification.ORDER_PAYMENT.value, EntryKind.REFUND)
-        if captured.count or refunded.count:
-            verified.append(
-                {
-                    "currency": currency,
-                    "revenue": money(captured.total),
-                    "refunds": money(refunded.total),
-                    "net": money(captured.total - refunded.total),
-                    "captures": captured.count,
-                    "refund_count": refunded.count,
-                }
-            )
-        for classification in UNDER_REVIEW:
-            received = _cell(cells, currency, classification, EntryKind.CAPTURE)
-            returned = _cell(cells, currency, classification, EntryKind.REFUND)
-            if received.count or returned.count:
-                under_review.append(
+    consolidated = []
+    for origin in origins:
+        for currency in sorted({c for o, c, _, _ in cells if o == origin}):
+            captured = _cell(cells, origin, currency, Classification.ORDER_PAYMENT.value, EntryKind.CAPTURE)
+            refunded = _cell(cells, origin, currency, Classification.ORDER_PAYMENT.value, EntryKind.REFUND)
+            if captured.count or refunded.count:
+                verified.append(
                     {
+                        "provider_kind": origin,
                         "currency": currency,
-                        "classification": classification,
-                        "received": money(received.total),
-                        "refunded": money(returned.total),
-                        "outstanding": money(received.total - returned.total),
-                        "receipts": received.count,
-                        "refund_count": returned.count,
+                        "revenue": money(captured.total),
+                        "refunds": money(refunded.total),
+                        "net": money(captured.total - refunded.total),
+                        "captures": captured.count,
+                        "refund_count": refunded.count,
                     }
                 )
+            for classification in UNDER_REVIEW:
+                received = _cell(cells, origin, currency, classification, EntryKind.CAPTURE)
+                returned = _cell(cells, origin, currency, classification, EntryKind.REFUND)
+                if received.count or returned.count:
+                    under_review.append(
+                        {
+                            "provider_kind": origin,
+                            "currency": currency,
+                            "classification": classification,
+                            "received": money(received.total),
+                            "refunded": money(returned.total),
+                            "outstanding": money(received.total - returned.total),
+                            "receipts": received.count,
+                            "refund_count": returned.count,
+                        }
+                    )
+        if any(o == origin and c == CONSOLIDATION_CURRENCY for o, c, _, _ in cells):
+            consolidated.append(_consolidated(cells, origin))
 
-    pending = pending_evidence_totals(db, start=period.start, end=period.end)
+    pending = pending_evidence_totals(db, start=period.start, end=period.end, provider_kind=provider_kind)
     foreign = sorted(({*currencies} | {row["currency"] for row in pending["by_currency"]}) - {CONSOLIDATION_CURRENCY})
     return {
         "period": period.view(),
+        #: Un recuento de **registros** (A2), no dinero: `Σ entries_by_provider_kind == entries` (A5).
         "entries": sum(cell.count for cell in cells.values()),
+        "entries_by_provider_kind": [
+            {"provider_kind": origin, "entries": sum(cell.count for key, cell in cells.items() if key[0] == origin)}
+            for origin in origins
+        ],
         "verified": verified,
         "under_review": under_review,
         "pending_evidence": pending,
-        "consolidated_eur": _consolidated(cells) if CONSOLIDATION_CURRENCY in currencies else None,
+        #: Una fila por origen con entradas en EUR; vacío = «Sin datos». Sustituye a `consolidated_eur`, que sumaba
+        #: todos los orígenes.
+        "consolidated_eur_by_origin": consolidated,
         "non_aggregable_currencies": [
             {"currency": currency, "reason": "no valid accounting conversion exists yet: shown separately, never added"}
             for currency in foreign
@@ -187,20 +234,21 @@ def summary(db: Session, period: Period) -> dict:
     }
 
 
-def _consolidated(cells: dict) -> dict:
-    """Solo EUR. Si no hay ninguna entrada en EUR en el periodo, este bloque no existe («Sin datos»)."""
+def _consolidated(cells: dict, origin: str) -> dict:
+    """Solo EUR y solo un origen. Si un origen no tiene ninguna entrada en EUR, no tiene fila («Sin datos»)."""
     eur = CONSOLIDATION_CURRENCY
-    captured = _cell(cells, eur, Classification.ORDER_PAYMENT.value, EntryKind.CAPTURE).total
-    refunded = _cell(cells, eur, Classification.ORDER_PAYMENT.value, EntryKind.REFUND).total
+    captured = _cell(cells, origin, eur, Classification.ORDER_PAYMENT.value, EntryKind.CAPTURE).total
+    refunded = _cell(cells, origin, eur, Classification.ORDER_PAYMENT.value, EntryKind.REFUND).total
     outstanding = sum(
         (
-            _cell(cells, eur, classification, EntryKind.CAPTURE).total
-            - _cell(cells, eur, classification, EntryKind.REFUND).total
+            _cell(cells, origin, eur, classification, EntryKind.CAPTURE).total
+            - _cell(cells, origin, eur, classification, EntryKind.REFUND).total
             for classification in UNDER_REVIEW
         ),
         _ZERO,
     )
     return {
+        "provider_kind": origin,
         "currency": eur,
         "revenue": money(captured),
         "refunds": money(refunded),
@@ -236,24 +284,36 @@ def _label(value: object, granularity: str) -> str:
     return text[:10] if granularity == "day" else text[:7]
 
 
-def series(db: Session, *, granularity: str, period: Period) -> dict:
-    """Lo verificado y lo que está en revisión por cubo temporal y moneda. Solo los cubos con entradas (un cubo sin
-    entradas es «sin datos», no un cero inventado). Solo `SELECT`."""
+def series(db: Session, *, granularity: str, period: Period, provider_kind: str | None = None) -> dict:
+    """Lo verificado y lo que está en revisión por cubo temporal, **origen** y moneda. Solo los cubos con entradas (un
+    cubo sin entradas es «sin datos», no un cero inventado). Con `provider_kind` se acota a un origen. Solo
+    `SELECT`."""
+    provider_kind = validate_provider_kind(provider_kind)
+    conditions = [*period.conditions(), *([Entry.provider_kind == provider_kind] if provider_kind is not None else [])]
     bucket = _bucket(db, granularity).label("bucket")
     rows = db.execute(
-        select(bucket, Entry.currency, Entry.classification, Entry.kind, func.count(Entry.id), func.sum(Entry.amount))
-        .where(*period.conditions())
-        .group_by(bucket, Entry.currency, Entry.classification, Entry.kind)
-        .order_by(bucket, Entry.currency)
+        select(
+            bucket,
+            Entry.provider_kind,
+            Entry.currency,
+            Entry.classification,
+            Entry.kind,
+            func.count(Entry.id),
+            func.sum(Entry.amount),
+        )
+        .where(*conditions)
+        .group_by(bucket, Entry.provider_kind, Entry.currency, Entry.classification, Entry.kind)
+        .order_by(bucket, Entry.provider_kind, Entry.currency)
     ).all()
-    cells: dict[tuple[str, str], dict[tuple[str, str], _Cell]] = {}
-    for found, currency, classification, kind, count, total in rows:
-        cell = cells.setdefault((_label(found, granularity), currency), {}).setdefault((classification, kind), _Cell())
+    cells: dict[tuple[str, str, str], dict[tuple[str, str], _Cell]] = {}
+    for found, origin, currency, classification, kind, count, total in rows:
+        key = (_label(found, granularity), origin, currency)
+        cell = cells.setdefault(key, {}).setdefault((classification, kind), _Cell())
         cell.count += int(count)
         cell.total += _dec(total)
 
     buckets = []
-    for (label, currency), by_class in sorted(cells.items()):
+    for (label, origin, currency), by_class in sorted(cells.items()):
         zero = _Cell()
         revenue = by_class.get((Classification.ORDER_PAYMENT.value, EntryKind.CAPTURE.value), zero).total
         refunds = by_class.get((Classification.ORDER_PAYMENT.value, EntryKind.REFUND.value), zero).total
@@ -262,6 +322,7 @@ def series(db: Session, *, granularity: str, period: Period) -> dict:
         buckets.append(
             {
                 "bucket": label,
+                "provider_kind": origin,
                 "currency": currency,
                 "revenue": money(revenue),
                 "refunds": money(refunds),
@@ -290,8 +351,10 @@ def entries_page(
     currency: str | None = None,
     classification: str | None = None,
     kind: str | None = None,
+    provider_kind: str | None = None,
 ) -> EntryPage:
     """Una página de entradas, de la más reciente a la más antigua, por cursor. Sin uniones: una consulta, un índice."""
+    provider_kind = validate_provider_kind(provider_kind)
     if not 1 <= limit <= MAX_PAGE_SIZE:
         raise ValidationError(f"limit must be between 1 and {MAX_PAGE_SIZE}")
     if classification is not None and classification not in {c.value for c in Classification}:
@@ -305,6 +368,8 @@ def entries_page(
         query = query.where(Entry.classification == classification)
     if kind is not None:
         query = query.where(Entry.kind == kind)
+    if provider_kind is not None:
+        query = query.where(Entry.provider_kind == provider_kind)
     if cursor is not None:
         position = EntryCursor.decode(cursor)
         after = tuple_(Entry.occurred_at, Entry.id) < tuple_(literal(position.occurred_at), literal(position.entry_id))

@@ -180,3 +180,69 @@ def test_check_ledger_reading_while_others_write_never_reports_a_false_origin_di
             assert len(list(db.scalars(select(RevenueLedgerEntry)))) == 12
             assert check_everything(db) == []
             assert check_ledger(db)["divergences"]["count"] == 0
+
+
+def test_the_summary_read_while_others_write_adds_up_per_origin_in_every_single_read():
+    from app.revenue import aggregates
+
+    with ephemeral_postgres() as engine:
+        providers = {o: ORIGINS[o]() for o in ORIGINS}
+        plan: list[tuple[str, str, str]] = []
+        for index in range(12):
+            origin = list(ORIGINS)[index % 3]
+            with Session(engine) as db:
+                payment = start_attempt(db, add_order(db, add_product(db, name=f"W {index}")), providers[origin])
+                plan.append((origin, payment.id, f"evt_{index}"))
+
+        done = threading.Event()
+        barrier = threading.Barrier(5)
+        broken: list[str] = []
+        reads = [0]
+        errors: list[BaseException] = []
+
+        def writer(items: list[tuple[str, str, str]]) -> None:
+            try:
+                barrier.wait(timeout=10)
+                for origin, payment_id, event_id in items:
+                    with Session(engine) as db:
+                        payment = db.get(Payment, payment_id)
+                        provider = providers[origin]
+                        ingress(db, provider).receive(provider.name, *signed(provider, payment, event_id))
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        def reader() -> None:
+            try:
+                barrier.wait(timeout=10)
+                while True:
+                    finished = done.is_set()
+                    with Session(engine) as db:
+                        result = aggregates.summary(db, aggregates.Period())
+                    per_origin = {r["provider_kind"]: r["entries"] for r in result["entries_by_provider_kind"]}
+                    if sum(per_origin.values()) != result["entries"]:
+                        broken.append(f"the entries per origin {per_origin} are not the total {result['entries']}")
+                    for row in result["verified"]:
+                        # cada captura vale 50.00: la cifra de un origen se explica por sus propias capturas
+                        if Decimal(row["revenue"]) != 50 * row["captures"]:
+                            broken.append(f"{row['provider_kind']}: {row['revenue']} for {row['captures']} captures")
+                    reads[0] += 1
+                    if finished:
+                        return
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        writers = [threading.Thread(target=writer, args=(plan[i::4],)) for i in range(4)]
+        reading = threading.Thread(target=reader)
+        for thread in (*writers, reading):
+            thread.start()
+        for thread in writers:
+            thread.join(timeout=120)
+        done.set()
+        reading.join(timeout=120)
+
+        assert not errors, errors
+        assert reads[0] >= 2 and broken == [], broken
+        with Session(engine) as db:
+            final = aggregates.summary(db, aggregates.Period())
+        assert final["entries_by_provider_kind"] == [{"provider_kind": o, "entries": 4} for o in sorted(ORIGINS)]
+        assert {r["provider_kind"]: r["captures"] for r in final["verified"]} == {o: 4 for o in ORIGINS}

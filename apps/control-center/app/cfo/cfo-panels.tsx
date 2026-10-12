@@ -7,7 +7,7 @@ import { amountText, coverageText, BLOCKED_TEXT, type MarginSummary, type OrderM
 import { PLAN_BLOCKED_TEXT, PLAN_NOTE, type PlanView } from "@/lib/cfo-plan";
 import { NO_VERDICT_TEXT, UNREAD_VERDICT_TEXT, type VerdictView } from "@/lib/cfo-verdict";
 import { PROVENANCE_MEANING, type Provenance } from "@/lib/provenance";
-import { formatMoney, NO_DATA, summaryView, UNREAD, type Settled } from "@/lib/revenue-view";
+import { formatMoney, NO_DATA, SEVERAL_ORIGINS, summaryView, UNREAD, type Settled } from "@/lib/revenue-view";
 import { DataProvenanceBadge, type DataProvenance } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
@@ -115,29 +115,50 @@ function Figure({
 export function VerifiedFigures({ summary }: { summary: Settled<RevenueSummary> }) {
   if (!summary.ok) return <ReadFailed what="el registro de ingresos" message={summary.message} />;
   const view = summaryView(summary.data);
-  const eur = view.eur;
+  const lines = view.eurByOrigin;
+  const single = lines.length === 1 ? lines[0] : null;
+  const several = lines.length > 1;
   const others = view.otherCurrencies.length > 0 ? ` Otras monedas: ${view.otherCurrencies.join(", ")}, aparte.` : "";
+  // Con varios orígenes no hay cifra de cabecera: sumarlos mezclaría dinero de procedencias distintas (ADR 0031 A2).
+  const apart = (pick: (line: (typeof lines)[number]) => string) =>
+    `${lines.map((line) => `${line.providerKind} ${pick(line)}`).join(" · ")}. Cada origen va por separado: no se suman.`;
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <Figure
         label="Ingresos verificados"
-        value={eur?.revenue ?? NO_DATA}
+        value={single?.revenue ?? (several ? SEVERAL_ORIGINS : NO_DATA)}
         provenance="verified"
         accent
-        caption={eur ? `Cobros verificados en euros.${others}` : `Ninguna entrada en euros en el periodo.${others}`}
+        caption={
+          single
+            ? `Cobros verificados en euros. Origen: ${single.providerKind}.${others}`
+            : several
+              ? `${apart((line) => line.revenue)}${others}`
+              : `Ninguna entrada en euros en el periodo.${others}`
+        }
       />
       <Figure
         label="Reembolsos verificados"
-        value={eur?.refunds ?? NO_DATA}
+        value={single?.refunds ?? (several ? SEVERAL_ORIGINS : NO_DATA)}
         provenance="verified"
-        caption={eur ? "Devoluciones confirmadas en euros." : "Ninguna entrada en euros en el periodo."}
+        caption={
+          single
+            ? `Devoluciones confirmadas en euros. Origen: ${single.providerKind}.`
+            : several
+              ? apart((line) => line.refunds)
+              : "Ninguna entrada en euros en el periodo."
+        }
       />
       <Figure
         label="Neto verificado"
-        value={eur?.net ?? NO_DATA}
+        value={single?.net ?? (several ? SEVERAL_ORIGINS : NO_DATA)}
         provenance="verified"
         accent
-        caption="Ingresos menos reembolsos. Puede ser negativo, y no se oculta."
+        caption={
+          several
+            ? apart((line) => line.net)
+            : "Ingresos menos reembolsos. Puede ser negativo, y no se oculta."
+        }
       />
     </div>
   );
@@ -163,6 +184,7 @@ export function VerifiedByCurrencyCard({ summary }: { summary: Settled<RevenueSu
             <Table className="[&_td]:px-2 [&_td]:py-2">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
+                  <TableHead>Origen</TableHead>
                   <TableHead>Moneda</TableHead>
                   <TableHead className="text-right">Ingresos</TableHead>
                   <TableHead className="text-right">Reembolsos</TableHead>
@@ -171,7 +193,8 @@ export function VerifiedByCurrencyCard({ summary }: { summary: Settled<RevenueSu
               </TableHeader>
               <TableBody>
                 {view.verified.map((row) => (
-                  <TableRow key={row.currency}>
+                  <TableRow key={`${row.providerKind}-${row.currency}`}>
+                    <TableCell>{row.providerKind}</TableCell>
                     <TableCell className="font-medium">{row.currency}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.revenue}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.refunds}</TableCell>
@@ -206,8 +229,13 @@ export function OutsideVerifiedCard({ summary }: { summary: Settled<RevenueSumma
           ) : (
             <ul className="divide-y">
               {view.underReview.map((row) => (
-                <li key={`${row.currency}-${row.classification}`} className="flex items-center justify-between gap-3 py-1.5">
-                  <LevelChip tone="warn">{row.label}</LevelChip>
+                <li
+                  key={`${row.providerKind}-${row.currency}-${row.classification}`}
+                  className="flex items-center justify-between gap-3 py-1.5"
+                >
+                  <span>
+                    {row.providerKind} · <LevelChip tone="warn">{row.label}</LevelChip>
+                  </span>
                   <span className="tabular-nums">{row.outstanding}</span>
                 </li>
               ))}
@@ -221,9 +249,12 @@ export function OutsideVerifiedCard({ summary }: { summary: Settled<RevenueSumma
           ) : (
             <ul className="divide-y">
               {view.pendingEvidence.lines.map((line) => (
-                <li key={`${line.currency}-${line.label}`} className="flex items-center justify-between gap-3 py-1.5">
+                <li
+                  key={`${line.providerKind}-${line.currency}-${line.label}`}
+                  className="flex items-center justify-between gap-3 py-1.5"
+                >
                   <span>
-                    {line.label} · {line.count}
+                    {line.providerKind} · {line.label} · {line.count}
                   </span>
                   <span className="tabular-nums">{line.amount}</span>
                 </li>
