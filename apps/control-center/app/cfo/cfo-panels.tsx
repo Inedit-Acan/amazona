@@ -3,13 +3,14 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, Coins, Database, FileSignature, FlaskConical, LineChart, ReceiptText } from "lucide-react";
 import type { RevenueSummary } from "@/lib/api";
-import { amountText, coverageText, BLOCKED_TEXT, type MarginSummary, type OrderMargin } from "@/lib/cfo-margin";
+import { amountText, coverageText, BLOCKED_TEXT, type MarginSummary, type OrderMargin, type OriginMargin } from "@/lib/cfo-margin";
 import { PLAN_BLOCKED_TEXT, PLAN_NOTE, type PlanView } from "@/lib/cfo-plan";
 import { NO_VERDICT_TEXT, UNREAD_VERDICT_TEXT, type VerdictView } from "@/lib/cfo-verdict";
-import { PROVENANCE_MEANING, type Provenance } from "@/lib/provenance";
+import { originName, PROVENANCE_MEANING, summarizeOrigins, type Provenance } from "@/lib/provenance";
 import { formatMoney, NO_DATA, SEVERAL_ORIGINS, summaryView, UNREAD, type Settled } from "@/lib/revenue-view";
 import { DataProvenanceBadge, type DataProvenance } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
+import { OriginBadge } from "@/components/origin-badge";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -87,7 +88,7 @@ function Figure({
   caption?: string;
   accent?: boolean;
 }) {
-  const noData = value === NO_DATA;
+  const noData = value === NO_DATA || value === SEVERAL_ORIGINS;
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-2">
@@ -121,7 +122,7 @@ export function VerifiedFigures({ summary }: { summary: Settled<RevenueSummary> 
   const others = view.otherCurrencies.length > 0 ? ` Otras monedas: ${view.otherCurrencies.join(", ")}, aparte.` : "";
   // Con varios orígenes no hay cifra de cabecera: sumarlos mezclaría dinero de procedencias distintas (ADR 0031 A2).
   const apart = (pick: (line: (typeof lines)[number]) => string) =>
-    `${lines.map((line) => `${line.providerKind} ${pick(line)}`).join(" · ")}. Cada origen va por separado: no se suman.`;
+    `${lines.map((line) => `${originName(line.providerKind)} ${pick(line)}`).join(" · ")}. Cada origen va por separado: no se suman.`;
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <Figure
@@ -131,7 +132,7 @@ export function VerifiedFigures({ summary }: { summary: Settled<RevenueSummary> 
         accent
         caption={
           single
-            ? `Cobros verificados en euros. Origen: ${single.providerKind}.${others}`
+            ? `Cobros verificados en euros. Origen: ${originName(single.providerKind)}.${others}`
             : several
               ? `${apart((line) => line.revenue)}${others}`
               : `Ninguna entrada en euros en el periodo.${others}`
@@ -143,7 +144,7 @@ export function VerifiedFigures({ summary }: { summary: Settled<RevenueSummary> 
         provenance="verified"
         caption={
           single
-            ? `Devoluciones confirmadas en euros. Origen: ${single.providerKind}.`
+            ? `Devoluciones confirmadas en euros. Origen: ${originName(single.providerKind)}.`
             : several
               ? apart((line) => line.refunds)
               : "Ninguna entrada en euros en el periodo."
@@ -194,7 +195,9 @@ export function VerifiedByCurrencyCard({ summary }: { summary: Settled<RevenueSu
               <TableBody>
                 {view.verified.map((row) => (
                   <TableRow key={`${row.providerKind}-${row.currency}`}>
-                    <TableCell>{row.providerKind}</TableCell>
+                    <TableCell>
+                      <OriginBadge summary={summarizeOrigins([row.providerKind])} />
+                    </TableCell>
                     <TableCell className="font-medium">{row.currency}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.revenue}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.refunds}</TableCell>
@@ -234,7 +237,7 @@ export function OutsideVerifiedCard({ summary }: { summary: Settled<RevenueSumma
                   className="flex items-center justify-between gap-3 py-1.5"
                 >
                   <span>
-                    {row.providerKind} · <LevelChip tone="warn">{row.label}</LevelChip>
+                    {originName(row.providerKind)} · <LevelChip tone="warn">{row.label}</LevelChip>
                   </span>
                   <span className="tabular-nums">{row.outstanding}</span>
                 </li>
@@ -254,7 +257,7 @@ export function OutsideVerifiedCard({ summary }: { summary: Settled<RevenueSumma
                   className="flex items-center justify-between gap-3 py-1.5"
                 >
                   <span>
-                    {line.providerKind} · {line.label} · {line.count}
+                    {originName(line.providerKind)} · {line.label} · {line.count}
                   </span>
                   <span className="tabular-nums">{line.amount}</span>
                 </li>
@@ -274,110 +277,156 @@ export function OutsideVerifiedCard({ summary }: { summary: Settled<RevenueSumma
 // --- Zona 2: coste y margen declarados ----------------------------------------------------------------------------
 
 export function DeclaredMarginFigures({ margin }: { margin: MarginSummary }) {
-  const reason = margin.blockedBy === null ? null : BLOCKED_TEXT[margin.blockedBy];
+  // Sin ningún pedido con ingreso verificado en euros: «Sin datos», con su motivo. Nunca un cero.
+  if (margin.origins.length === 0) {
+    const reason = BLOCKED_TEXT[margin.blockedBy ?? "no_orders"];
+    return (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Figure label="Margen de contribución declarado" value={NO_DATA} provenance="declared" accent caption={reason} />
+        <Figure label="Coste declarado" value={NO_DATA} provenance="declared" caption={reason} />
+        <Figure label="Neto verificado" value={NO_DATA} provenance="verified" caption={reason} />
+      </div>
+    );
+  }
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <Figure
-        label="Margen de contribución declarado"
-        value={margin.margin === null ? NO_DATA : formatMoney(amountText(margin.margin.value), "EUR")}
-        provenance="declared"
-        accent
-        caption={reason ?? "Neto verificado menos el coste declarado de esos pedidos. No es beneficio."}
-      />
-      <Figure
-        label="Coste declarado"
-        value={margin.cost === null ? NO_DATA : formatMoney(amountText(margin.cost.value), "EUR")}
-        provenance="declared"
-        caption={coverageText(margin.coverage)}
-      />
-      <Figure
-        label="Neto verificado de esos pedidos"
-        value={margin.net === null ? NO_DATA : formatMoney(amountText(margin.net.value), "EUR")}
-        provenance="verified"
-        caption={
-          margin.coverage.orders === 0
-            ? "Ningún pedido con ingreso verificado en euros."
-            : `${margin.coverage.orders} pedido${margin.coverage.orders === 1 ? "" : "s"} con ingreso verificado en euros.`
-        }
-      />
+    <div className="space-y-4">
+      {margin.origins.map((origin) => (
+        <OriginMarginFigures key={origin.origin} margin={origin} />
+      ))}
+      {margin.origins.length > 1 ? (
+        <p className="text-[11px] text-muted-foreground">
+          Hay más de un origen: cada uno tiene su propio margen, con su cobertura, y ninguna cifra los combina (ni suma, ni
+          promedio, ni reparto).
+        </p>
+      ) : null}
     </div>
   );
 }
 
+function OriginMarginFigures({ margin }: { margin: OriginMargin }) {
+  const reason = margin.blockedBy === null ? null : BLOCKED_TEXT[margin.blockedBy];
+  const label = originName(margin.origin);
+  return (
+    <section className="space-y-2" aria-label={`Margen declarado · ${label}`}>
+      <h3 className="flex items-center gap-2 text-sm font-medium">
+        <OriginBadge summary={summarizeOrigins([margin.origin])} />
+        <span className="text-muted-foreground">{margin.coverage.orders} pedido{margin.coverage.orders === 1 ? "" : "s"} con ingreso verificado en euros</span>
+      </h3>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Figure
+          label="Margen de contribución declarado"
+          value={margin.margin === null ? NO_DATA : formatMoney(amountText(margin.margin.value), "EUR")}
+          provenance="declared"
+          accent
+          caption={reason ?? "Neto verificado menos el coste declarado de esos pedidos. No es beneficio."}
+        />
+        <Figure
+          label="Coste declarado"
+          value={margin.cost === null ? NO_DATA : formatMoney(amountText(margin.cost.value), "EUR")}
+          provenance="declared"
+          caption={coverageText(margin.coverage)}
+        />
+        <Figure
+          label="Neto verificado de esos pedidos"
+          value={margin.net === null ? NO_DATA : formatMoney(amountText(margin.net.value), "EUR")}
+          provenance="verified"
+          caption={`Origen: ${label}.`}
+        />
+      </div>
+    </section>
+  );
+}
+
 export function CoverageCard({ margin }: { margin: MarginSummary }) {
-  const rows: OrderMargin[] = margin.orders;
   return (
     <Card className="min-w-0">
       <CardHeader>
-        <CardTitle>Cobertura del coste, pedido a pedido</CardTitle>
+        <CardTitle>Cobertura del coste, pedido a pedido y por origen</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2.5">
-        {rows.length === 0 ? (
+      <CardContent className="space-y-3">
+        {margin.origins.length === 0 ? (
           <EmptyState
             icon={FileSignature}
             title="Sin pedidos que medir"
             description="No hay ningún pedido con ingreso verificado en euros dentro de este periodo."
           />
         ) : (
-          <div className="max-h-80 overflow-auto">
-            <Table className="[&_td]:px-2 [&_td]:py-1.5">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Pedido</TableHead>
-                  <TableHead className="text-right">Neto verificado</TableHead>
-                  <TableHead className="text-right">Coste declarado</TableHead>
-                  <TableHead className="text-right">Margen</TableHead>
-                  <TableHead>Cobertura</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.orderId}>
-                    <TableCell className="whitespace-nowrap" title={row.orderId}>
-                      #{row.orderId.slice(0, 8)}
-                      {row.isSimulated ? <span className="ml-1 text-[10px] text-muted-foreground">simulado</span> : null}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{formatMoney(amountText(row.net.value), row.currency)}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {row.cost === null ? (
-                        <span className="text-muted-foreground">{NO_DATA}</span>
-                      ) : (
-                        formatMoney(amountText(row.cost.value), row.currency)
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {row.margin === null ? (
-                        <span className="text-muted-foreground">{NO_DATA}</span>
-                      ) : (
-                        formatMoney(amountText(row.margin.value), row.currency)
-                      )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {row.lines === 0 ? (
-                        <LevelChip tone="bad">sin leer</LevelChip>
-                      ) : (
-                        <span className={row.linesWithCost === row.lines ? "" : "text-warning"}>
-                          {row.linesWithCost} / {row.lines} líneas
-                          {row.costProvenances.length > 0 ? ` · ${row.costProvenances.join(", ")}` : ""}
-                        </span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          margin.origins.map((origin) => <OriginCoverageTable key={origin.origin} margin={origin} />)
         )}
         <p className="text-[11px] text-muted-foreground">
           El coste sale del coste unitario de cada línea, con la fuente que el backend guarda. Una línea sin coste declarado
-          no vale cero: deja el pedido sin margen.
-          {margin.simulated > 0 ? ` ${margin.simulated} de estos pedidos están marcados como simulados.` : ""}
+          no vale cero: deja el pedido sin margen. Un pedido con ingreso de varios orígenes aparece en cada uno con su parte
+          y sin margen: el coste es del pedido y no se reparte.
+          {margin.unknownOrigin > 0
+            ? ` ${margin.unknownOrigin} pedido${margin.unknownOrigin === 1 ? "" : "s"} con un origen que no se reconoce: sin datos de origen, fuera de todo margen.`
+            : ""}
           {margin.otherCurrencies.length > 0
             ? ` Hay pedidos con ingreso en ${margin.otherCurrencies.join(", ")}: quedan fuera y no se convierten.`
             : ""}
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+function OriginCoverageTable({ margin }: { margin: OriginMargin }) {
+  const rows: OrderMargin[] = margin.orders;
+  return (
+    <section className="space-y-1.5" aria-label={`Cobertura · ${originName(margin.origin)}`}>
+      <h3 className="flex items-center gap-2 text-xs font-medium">
+        <OriginBadge summary={summarizeOrigins([margin.origin])} />
+      </h3>
+      <div className="max-h-80 overflow-auto">
+        <Table className="[&_td]:px-2 [&_td]:py-1.5">
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Pedido</TableHead>
+              <TableHead className="text-right">Neto verificado</TableHead>
+              <TableHead className="text-right">Coste declarado</TableHead>
+              <TableHead className="text-right">Margen</TableHead>
+              <TableHead>Cobertura</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={`${row.orderId}-${row.origin}`}>
+                <TableCell className="whitespace-nowrap" title={row.orderId}>
+                  #{row.orderId.slice(0, 8)}
+                  {row.orderOrigins.length > 1 ? (
+                    <span className="ml-1 text-[10px] text-warning">varios orígenes</span>
+                  ) : null}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(amountText(row.net.value), row.currency)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {row.cost === null ? (
+                    <span className="text-muted-foreground">{NO_DATA}</span>
+                  ) : (
+                    formatMoney(amountText(row.cost.value), row.currency)
+                  )}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {row.margin === null ? (
+                    <span className="text-muted-foreground">{NO_DATA}</span>
+                  ) : (
+                    formatMoney(amountText(row.margin.value), row.currency)
+                  )}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-xs">
+                  {row.lines === 0 ? (
+                    <LevelChip tone="bad">sin leer</LevelChip>
+                  ) : (
+                    <span className={row.linesWithCost === row.lines ? "" : "text-warning"}>
+                      {row.linesWithCost} / {row.lines} líneas
+                      {row.costProvenances.length > 0 ? ` · ${row.costProvenances.join(", ")}` : ""}
+                    </span>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </section>
   );
 }
 

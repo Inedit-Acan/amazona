@@ -210,13 +210,13 @@ test("el dinero sumado a través de varias páginas es exacto y no mezcla moneda
 
   const kpis = orderKpis(loaded.orders);
 
-  const shown = formatTotals(kpis.captured) ?? "";
+  const shown = formatTotals(kpis.captured.get("mock")!) ?? "";
   assert.match(shown, /0,30/);
   assert.match(shown, /20,00/);
   assert.equal(shown.split(" · ").length, 2, "one figure per currency");
-  assert.equal(kpis.captured.get("EUR"), BigInt(3000), "0,1 + 0,2 is exactly 0,3 across pages");
-  assert.equal(kpis.captured.get("USD"), BigInt(200000));
-  assert.equal(kpis.captured.size, 2, "two currencies, two figures");
+  assert.equal(kpis.captured.get("mock")?.get("EUR"), BigInt(3000), "0,1 + 0,2 is exactly 0,3 across pages");
+  assert.equal(kpis.captured.get("mock")?.get("USD"), BigInt(200000));
+  assert.equal(kpis.captured.get("mock")?.size, 2, "two currencies, two figures");
 });
 
 test("el periodo se calcula sobre lo cargado y respeta el orden más reciente primero", () => {

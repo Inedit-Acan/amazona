@@ -1,4 +1,5 @@
 import type { Order, OrderFulfillment, OrderPage, OrderPayment, OrderRefund } from "./api.ts";
+import { ORIGIN_MULTIPLE_LABEL, ORIGIN_UNKNOWN_LABEL, originName, summarizeOrigins, type OriginSummary } from "./provenance.ts";
 
 // Vista de la pantalla de Operaciones sobre los pedidos REALES de M44 (ADR 0028 §10).
 //
@@ -30,6 +31,16 @@ export function toMinor(amount: string): MinorUnits {
 
 /** Importes sumados por moneda: nunca se mezclan monedas. */
 export type MoneyTotals = Map<string, MinorUnits>;
+
+/** Importes sumados por ORIGEN (`provider_kind` del cobro, tal cual lo guardó el backend) y dentro de cada uno por
+ * moneda: ni las monedas ni los orígenes se mezclan. La clave es el valor del backend sin interpretar. */
+export type MoneyByOrigin = Map<string, MoneyTotals>;
+
+export function addToOrigin(totals: MoneyByOrigin, origin: string, amount: { amount: string; currency: string }): void {
+  const inside = totals.get(origin) ?? new Map<string, MinorUnits>();
+  addTo(inside, amount);
+  totals.set(origin, inside);
+}
 
 export function addTo(totals: MoneyTotals, amount: { amount: string; currency: string }): void {
   totals.set(amount.currency, (totals.get(amount.currency) ?? ZERO) + toMinor(amount.amount));
@@ -63,6 +74,58 @@ export function formatTotals(totals: MoneyTotals): string | null {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([currency, minor]) => formatMinor(minor, currency))
     .join(" · ");
+}
+
+/** Cómo se enseña un dinero por origen: un solo origen = su cifra y su origen; varios = ninguna cifra («Varios
+ * orígenes») y cada uno aparte; ninguno = nada (`value` nulo). Nunca hay una cifra que cruce orígenes. */
+export interface OriginMoney {
+  summary: OriginSummary;
+  value: string | null;
+  perOrigin: { origin: string; label: string; text: string }[];
+}
+
+export function originMoney(byOrigin: MoneyByOrigin): OriginMoney {
+  const keys = [...byOrigin.keys()].sort();
+  const summary = summarizeOrigins(keys);
+  const perOrigin = keys.map((origin) => ({
+    origin,
+    label: originName(origin),
+    text: formatTotals(byOrigin.get(origin)!) ?? "",
+  }));
+  const value =
+    summary.kind === "none"
+      ? null
+      : summary.kind === "single"
+        ? perOrigin[0].text
+        : summary.kind === "multiple"
+          ? ORIGIN_MULTIPLE_LABEL
+          : ORIGIN_UNKNOWN_LABEL;
+  return { summary, value, perOrigin };
+}
+
+/** «Simulado 100,00 € · Entorno de pruebas 50,00 €»: cada origen con su importe, sin sumarlos. */
+export function originMoneyParts(money: OriginMoney): string {
+  return money.perOrigin.map((part) => `${part.label} ${part.text}`).join(" · ");
+}
+
+/** El dinero en una línea: un solo origen = su importe; varios = cada uno aparte; ninguno = `null`. */
+export function originMoneyInline(money: OriginMoney): string | null {
+  if (money.summary.kind === "none") return null;
+  return money.summary.kind === "single" ? money.value : originMoneyParts(money);
+}
+
+/** El pie de una cifra de dinero: de qué origen es, o que cada origen va aparte y no se suman. */
+export function originCaption(money: OriginMoney, what: string): string {
+  switch (money.summary.kind) {
+    case "none":
+      return "";
+    case "single":
+      return `${what} · ${money.perOrigin[0].label}`;
+    case "multiple":
+      return `${originMoneyParts(money)}. Cada origen va por separado: no se suman.`;
+    case "unknown":
+      return `${what} · ${ORIGIN_UNKNOWN_LABEL}`;
+  }
 }
 
 // --- Estados y su texto ----------------------------------------------------------------------------------------
@@ -257,28 +320,34 @@ export interface OrderKpis {
   completed: number;
   cancelled: number;
   attention: number;
-  /** Dinero realmente cobrado (la evidencia financiera), por moneda. */
-  captured: MoneyTotals;
-  /** Reembolsos con un hecho verificado que los confirma. */
-  refunded: MoneyTotals;
-  /** Reembolsos pedidos y todavía sin confirmar: dinero apartado, no devuelto. */
-  refundInProgress: MoneyTotals;
+  /** Cobros con dinero verificado por el backend, por origen y dentro de cada uno por moneda. */
+  captured: MoneyByOrigin;
+  /** Reembolsos con un hecho verificado que los confirma, por origen y moneda. */
+  refunded: MoneyByOrigin;
+  /** Reembolsos pedidos y todavía sin confirmar: dinero apartado, no devuelto, por origen y moneda. */
+  refundInProgress: MoneyByOrigin;
+}
+
+/** Los importes se agrupan por el `provider_kind` GUARDADO en cada cobro. Un cobro sin dinero no aporta ni un origen ni un
+ * cero: sus importes a cero no se anotan. */
+function noteMoney(totals: MoneyByOrigin, origin: string, amount: { amount: string; currency: string }): void {
+  if (toMinor(amount.amount) !== ZERO) addToOrigin(totals, origin, amount);
 }
 
 export function orderKpis(orders: Order[]): OrderKpis {
-  const captured: MoneyTotals = new Map();
-  const refunded: MoneyTotals = new Map();
-  const refundInProgress: MoneyTotals = new Map();
+  const captured: MoneyByOrigin = new Map();
+  const refunded: MoneyByOrigin = new Map();
+  const refundInProgress: MoneyByOrigin = new Map();
   for (const order of orders) {
     for (const payment of order.payments) {
-      addTo(captured, payment.captured_amount);
-      addTo(refunded, payment.refunded_amount);
+      noteMoney(captured, payment.provider_kind, payment.captured_amount);
+      noteMoney(refunded, payment.provider_kind, payment.refunded_amount);
       const pending = toMinor(payment.refund_committed_amount.amount) - toMinor(payment.refunded_amount.amount);
       if (pending > ZERO) {
-        refundInProgress.set(
-          payment.refund_committed_amount.currency,
-          (refundInProgress.get(payment.refund_committed_amount.currency) ?? ZERO) + pending,
-        );
+        const inside = refundInProgress.get(payment.provider_kind) ?? new Map<string, MinorUnits>();
+        const currency = payment.refund_committed_amount.currency;
+        inside.set(currency, (inside.get(currency) ?? ZERO) + pending);
+        refundInProgress.set(payment.provider_kind, inside);
       }
     }
   }
@@ -294,6 +363,27 @@ export function orderKpis(orders: Order[]): OrderKpis {
     refunded,
     refundInProgress,
   };
+}
+
+/** Los orígenes de los cobros con dinero verificado de un pedido, tal como los guardó el backend. Un pedido sin ningún
+ * cobro con dinero no tiene origen que decir (`none`): no se inventa uno. NUNCA sale de `is_simulated`. */
+export function orderOrigin(order: Order): OriginSummary {
+  return summarizeOrigins(
+    order.payments.filter((payment) => toMinor(payment.captured_amount.amount) > ZERO).map((payment) => payment.provider_kind),
+  );
+}
+
+/** Lo cobrado de un pedido, por origen, para una celda o un CSV: «50,00 €» o, con varios orígenes, cada uno aparte. */
+export function capturedText(order: Order): string | null {
+  const money = originMoney(orderKpis([order]).captured);
+  if (money.summary.kind === "none") return null;
+  return money.summary.kind === "single" ? (money.value ?? "") : originMoneyParts(money);
+}
+
+/** El contexto en que se creó el pedido. Es lo ÚNICO que se lee de `is_simulated`: no es la procedencia del dinero y no
+ * decide ninguna etiqueta, agrupación, margen ni fiabilidad (ADR 0031 §12). */
+export function orderContextText(order: Order): string {
+  return order.is_simulated ? "Creado en un despliegue de simulación" : "Creado fuera de una simulación";
 }
 
 export interface PipelineStage {
@@ -409,7 +499,7 @@ export const ABSENT: { key: string; title: string; why: string }[] = [
   {
     key: "suppliers",
     title: "Rendimiento por proveedor",
-    why: "No hay entregas reales de proveedor de las que sacar puntualidad ni defectos.",
+    why: "No hay entregas de proveedor registradas de las que sacar puntualidad ni defectos.",
   },
   {
     key: "customers",

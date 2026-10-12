@@ -28,17 +28,23 @@ import {
   countText,
   describe,
   formatAmount,
-  formatTotals,
   fulfilmentPipeline,
   fulfilmentTotal,
   loadedFromPage,
   newestFirst,
   orderKpis,
+  orderOrigin,
   ordersInPeriod,
+  originCaption,
+  originMoney,
+  originMoneyInline,
   pageErrorText,
   periodCoverage,
+  capturedText,
   type OrdersLoaded,
 } from "@/lib/orders-view";
+import { originLabel } from "@/lib/provenance";
+import { OriginBadge } from "@/components/origin-badge";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { KpiCard } from "@/components/kpi-card";
 import { LevelChip } from "@/components/level-chip";
@@ -168,7 +174,7 @@ export function OperationsWorkspace({
 
   function exportOrders() {
     const csv = toCsv(
-      ["Pedido", "Creado", "Estado", "Mercado", "Unidades", "Importe", "Cobrado", "Fulfillments", "Atención"],
+      ["Pedido", "Creado", "Estado", "Mercado", "Unidades", "Importe", "Origen del dinero", "Cobrado", "Fulfillments", "Atención"],
       tabRows.map((o) => [
         o.id,
         o.created_at,
@@ -176,7 +182,8 @@ export function OperationsWorkspace({
         o.market,
         unitsOf(o),
         formatAmount(o.amount_due),
-        formatTotals(orderKpis([o]).captured) ?? "",
+        originLabel(orderOrigin(o)),
+        capturedText(o) ?? "",
         fulfilmentSummary(o),
         o.attention_reasons.map(attentionText).join("; "),
       ]),
@@ -212,6 +219,13 @@ export function OperationsWorkspace({
       },
       sortValue: (o) => describe(ORDER_STATUS, o.status).label,
       exportValue: (o) => describe(ORDER_STATUS, o.status).label,
+    },
+    {
+      key: "origin",
+      header: "Origen del dinero",
+      cell: (o) => <OriginBadge summary={orderOrigin(o)} />,
+      sortValue: (o) => originLabel(orderOrigin(o)),
+      exportValue: (o) => originLabel(orderOrigin(o)),
     },
     { key: "market", header: "Mercado", cell: (o) => o.market, sortValue: (o) => o.market, exportValue: (o) => o.market },
     {
@@ -257,7 +271,7 @@ export function OperationsWorkspace({
       description={OPERATIONS_DESCRIPTION}
       actions={
         <>
-          <LevelChip tone="neutral">Datos reales · eventos simulados</LevelChip>
+          <LevelChip tone="neutral">Datos del backend · origen por cobro</LevelChip>
           <label className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
             <CalendarClock className="size-4 shrink-0 text-primary" />
             <span className="sr-only">Periodo</span>
@@ -290,9 +304,10 @@ export function OperationsWorkspace({
     );
   }
 
-  const captured = formatTotals(kpis.captured);
-  const refunded = formatTotals(kpis.refunded);
-  const inProgress = formatTotals(kpis.refundInProgress);
+  // El dinero va por ORIGEN y dentro de cada origen por moneda: con varios orígenes no hay una cifra, y cada uno va aparte.
+  const captured = originMoney(kpis.captured);
+  const refunded = originMoney(kpis.refunded);
+  const inProgress = originMoneyInline(originMoney(kpis.refundInProgress));
 
   // Un contador es un total solo si lo cargado cubre el periodo; si no, es un mínimo («12+»), y se dice.
   const count = (n: number) => countText(formatInteger(n), coverage);
@@ -323,26 +338,26 @@ export function OperationsWorkspace({
         <KpiCard
           label="Cobrado"
           leading={<Wallet className="size-8 shrink-0 text-primary" />}
-          value={captured ?? "—"}
+          value={captured.value ?? "—"}
           caption={
             partial
-              ? `${PARTIAL_FIGURE_NOTE}${captured ? "" : ": sin cobros entre ellos"}`
-              : captured
-                ? "Dinero realmente cobrado, por evidencia verificada"
+              ? `${PARTIAL_FIGURE_NOTE}${captured.value ? "" : ": sin cobros entre ellos"}`
+              : captured.value
+                ? originCaption(captured, "Cobros verificados por el backend")
                 : "Sin cobros"
           }
         />
         <KpiCard
           label="Reembolsado"
           leading={<RotateCcw className="size-8 shrink-0 text-primary" />}
-          value={refunded ?? "—"}
+          value={refunded.value ?? "—"}
           caption={
             partial
               ? `${PARTIAL_FIGURE_NOTE}${inProgress ? `. Pedido y sin confirmar: ${inProgress}` : ""}`
               : inProgress
                 ? `Pedido y sin confirmar: ${inProgress}`
-                : refunded
-                  ? "Confirmado por un hecho verificado del proveedor"
+                : refunded.value
+                  ? originCaption(refunded, "Confirmado por un hecho verificado del proveedor")
                   : "Sin reembolsos"
           }
         />

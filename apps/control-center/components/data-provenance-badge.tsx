@@ -82,7 +82,7 @@ const PROVENANCE_CONFIG: Record<
   demo: {
     label: "Datos de demostración",
     short: "Demo",
-    description: "Dato de demostración: se sustituirá por el real cuando el backend lo proporcione.",
+    description: "Dato de demostración: se sustituirá por el dato del backend cuando lo proporcione.",
     icon: FlaskConical,
     className: "bg-sky-500/10 text-sky-300 border-sky-400/30",
   },

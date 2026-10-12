@@ -6,6 +6,7 @@ import type {
   RevenueSeries,
   RevenueSummary,
 } from "./api.ts";
+import { ORIGIN_MULTIPLE_LABEL, originName } from "./provenance.ts";
 
 // Vista de los ingresos del Panel (M45, ADR 0030). Aquí NO se calcula nada económico: el backend ya devolvió cada cifra
 // por moneda, separando lo verificado, lo que está en revisión y la evidencia pendiente. Este módulo solo decide QUÉ SE
@@ -252,10 +253,10 @@ const othersText = (currencies: string[]) =>
 
 /** Lo que dice una cifra de cabecera cuando hay datos de más de un origen: ninguna cifra, porque no existe un total que
  * cruce orígenes (ADR 0031 A2). El texto final de cara al usuario es del Commit 4. */
-export const SEVERAL_ORIGINS = "Varios orígenes";
+export const SEVERAL_ORIGINS = ORIGIN_MULTIPLE_LABEL;
 
 const perOrigin = (lines: EurLine[], pick: (line: EurLine) => string) =>
-  lines.map((line) => `${line.providerKind} ${pick(line)}`).join(" · ");
+  lines.map((line) => `${originName(line.providerKind)} ${pick(line)}`).join(" · ");
 
 /** Las tres cifras de cabecera. EUR es lo único consolidado; sin entradas en EUR el valor es «Sin datos», no 0,00 €. Con
  * un solo origen se enseña su cifra y su origen; con varios NO hay cifra (cada uno va aparte en el caption), porque
@@ -271,7 +272,7 @@ export function revenueKpis(summary: RevenueSummary): RevenueKpis {
       : eur.length === 1
         ? {
             value: single.revenue,
-            caption: `Origen: ${single.providerKind}. Reembolsos ${single.refunds} · Neto ${single.net}.${othersText(others)}`,
+            caption: `Origen: ${originName(single.providerKind)}. Reembolsos ${single.refunds} · Neto ${single.net}.${othersText(others)}`,
             isNoData: false,
           }
         : {
@@ -285,7 +286,7 @@ export function revenueKpis(summary: RevenueSummary): RevenueKpis {
       : eur.length === 1
         ? {
             value: single.underReview,
-            caption: `Origen: ${single.providerKind}. Duplicados y discrepancias pendientes de resolver. No suman a lo verificado.`,
+            caption: `Origen: ${originName(single.providerKind)}. Duplicados y discrepancias pendientes de resolver. No suman a lo verificado.`,
             isNoData: false,
           }
         : {

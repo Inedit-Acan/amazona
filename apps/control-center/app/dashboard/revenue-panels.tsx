@@ -21,6 +21,8 @@ import {
   type Settled,
 } from "@/lib/revenue-view";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
+import { OriginBadge } from "@/components/origin-badge";
+import { originName, summarizeOrigins } from "@/lib/provenance";
 import { EmptyState } from "@/components/empty-state";
 import { LevelChip } from "@/components/level-chip";
 import { RevenueBars } from "@/components/revenue-bars";
@@ -85,7 +87,7 @@ export function RevenueSeriesCard({
             >
               {view.keys.map((value) => (
                 <option key={value} value={value}>
-                  {view.bySeries[value].providerKind} · {view.bySeries[value].currency}
+                  {originName(view.bySeries[value].providerKind)} · {view.bySeries[value].currency}
                 </option>
               ))}
             </select>
@@ -113,10 +115,10 @@ export function RevenueSeriesCard({
               }))}
               formatY={(value) => formatInteger(value)}
               formatX={(x) => dayLabel(fromMs + x * DAY_MS)}
-              ariaLabel={`Ingresos verificados por día, origen ${current.providerKind}, en ${current.currency}, ${periodLabel(days)}`}
+              ariaLabel={`Ingresos verificados por día, origen ${originName(current.providerKind)}, en ${current.currency}, ${periodLabel(days)}`}
             />
             <p className="text-[11px] text-muted-foreground">
-              Serie de origen {current.providerKind} en {current.currency}. Los días sin barra no tienen ninguna entrada: sin
+              Serie de origen {originName(current.providerKind)} en {current.currency}. Los días sin barra no tienen ninguna entrada: sin
               datos, no cero. Ni los orígenes ni las monedas se suman ni se convierten.
             </p>
             <div className="max-h-56 overflow-auto">
@@ -189,7 +191,9 @@ export function RevenueBreakdownCard({ summary, days }: { summary: Settled<Reven
               <TableBody>
                 {view?.verified.map((row) => (
                   <TableRow key={`${row.providerKind}-${row.currency}`}>
-                    <TableCell>{row.providerKind}</TableCell>
+                    <TableCell>
+                      <OriginBadge summary={summarizeOrigins([row.providerKind])} />
+                    </TableCell>
                     <TableCell className="font-medium">{row.currency}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.revenue}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.refunds}</TableCell>
@@ -251,7 +255,9 @@ export function OutsideVerifiedCard({ summary, days }: { summary: Settled<Revenu
                     <TableBody>
                       {view.underReview.map((row) => (
                         <TableRow key={`${row.providerKind}-${row.currency}-${row.classification}`}>
-                          <TableCell>{row.providerKind}</TableCell>
+                          <TableCell>
+                            <OriginBadge summary={summarizeOrigins([row.providerKind])} />
+                          </TableCell>
                           <TableCell className="whitespace-normal">
                             <LevelChip tone="warn">{row.label}</LevelChip>
                           </TableCell>
@@ -282,7 +288,7 @@ export function OutsideVerifiedCard({ summary, days }: { summary: Settled<Revenu
                       className="flex items-center justify-between gap-3 py-1.5"
                     >
                       <span>
-                        {line.providerKind} · {line.label} · {line.count}
+                        {originName(line.providerKind)} · {line.label} · {line.count}
                       </span>
                       <span className="tabular-nums">{line.amount}</span>
                     </li>
@@ -382,7 +388,9 @@ export function RevenueEntriesCard({
                 {rows.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell className="whitespace-nowrap">{formatMoment(row.occurredAt)}</TableCell>
-                    <TableCell>{row.providerKind}</TableCell>
+                    <TableCell>
+                      <OriginBadge summary={summarizeOrigins([row.providerKind])} />
+                    </TableCell>
                     <TableCell>{row.kindLabel}</TableCell>
                     <TableCell>
                       <LevelChip tone={row.verified ? "ok" : "warn"}>{row.classificationLabel}</LevelChip>

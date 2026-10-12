@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 import type { MoneyAmount, Order, OrderFulfillment, OrderPayment, OrderRefund } from "./api.ts";
+import { ORIGIN_LABEL, originLabel } from "./provenance.ts";
 import {
   ABSENT,
   FULFILLMENT_STATUS,
@@ -15,12 +16,19 @@ import {
   formatAmount,
   formatMinor,
   formatTotals,
+  originMoney,
   fulfilmentPipeline,
   fulfilmentTotal,
+  capturedText,
   newestFirst,
+  orderContextText,
   orderEvents,
   orderKpis,
+  orderOrigin,
   ordersInPeriod,
+  originCaption,
+  originMoneyInline,
+  originMoneyParts,
   toMinor,
   type MoneyTotals,
   PAYMENT_STATUS,
@@ -166,18 +174,18 @@ test("los indicadores salen de los pedidos: cuántos hay en cada estado y el din
     [kpis.total, kpis.completed, kpis.paid, kpis.awaitingPayment, kpis.cancelled, kpis.attention],
     [4, 1, 1, 1, 1, 1],
   );
-  assert.equal(kpis.captured.get("EUR"), toMinor("80"), "50 + 30 captured");
-  assert.equal(kpis.refunded.get("EUR"), toMinor("5"), "only what a verified fact confirmed");
-  assert.equal(kpis.refundInProgress.get("EUR"), toMinor("7"), "12 asked − 5 confirmed is still on its way");
+  assert.equal(kpis.captured.get("mock")?.get("EUR"), toMinor("80"), "50 + 30 captured");
+  assert.equal(kpis.refunded.get("mock")?.get("EUR"), toMinor("5"), "only what a verified fact confirmed");
+  assert.equal(kpis.refundInProgress.get("mock")?.get("EUR"), toMinor("7"), "12 asked − 5 confirmed is still on its way");
 });
 
 test("sin pedidos no hay cifras inventadas: todo a cero y sin importes", () => {
   const kpis = orderKpis([]);
 
   assert.deepEqual([kpis.total, kpis.paid, kpis.completed, kpis.cancelled, kpis.awaitingPayment, kpis.attention], [0, 0, 0, 0, 0, 0]);
-  assert.equal(formatTotals(kpis.captured), null);
-  assert.equal(formatTotals(kpis.refunded), null);
-  assert.equal(formatTotals(kpis.refundInProgress), null);
+  assert.equal(originMoney(kpis.captured).value, null);
+  assert.equal(originMoney(kpis.refunded).value, null);
+  assert.equal(originMoney(kpis.refundInProgress).value, null);
   assert.deepEqual(fulfilmentPipeline([]).filter((stage) => stage.count > 0), []);
   assert.deepEqual(attentionList([]), []);
 });
@@ -189,7 +197,7 @@ test("un cobro duplicado cuenta como dinero cobrado: la evidencia no se descarta
     attention_reasons: ["duplicate_capture"],
   });
 
-  assert.equal(orderKpis([duplicate]).captured.get("EUR"), toMinor("100"));
+  assert.equal(orderKpis([duplicate]).captured.get("mock")?.get("EUR"), toMinor("100"));
 });
 
 // --- Periodos y pestañas ------------------------------------------------------------------------------------------
@@ -388,7 +396,7 @@ test("quinientos pedidos se suman exactos y el panel no se atasca", () => {
   const kpis = orderKpis(orders);
 
   assert.equal(kpis.total, 500);
-  assert.equal(kpis.captured.get("EUR"), toMinor("25005"), "500 × 50,01 with no accumulated error");
+  assert.equal(kpis.captured.get("mock")?.get("EUR"), toMinor("25005"), "500 × 50,01 with no accumulated error");
   assert.equal(newestFirst(orders).length, 500);
   assert.equal(ordersInPeriod(orders, "2026-10-02", 1).length, 500);
   assert.equal(attentionList(orders).length, 0);
@@ -430,7 +438,7 @@ test("un cobro duplicado cuenta como dinero cobrado, aparece en atención y su h
 
   const kpis = orderKpis([duplicate]);
 
-  assert.equal(kpis.captured.get("EUR"), toMinor("100"), "both captures moved real money");
+  assert.equal(kpis.captured.get("mock")?.get("EUR"), toMinor("100"), "both captures moved real money");
   assert.deepEqual(attentionList([duplicate]).map((o) => o.id), ["dup"]);
   assert.ok(orderEvents(duplicate).some((e) => e.label === "Cobro 2 confirmado"), "the second capture is in the history");
   assert.equal(describe(PAYMENT_STATUS, "DUPLICATE_CAPTURE").tone, "bad");
@@ -446,8 +454,8 @@ test("un reembolso en curso se ve como dinero apartado y no como devuelto, y uno
 
   const kpis = orderKpis(orders);
 
-  assert.equal(kpis.refunded.get("EUR"), toMinor("10"), "only what a verified fact confirmed");
-  assert.equal(kpis.refundInProgress.get("EUR"), toMinor("20"), "the unknown outcome keeps its 20 set aside");
+  assert.equal(kpis.refunded.get("mock")?.get("EUR"), toMinor("10"), "only what a verified fact confirmed");
+  assert.equal(kpis.refundInProgress.get("mock")?.get("EUR"), toMinor("20"), "the unknown outcome keeps its 20 set aside");
   assert.equal(describe(REFUND_STATUS, "UNKNOWN_OUTCOME").tone, "bad");
   assert.equal(describe(FULFILLMENT_STATUS, "UNKNOWN_OUTCOME").tone, "bad");
 });
@@ -461,10 +469,165 @@ test("los pedidos de varias monedas no se mezclan en ninguna cifra", () => {
 
   const kpis = orderKpis(orders);
 
-  assert.equal(kpis.captured.size, 2);
-  assert.equal(kpis.captured.get("EUR"), toMinor("50"));
-  assert.equal(kpis.captured.get("USD"), toMinor("20"));
-  assert.equal(kpis.refunded.get("USD"), toMinor("5"));
-  assert.equal(kpis.refunded.get("EUR") ?? BigInt(0), BigInt(0));
+  assert.equal(kpis.captured.get("mock")?.size, 2);
+  assert.equal(kpis.captured.get("mock")?.get("EUR"), toMinor("50"));
+  assert.equal(kpis.captured.get("mock")?.get("USD"), toMinor("20"));
+  assert.equal(kpis.refunded.get("mock")?.get("USD"), toMinor("5"));
+  assert.equal(kpis.refunded.get("mock")?.get("EUR") ?? BigInt(0), BigInt(0));
 });
 
+// --- Origen del dinero (M46, Commit 4, ADR 0031) ----------------------------------------------------------------------
+//
+// El origen de un pedido sale de los cobros CON DINERO que el backend verificó, tal como los guardó (`provider_kind`).
+// Nunca de `Order.is_simulated`, ni del nombre del proveedor, ni de un cobro que no movió dinero. Y las cifras de dinero
+// se agrupan por origen y por moneda: ni los orígenes ni las monedas se suman entre sí.
+
+const paid = (id: string, kind: "mock" | "sandbox" | "real", amount: string, currency = "EUR", over: Partial<OrderPayment> = {}) =>
+  payment({
+    id,
+    provider_kind: kind,
+    amount: eur(amount),
+    captured_amount: { amount, currency },
+    refund_committed_amount: { amount: "0.0000", currency },
+    refunded_amount: { amount: "0.0000", currency },
+    ...over,
+  });
+
+test("origen: un pedido sin cobros no tiene origen que decir, y no se inventa uno", () => {
+  const none = order({ payments: [], refunds: [] });
+  assert.deepEqual(orderOrigin(none), { kind: "none" });
+  assert.equal(originLabel(orderOrigin(none)), "Sin cobro");
+  assert.equal(capturedText(none), null);
+});
+
+test("origen: un intento de cobro que no movió dinero no da origen al pedido", () => {
+  const attempt = order({ payments: [paid("p1", "real", "0.0000", "EUR", { status: "OPEN" })] });
+  assert.deepEqual(orderOrigin(attempt), { kind: "none" }, "un intento con un proveedor no es dinero cobrado");
+  assert.equal(capturedText(attempt), null);
+});
+
+test("origen: un pedido con cobros de un solo origen dice ese origen, para cada uno de los tres", () => {
+  for (const kind of ["mock", "sandbox", "real"] as const) {
+    const one = order({ payments: [paid("p1", kind, "50.0000")] });
+    assert.deepEqual(orderOrigin(one), { kind: "single", origin: kind });
+    assert.equal(originLabel(orderOrigin(one)), ORIGIN_LABEL[kind]);
+  }
+});
+
+const COMBINATIONS: Array<Array<"mock" | "sandbox" | "real">> = [
+  ["mock", "sandbox"],
+  ["mock", "real"],
+  ["sandbox", "real"],
+  ["mock", "sandbox", "real"],
+];
+
+for (const kinds of COMBINATIONS) {
+  test(`origen: un pedido con cobros de ${kinds.join(" + ")} dice «Varios orígenes» y enseña cada importe aparte, sin sumar`, () => {
+    const amounts = { mock: "100.0000", sandbox: "200.0000", real: "400.0000" };
+    const mixed = order({ payments: kinds.map((kind, index) => paid(`p${index}`, kind, amounts[kind])) });
+
+    assert.equal(originLabel(orderOrigin(mixed)), "Varios orígenes");
+    const money = originMoney(orderKpis([mixed]).captured);
+    assert.equal(money.value, "Varios orígenes", "con varios orígenes no hay cifra");
+    const text = capturedText(mixed)!;
+    for (const kind of kinds) assert.ok(text.includes(`${ORIGIN_LABEL[kind]} ${formatMinor(toMinor(amounts[kind]), "EUR")}`), text);
+    const sum = kinds.reduce((total, kind) => total + Number(amounts[kind]), 0);
+    assert.ok(!text.includes(String(sum)) && !text.includes(`${sum},00`), `«${text}» contiene la suma de los orígenes`);
+  });
+}
+
+test("origen: el dinero de cada origen se agrupa por separado y dentro de cada uno por moneda", () => {
+  const orders = [
+    order({ id: "a", payments: [paid("p1", "mock", "100.0000"), paid("p2", "sandbox", "50.0000")] }),
+    order({ id: "b", payments: [paid("p3", "mock", "20.0000", "USD"), paid("p4", "real", "7.0000")] }),
+  ];
+
+  const kpis = orderKpis(orders);
+
+  assert.equal(kpis.captured.get("mock")?.get("EUR"), toMinor("100"));
+  assert.equal(kpis.captured.get("mock")?.get("USD"), toMinor("20"));
+  assert.equal(kpis.captured.get("sandbox")?.get("EUR"), toMinor("50"));
+  assert.equal(kpis.captured.get("real")?.get("EUR"), toMinor("7"));
+  assert.equal(kpis.captured.size, 3, "tres orígenes, tres grupos");
+  const money = originMoney(kpis.captured);
+  assert.equal(money.value, "Varios orígenes");
+  assert.deepEqual(money.perOrigin.map((part) => part.origin), ["mock", "real", "sandbox"]);
+  assert.ok(!JSON.stringify(money).includes("150,00") && !JSON.stringify(money).includes("157,00"), "ninguna suma cruzada");
+});
+
+test("origen: un solo origen se enseña con su cifra; ninguno, sin cifra; uno desconocido, sin datos de origen", () => {
+  const one = originMoney(orderKpis([order({ payments: [paid("p1", "sandbox", "30.0000")] })]).captured);
+  assert.equal(one.summary.kind, "single");
+  assert.equal(one.value, formatMinor(toMinor("30"), "EUR"));
+  assert.equal(originMoney(orderKpis([order({ payments: [] })]).captured).value, null);
+  const strange = originMoney(orderKpis([order({ payments: [paid("p1", "composite" as never, "30.0000")] })]).captured);
+  assert.equal(strange.summary.kind, "unknown");
+  assert.equal(strange.value, "Sin datos de origen", "un origen que no se conoce no se traduce a mock, sandbox ni real");
+  assert.equal(orderOrigin(order({ payments: [paid("p1", "composite" as never, "30.0000")] })).kind, "unknown");
+});
+
+test("origen: un reembolso y el dinero apartado pertenecen al origen de su cobro", () => {
+  const orders = [
+    order({
+      payments: [
+        paid("p1", "mock", "100.0000", "EUR", { refunded_amount: eur("10.0000"), refund_committed_amount: eur("30.0000") }),
+        paid("p2", "real", "50.0000", "EUR", { refunded_amount: eur("5.0000"), refund_committed_amount: eur("5.0000") }),
+      ],
+    }),
+  ];
+
+  const kpis = orderKpis(orders);
+
+  assert.equal(kpis.refunded.get("mock")?.get("EUR"), toMinor("10"));
+  assert.equal(kpis.refunded.get("real")?.get("EUR"), toMinor("5"));
+  assert.equal(kpis.refundInProgress.get("mock")?.get("EUR"), toMinor("20"), "30 pedidos − 10 confirmados, de mock");
+  assert.equal(kpis.refundInProgress.get("real"), undefined, "el cobro real no tiene nada apartado");
+});
+
+test("origen: un cobro duplicado cuenta como dinero en SU origen y no se funde con el de otro", () => {
+  const duplicated = order({
+    payments: [paid("p1", "mock", "100.0000"), paid("p2", "sandbox", "100.0000", "EUR", { status: "DUPLICATE_CAPTURE", duplicate_of_payment_id: "p1" })],
+  });
+
+  const kpis = orderKpis([duplicated]);
+
+  assert.equal(kpis.captured.get("mock")?.get("EUR"), toMinor("100"));
+  assert.equal(kpis.captured.get("sandbox")?.get("EUR"), toMinor("100"));
+  assert.equal(originLabel(orderOrigin(duplicated)), "Varios orígenes");
+});
+
+test("origen: Order.is_simulated invertido no cambia el origen, ni las cifras, ni el texto de lo cobrado", () => {
+  const payments = [paid("p1", "real", "80.0000"), paid("p2", "mock", "20.0000")];
+  const simulated = order({ is_simulated: true, payments });
+  const notSimulated = order({ is_simulated: false, customer_ref: "cust_9", payments });
+
+  assert.deepEqual(orderOrigin(notSimulated), orderOrigin(simulated));
+  assert.deepEqual(orderKpis([notSimulated]).captured, orderKpis([simulated]).captured);
+  assert.equal(capturedText(notSimulated), capturedText(simulated));
+  // Lo único que cambia es el contexto del pedido, y se dice como contexto.
+  assert.notEqual(orderContextText(simulated), orderContextText(notSimulated));
+  assert.match(orderContextText(simulated), /despliegue de simulación/);
+  assert.match(orderContextText(notSimulated), /fuera de una simulación/);
+});
+
+test("origen: el nombre del proveedor no clasifica; el origen es el que el backend guardó en el cobro", () => {
+  const named = order({ payments: [paid("p1", "real", "10.0000", "EUR", { provider: "simulated-payments" })] });
+  assert.deepEqual(orderOrigin(named), { kind: "single", origin: "real" });
+  const sim = order({ payments: [paid("p1", "mock", "10.0000", "EUR", { provider: "real-bank" })] });
+  assert.deepEqual(orderOrigin(sim), { kind: "single", origin: "mock" });
+});
+
+test("origen: los pies de las cifras dicen de qué origen son o que cada origen va aparte", () => {
+  const single = originMoney(orderKpis([order({ payments: [paid("p1", "mock", "10.0000")] })]).captured);
+  assert.equal(originCaption(single, "Cobros verificados por el backend"), "Cobros verificados por el backend · Simulado");
+  const several = originMoney(orderKpis([order({ payments: [paid("p1", "mock", "10.0000"), paid("p2", "real", "20.0000")] })]).captured);
+  assert.match(originCaption(several, "x"), /Cada origen va por separado: no se suman\./);
+  assert.equal(originCaption(originMoney(new Map()), "x"), "");
+  assert.equal(originMoneyInline(originMoney(new Map())), null);
+  assert.equal(originMoneyInline(several), originMoneyParts(several));
+});
+
+test("origen: el pedido no lee is_simulated para nada más que su contexto", () => {
+  const source = readFileSync(new URL("./orders-view.ts", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  assert.equal((source.match(/is_simulated/g) ?? []).length, 1, "una sola lectura: la del texto de contexto");
+});

@@ -478,7 +478,7 @@ test("origen: con varios orígenes la cabecera NO es una cifra: cada origen va a
   const kpis = revenueKpis(TWO_ORIGINS);
   assert.equal(kpis.verified.value, "Varios orígenes");
   assert.equal(kpis.verified.isNoData, true);
-  assert.match(kpis.verified.caption, /mock 20,00 € · sandbox 40,00 €/);
+  assert.match(kpis.verified.caption, /Simulado 20,00 € · Entorno de pruebas 40,00 €/);
   const everything = JSON.stringify([summaryView(TWO_ORIGINS), kpis]);
   for (const sum of ["60,00", "60.0000", "70,00"]) {
     assert.ok(!everything.includes(sum), `aparece ${sum}: se han sumado orígenes distintos`);
@@ -488,8 +488,8 @@ test("origen: con varios orígenes la cabecera NO es una cifra: cada origen va a
 test("origen: con un solo origen se enseña su cifra y se dice de qué origen es", () => {
   const kpis = revenueKpis(EUR_SUMMARY);
   assert.equal(kpis.verified.value, "100,00 €");
-  assert.match(kpis.verified.caption, /Origen: mock\./);
-  assert.match(kpis.underReview.caption, /Origen: mock\./);
+  assert.match(kpis.verified.caption, /Origen: Simulado\./);
+  assert.match(kpis.underReview.caption, /Origen: Simulado\./);
 });
 
 test("origen: tres orígenes tampoco se suman en las cabeceras de revisión", () => {
@@ -503,7 +503,7 @@ test("origen: tres orígenes tampoco se suman en las cabeceras de revisión", ()
   });
   const kpis = revenueKpis(three);
   assert.equal(kpis.underReview.value, "Varios orígenes");
-  assert.match(kpis.underReview.caption, /mock 1,00 € · real 2,00 € · sandbox 3,00 €/);
+  assert.match(kpis.underReview.caption, /Simulado 1,00 € · Proveedor real 2,00 € · Entorno de pruebas 3,00 €/);
   assert.ok(!JSON.stringify(kpis).includes("6,00"), "1 + 2 + 3 no es la cifra de nadie");
 });
 

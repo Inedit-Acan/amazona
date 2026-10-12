@@ -128,10 +128,13 @@ test("1 · lo verificado no se construye con proyecciones ni con datos de demost
 
 test("1b · `add` y `subtract` sólo aceptan la misma procedencia (lo garantiza el tipo)", () => {
   const source = read("lib/provenance.ts");
-  assert.match(source, /export function add<P extends Provenance>\(a: Tagged<P, Decimal>, b: Tagged<P, Decimal>\)/);
-  assert.match(source, /export function subtract<P extends Provenance>\(a: Tagged<P, Decimal>, b: Tagged<P, Decimal>\)/);
+  assert.match(source, /export function add<P extends OriginLess>\(a: Tagged<P, Decimal>, b: Tagged<P, Decimal>\)/);
+  assert.match(source, /export function subtract<P extends OriginLess>\(a: Tagged<P, Decimal>, b: Tagged<P, Decimal>\)/);
+  // Los hechos verificados llevan además su origen: solo se suman con el MISMO origen (el tipo lo impide con orígenes
+  // conocidos y `addVerified` lanza con los que vienen de datos).
+  assert.match(source, /export function addVerified<O extends Origin>\(a: Verified<Decimal, O>, b: Verified<Decimal, NoInfer<O>>\)/);
   // La única combinación que cruza procedencias está en cfo-margin y degrada a «declarado».
-  assert.match(read("lib/cfo-margin.ts"), /declared\(subtract\(net, cost\)\)/);
+  assert.match(read("lib/cfo-margin.ts"), /declared\(subtract\(net\.value, cost/);
 });
 
 // --- 2 y 3. El margen y la cobertura -------------------------------------------------------------------------------
@@ -142,16 +145,16 @@ test("2 · el margen no existe con una sola línea sin coste", () => {
     [order("o1", [item(), item({ line_number: 2, unit_cost: null, cost_provenance: null })])],
     complete,
   );
-  assert.equal(result.margin, null);
-  assert.equal(result.cost, null);
-  assert.equal(result.coverage.complete, false);
+  assert.equal(result.origins[0].margin, null);
+  assert.equal(result.origins[0].cost, null);
+  assert.equal(result.origins[0].coverage.complete, false);
 });
 
 test("3 · el margen aparece exactamente cuando la cobertura es del 100 %", () => {
   const result = marginSummary([entry("o1", "CAPTURE", "100.0000")], [order("o1", [item(), item({ line_number: 2 })])], complete);
-  assert.equal(result.coverage.percent, 100);
-  assert.equal(result.coverage.complete, true);
-  assert.equal(toText(result.margin!.value), "40.0000");
+  assert.equal(result.origins[0].coverage.percent, 100);
+  assert.equal(result.origins[0].coverage.complete, true);
+  assert.equal(toText(result.origins[0].margin!.value), "40.0000");
 });
 
 // --- 4. Monedas -----------------------------------------------------------------------------------------------------
@@ -162,7 +165,7 @@ test("4 · monedas distintas no se suman nunca, ni en el margen ni en el resumen
     [order("o1", [item()]), order("o2", [item()])],
     complete,
   );
-  assert.equal(toText(result.revenue!.value), "100.0000");
+  assert.equal(toText(result.origins[0].revenue!.value), "100.0000");
   assert.deepEqual(result.otherCurrencies, ["USD"]);
 
   const view = summaryView(
@@ -209,8 +212,8 @@ test("7 · «sin datos» nunca se convierte en cero", () => {
   const empty = summaryView(summary());
   assert.deepEqual(empty.eurByOrigin, []);
   const result = marginSummary([], [], complete);
-  assert.equal(result.margin, null);
-  assert.equal(result.net, null);
+  assert.deepEqual(result.origins, [], "sin pedidos no hay ningún origen, ni margen, ni neto");
+  assert.equal(result.blockedBy, "no_orders");
   // Y en pantalla, un `null` se pinta como el texto «Sin datos», no como un importe.
   const panels = read("app/cfo/cfo-panels.tsx");
   assert.ok(panels.includes("margin.margin === null ? NO_DATA"), "el margen nulo se enseña como «Sin datos»");
@@ -271,11 +274,11 @@ test("10 · ningún float entra en una cifra de dinero", () => {
 
 test("11 · un coste sin procedencia declarada no se usa", () => {
   const withoutProvenance = marginSummary([entry("o1", "CAPTURE", "100.0000")], [order("o1", [item({ cost_provenance: null })])], complete);
-  assert.equal(withoutProvenance.margin, null);
-  assert.equal(withoutProvenance.coverage.linesWithCost, 0);
+  assert.equal(withoutProvenance.origins[0].margin, null);
+  assert.equal(withoutProvenance.origins[0].coverage.linesWithCost, 0);
   // Y la que sí tiene procedencia la enseña.
   const withProvenance = marginSummary([entry("o1", "CAPTURE", "100.0000")], [order("o1", [item()])], complete);
-  assert.deepEqual(withProvenance.orders[0].costProvenances, ["supplier_quote"]);
+  assert.deepEqual(withProvenance.origins[0].orders[0].costProvenances, ["supplier_quote"]);
   assert.match(read("app/cfo/cfo-panels.tsx"), /costProvenances\.join/);
 });
 
@@ -328,8 +331,8 @@ test("15 · sin datos, la pantalla lo dice y no enseña ni una cifra inventada",
   assert.equal(empty.hasAnyData, false);
   assert.equal(empty.verified.length, 0);
   const margin = marginSummary([], [], complete);
-  assert.equal(margin.coverage.orders, 0);
-  assert.equal(margin.margin, null);
+  assert.deepEqual(margin.origins, []);
+  assert.equal(margin.blockedBy, "no_orders");
   const plan = planView([], new Map());
   assert.equal(plan.totalPerOrder, null);
   assert.equal(plan.blockedBy, "no_analyses");
@@ -347,8 +350,17 @@ test("el CFO usa el mismo vocabulario de procedencia que el Panel, y ninguna eti
     assert.ok(new RegExp(`\\b${mapped}:\\s*\\{`).test(badge), `falta la etiqueta de ${provenance}`);
   }
   assert.ok(!/label:\s*"Real"/i.test(badge));
-  for (const file of CFO_MODULES) {
-    assert.ok(!/\breal(es|idad)?\b/i.test(read(file)), `${file} dice «real» de unas cifras que no lo demuestran`);
+  // Solo el código y los textos: los comentarios pueden nombrar el vocabulario de orígenes (mock, sandbox, real) sin
+  // afirmar nada. La etiqueta «Proveedor real» no se escribe aquí: sale de `lib/provenance.ts`, la única fuente.
+  for (const file of CFO_MODULES.filter((module) => module !== "lib/provenance.ts")) {
+    assert.ok(!/\breal(es|idad)?\b/i.test(stripComments(read(file))), `${file} dice «real» de unas cifras que no lo demuestran`);
+  }
+  // La única fuente del vocabulario de origen puede nombrarlo, y solo donde define el origen `real` (el valor del
+  // backend y su etiqueta): ninguna otra frase de ese módulo lo dice.
+  const lines = stripComments(read("lib/provenance.ts")).split("\n").filter((line) => /\breal(es|idad)?\b/i.test(line));
+  assert.ok(lines.length > 0 && lines.length <= 3, `lib/provenance.ts nombra «real» en ${lines.length} líneas`);
+  for (const line of lines) {
+    assert.match(line, /ORIGINS\s*=|^\s*real:/, `una línea de provenance.ts dice «real» fuera de la definición del origen: ${line.trim()}`);
   }
 });
 

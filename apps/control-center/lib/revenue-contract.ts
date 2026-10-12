@@ -1,4 +1,5 @@
 import type { RevenueEntriesPage, RevenueSeries, RevenueSummary } from "./api.ts";
+import { isOrigin, ORIGINS } from "./provenance.ts";
 
 // El contrato de procedencia de los ingresos (M46, Commit 3, ADR 0031). Aquí NO se calcula nada: se comprueba que lo
 // que llegó es el contrato nuevo, y si no lo es, se FALLA con un error legible en vez de enseñar otra cosa.
@@ -8,7 +9,8 @@ import type { RevenueEntriesPage, RevenueSeries, RevenueSummary } from "./api.ts
 // datos; en cambio un backend antiguo (o uno cuya respuesta perdió el origen) se rechaza aquí, a la vista, y un origen
 // ausente o desconocido NUNCA se convierte en `mock`, `sandbox` ni `real` (ADR 0031 §9).
 
-export const PROVIDER_KINDS = ["mock", "sandbox", "real"] as const;
+/** El vocabulario cerrado de orígenes: el de `lib/provenance.ts`, la única fuente. */
+export const PROVIDER_KINDS = ORIGINS;
 
 export class RevenueContractError extends Error {
   constructor(message: string) {
@@ -18,8 +20,8 @@ export class RevenueContractError extends Error {
 }
 
 function checkOrigin(value: unknown, where: string): void {
-  if (typeof value !== "string" || !(PROVIDER_KINDS as readonly string[]).includes(value)) {
-    throw new RevenueContractError(`${where} no trae un provider_kind válido (mock, sandbox o real), trae ${JSON.stringify(value)}`);
+  if (!isOrigin(value)) {
+    throw new RevenueContractError(`${where} no trae un provider_kind válido (${ORIGINS.join(", ")}), trae ${JSON.stringify(value)}`);
   }
 }
 

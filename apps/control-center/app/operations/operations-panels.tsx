@@ -12,13 +12,17 @@ import {
   describe,
   formatAmount,
   loadedSummary,
+  orderContextText,
   orderEvents,
+  orderOrigin,
   PARTIAL_FIGURE_NOTE,
   type PipelineStage,
   type Tone,
 } from "@/lib/orders-view";
 import { formatInteger } from "@/lib/format";
+import { summarizeOrigins } from "@/lib/provenance";
 import { EmptyState } from "@/components/empty-state";
+import { OriginBadge } from "@/components/origin-badge";
 import { LevelChip } from "@/components/level-chip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -262,6 +266,7 @@ function Payments({ payments }: { payments: OrderPayment[] }) {
             <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium">
               Intento {payment.attempt_number}
               <StatusChip tone={status.tone}>{status.label}</StatusChip>
+              <OriginBadge summary={summarizeOrigins([payment.provider_kind])} />
             </p>
             <p className="text-muted-foreground">
               Pedido: {formatAmount(payment.amount)} · cobrado: {formatAmount(payment.captured_amount)}
@@ -290,6 +295,7 @@ function Refunds({ refunds }: { refunds: OrderRefund[] }) {
             <p className="flex flex-wrap items-center gap-2 text-[13px] font-medium">
               {formatAmount(refund.amount)}
               <StatusChip tone={status.tone}>{status.label}</StatusChip>
+              <OriginBadge summary={summarizeOrigins([refund.provider_kind])} />
             </p>
             <p className="text-muted-foreground">
               Motivo: {refund.reason} · pedido el {formatMoment(refund.requested_at)}
@@ -360,12 +366,11 @@ export function OrderDetailCard({ order, names }: { order: Order | undefined; na
         <CardTitle className="flex flex-wrap items-center gap-2">
           <span title={order.id}>Pedido #{shortId(order.id)}</span>
           <StatusChip tone={status.tone}>{status.label}</StatusChip>
-          <StatusChip tone="neutral">{order.is_simulated ? "Simulado" : "Real"}</StatusChip>
+          <OriginBadge summary={orderOrigin(order)} />
         </CardTitle>
         <CardDescription>
-          {order.is_simulated
-            ? "Pedido de una simulación: sin pasarela, proveedor ni transportista reales."
-            : "Pedido fuera de simulación."}
+          {orderContextText(order)}. Es el contexto del pedido, no el origen del dinero: cada cobro y cada reembolso dicen el
+          suyo.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
