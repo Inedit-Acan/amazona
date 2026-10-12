@@ -90,6 +90,9 @@ No crea tablas, así que no hay RLS nueva que activar.
 - **Estas restricciones son de este repositorio: no se han aplicado a Supabase.** La migración (y las dos anteriores,
   `c4e9a7d21f58` y `d7a3c5e91b24`) se aplicarán después, bajo el procedimiento separado y con aprobación expresa,
   ejecutando antes las siete consultas de solo lectura.
+  *Corrección del 2026-10-12: el texto anterior describe el estado en que se redactó este ADR. Hoy el `alembic_version` de
+  Supabase es `e1b8d4a62f37`, y los registros de Postgres de Supabase muestran las sentencias de estas tres migraciones
+  ejecutadas el 2026-10-02 a las 10:23:07–10:23:08 UTC. Quién las ejecutó: **UNKNOWN**.*
 - Un test de la fase anterior asumía que una referencia liquidada podía reservarse otra vez; se reescribió a la semántica
   nueva. Otro asumía que los lectores toleraban filas duplicadas del interruptor; ahora lo que se prueba es que la base no las
   admite.

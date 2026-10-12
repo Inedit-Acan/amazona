@@ -12,8 +12,8 @@
 · [0026](../architecture/adr-0026-database-identity-guards.md)
 
 **Presupuesto: 0 €. Ninguna cuenta, credencial, pasarela, proveedor ni transportista reales.** Ninguna prueba sale de la máquina
-(una guarda de `tests/conftest.py` lo hace cumplir). **Supabase no se ha modificado:** las migraciones de M44 y de este milestone
-no están aplicadas en ella (§«Estado de Supabase»).
+(una guarda de `tests/conftest.py` lo hace cumplir). **Las migraciones de M44 y de este milestone no están aplicadas en
+Supabase** (§«Estado de Supabase», que corrige la línea base anterior).
 
 ## La regla
 
@@ -143,10 +143,27 @@ proyecto sigue en 0 €**: ninguna cuenta, ninguna credencial, ningún proveedor
 
 ## Estado de Supabase
 
-**Intacto: 12 migraciones, la última `20260917114106`.** Su base sigue en la revisión `ebc8b88725e2` (M14) y el repositorio tiene
-**43 revisiones** hasta `e5a1d7c93b04`: **le faltan 24**, de las cuales **3 son de M45** y el resto de M29–M44 (incluida la de
-RLS `9f2b6c0a1d47`). Es decir, **todo el núcleo de pedidos, cobros, reembolsos, fulfillment, reconciliación y registro de ingresos
-no existe en la base real.** El procedimiento (la «Fase B») está escrito y se ensayó en local con éxito en documentos locales del propietario que **no están
+> **Corrección del 2026-10-12.** Este apartado decía «Intacto: 12 migraciones, la última `20260917114106`; su base sigue en la
+> revisión `ebc8b88725e2` (M14); le faltan 24». **Estaba desactualizado.** Los «12» son los de la lista `supabase_migrations`, que
+> no recoge lo aplicado con Alembic, y `ebc8b88725e2` era la revisión de M14. Lo que sigue es la línea base verificada, solo con
+> lecturas, en el proyecto `amazona`.
+
+**Línea base verificada (2026-10-12):**
+
+- `alembic_version` = **`e1b8d4a62f37`**. La lista `supabase_migrations` sigue en 12, la última `20260917114106`.
+- El repositorio tiene **43 revisiones** hasta `e5a1d7c93b04`: **le faltan 6**. Tres son de M44 (`f6a1c8d3e925`, `a9d2e7b4c136`,
+  `b3c8f1a5d742`) y tres de M45 (`d7e2a9c4f1b8`, `c4e8b1d9a273`, `e5a1d7c93b04`). La RLS de `9f2b6c0a1d47` y las de M29–M43 hasta
+  `e1b8d4a62f37` **ya figuran aplicadas**.
+- **Todo el núcleo de pedidos, cobros, reembolsos, fulfillment, reconciliación y registro de ingresos sigue sin existir en la base
+  real**: ninguna tabla de `orders`, `payments`, `refunds`, `fulfillments` ni `revenue_ledger_entries`.
+- **Quién la llevó hasta `e1b8d4a62f37`: UNKNOWN. Cuándo: 2026-10-02, entre las 10:23:07 y las 10:23:08 UTC.** Evidencia: los
+  registros de Postgres de Supabase contienen las sentencias DDL de las tres revisiones (`external_actions`, `idempotency_records`
+  y las restricciones de `e1b8d4a62f37`), posteriores a la copia local etiquetada `b6d2f8a41c93` (2026-10-02, 11:53 hora local).
+  Esos registros recogen sentencias y sesiones del pooler, **no a la persona o proceso que las lanzó**, y no recogen el
+  `UPDATE` de `alembic_version`, así que la hora probada es la del DDL y no necesariamente la de ese `UPDATE`; Git y CI no
+  registran la operación. Por eso el actor no se infiere.
+
+El procedimiento (la «Fase B») está escrito y se ensayó en local con éxito en documentos locales del propietario que **no están
 versionados**; **no se ha ejecutado y requiere autorización expresa** porque escribe en la base real. M45 no lo abre.
 
 ## Lo que NO se verificó
@@ -250,11 +267,11 @@ Los fijados en la fase 0 y su estado:
 | Todo ingreso o reembolso del registro tiene un `PaymentEvent` verificado y cuadra con `payments` | ✔ — oráculo independiente tras cada paso de la caminata |
 | Ninguna pantalla muestra un pedido inexistente ni un importe inventado | ✔ para el dinero de Panel, Finanzas y Proyectos; **Panel conserva paneles «Demo»** que no son dinero |
 | CI verde en cada commit | ✔ — 14 de 14 (verificado con `gh run list`) |
-| Supabase intacta · 0 € gastados | ✔ · ✔ |
+| Migraciones de M44 y M45 sin aplicar a Supabase (ver la corrección del 2026-10-12) · 0 € gastados | ✔ · ✔ |
 
 ## Bloqueos antes de conectar algo real
 
-- **Una prueba contra Supabase real:** aplicar la Fase B (24 revisiones), con autorización expresa, copia previa y el procedimiento ya
+- **Una prueba contra Supabase real:** aplicar la Fase B (6 revisiones, de `e1b8d4a62f37` a `e5a1d7c93b04`; antes figuraba «24», cifra desactualizada), con autorización expresa, copia previa y el procedimiento ya
   ensayado. Hasta entonces no existe en esa base ni un pedido, ni un cobro, ni el registro.
 - **Un proveedor o una pasarela reales:** P1-1, P1-2 y P1-3; derechos, coste y política de gasto escritos antes de la primera llamada
   (ADR 0015); consulta autoritativa; `payment.cancel` o caducidad; limitación del webhook; observabilidad de `attention_required`.

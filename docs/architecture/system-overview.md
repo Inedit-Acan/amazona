@@ -1303,7 +1303,7 @@ como parámetro obligatorio.
 | Dominio (pedidos, cobros, reembolsos, fulfillment), reglas, base de datos, API, permisos, auditoría, idempotencia | **Real**, probado sobre PostgreSQL |
 | Pasarela de pago, proveedor de abastecimiento y transportista | **Simulados** (`simulated-payments`, `simulated-fulfilment`); no existe ningún adaptador real |
 | Clientes, carrito, checkout, IVA/OSS, facturas, contabilidad, devoluciones físicas, seguimiento de envíos | **No existen** |
-| Migraciones de M44 y de M45 en Supabase | **No aplicadas** (Supabase tiene 12 y está en la revisión `ebc8b88725e2`; el repositorio tiene 43 hasta `e5a1d7c93b04`, así que **faltan 24**; requiere autorización y procedimiento aparte) |
+| Migraciones de M44 y de M45 en Supabase | **No aplicadas.** Línea base verificada el 2026-10-12: `alembic_version` de Supabase = `e1b8d4a62f37`; el repositorio tiene 43 revisiones hasta `e5a1d7c93b04`, así que **faltan 6**: `f6a1c8d3e925`, `a9d2e7b4c136`, `b3c8f1a5d742` (M44) y `d7e2a9c4f1b8`, `c4e8b1d9a273`, `e5a1d7c93b04` (M45). Requiere autorización y procedimiento aparte. Quién llevó la base hasta `e1b8d4a62f37`: **UNKNOWN**; cuándo se ejecutó su DDL: 2026-10-02, 10:23:07–10:23:08 UTC, según los registros de Postgres de Supabase (no necesariamente el `UPDATE` de `alembic_version`; ver [`milestone-45-demo.md`](../milestones/milestone-45-demo.md), «Estado de Supabase»). *Corrección: este documento decía «12 migraciones, revisión `ebc8b88725e2`, faltan 24»; estaba desactualizado. Los «12» son las de la lista `supabase_migrations`, que no recoge las revisiones aplicadas con Alembic.* |
 
 `staging` y `production` **no arrancan** hasta que existan adaptadores no simulados de pago y fulfillment (§12.2): es
 intencionado.

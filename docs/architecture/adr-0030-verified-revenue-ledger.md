@@ -256,7 +256,8 @@ se corrigen solas. Una divergencia es un defecto con prioridad, porque L3 dice q
 ### 13. Datos anteriores al registro
 
 - **Sin retrorrelleno en M45.** No hay dinero real (todo es simulado, ADR 0028), la base local es desechable y Supabase
-  **no tiene siquiera las tablas de pagos** (12 migraciones). Una base con cobros capturados antes de la migración es posible en
+  **no tiene siquiera las tablas de pagos** (12 migraciones; *corrección del 2026-10-12: esos «12» son los de la lista
+  `supabase_migrations`; su `alembic_version` es `e1b8d4a62f37`, anterior a los pedidos, y le faltan 6 revisiones*). Una base con cobros capturados antes de la migración es posible en
   local; su estado es **`outside_ledger`**, no un fallo.
 - **Definición operativa.** Un cobro con `captured_amount > 0` y **sin entrada `CAPTURE`** cuyo evento de captura se aplicó **antes**
   de la primera entrada del registro (o con el registro vacío) es `outside_ledger`: se **lista** aparte en la reconciliación como

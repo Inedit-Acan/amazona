@@ -16,8 +16,9 @@ local desechable (borrada al terminar), con el backend real y el Control Center 
 ## Qué NO prueba
 
 No prueba una pasarela, un proveedor ni un transportista reales (no existen), ni IVA, facturas, clientes o checkout. El «cobro» lo
-**simula la consola** emitiendo un evento firmado que entra por la misma puerta que un webhook real. No prueba Supabase (le faltan 24
-migraciones: ver [`milestone-45-demo.md`](milestone-45-demo.md)).
+**simula la consola** emitiendo un evento firmado que entra por la misma puerta que un webhook real. No prueba Supabase (le faltan 6
+revisiones de Alembic, las de M44 y M45: ver [`milestone-45-demo.md`](milestone-45-demo.md); este texto decía 24, cifra
+desactualizada).
 
 ## Requisitos
 
@@ -333,7 +334,9 @@ $env:PGPASSWORD = "<CLAVE>"
 Remove-Item -Recurse -Force "$env:TEMP\amazona-run"
 ```
 
-Comprueba que **Supabase no cambió**: sigue con **12 migraciones**, la última `20260917114106`.
+Comprueba, solo con lecturas, que **Supabase no cambió** respecto de su línea base verificada el 2026-10-12: `alembic_version` =
+`e1b8d4a62f37` y **12 migraciones** en la lista de Supabase, la última `20260917114106`. (Antes se comprobaba solo la lista de 12,
+que no recoge lo aplicado con Alembic.)
 
 ## Resultado global
 

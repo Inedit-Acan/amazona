@@ -433,6 +433,8 @@ Preguntadas el 2026-10-02, antes de escribir la documentación del cierre:
    verdad del dinero, como el presupuesto ya lo es).
 5. **Sin decidir:** cuándo y con qué procedimiento se aplican las migraciones de M44 a Supabase. Hoy **no están aplicadas**
    (Supabase tiene 12 migraciones, la última `20260917114106`); requiere una autorización expresa y un procedimiento aparte.
+   *Corrección del 2026-10-12: esos «12» son los de la lista `supabase_migrations`, no el estado de Alembic. La revisión de
+   Alembic verificada de Supabase es `e1b8d4a62f37`; las de M44 siguen sin aplicarse (ver el milestone 45, «Estado de Supabase»).*
 
 ### E8. Operaciones pagina sus pedidos y dice cuándo trunca (M45, P2-2)
 
