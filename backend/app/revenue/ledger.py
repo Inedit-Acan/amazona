@@ -40,9 +40,11 @@ class RevenueLedger:
         self, *, event: PaymentEvent, payment: Payment, payment_status: str, amount: Decimal
     ) -> RevenueLedgerEntry:
         """La entrada `CAPTURE` de una captura que `PaymentService` acaba de registrar en el cobro."""
+        self._same_origin(event, payment)
         return self._write(
             RevenueLedgerEntry(
                 kind=EntryKind.CAPTURE.value,
+                provider_kind=payment.provider_kind,
                 classification=classify_capture(payment_status).value,
                 payment_event_id=event.id,
                 payment_id=payment.id,
@@ -66,9 +68,11 @@ class RevenueLedger:
         capture = self.capture_entry_of(payment.id)
         if capture is None:
             return None
+        self._same_origin(event, payment)
         return self._write(
             RevenueLedgerEntry(
                 kind=EntryKind.REFUND.value,
+                provider_kind=capture.provider_kind,
                 classification=capture.classification,
                 payment_event_id=event.id,
                 payment_id=payment.id,
@@ -88,6 +92,18 @@ class RevenueLedger:
                 RevenueLedgerEntry.payment_id == payment_id, RevenueLedgerEntry.kind == EntryKind.CAPTURE.value
             )
         ).one_or_none()
+
+    @staticmethod
+    def _same_origin(event: PaymentEvent, payment: Payment) -> None:
+        """El origen de la entrada es **copiado** del cobro (ADR 0031 §5), y el evento que la causa tiene que ser del
+        mismo.
+        La base lo impide con claves ajenas compuestas; esto lo dice antes, con un error que no se confunde con la
+        carrera de las capturas (no es un `IntegrityError`)."""
+        if event.provider_kind != payment.provider_kind:
+            raise RevenueLedgerWriteError(
+                f"the entry of event {event.id} cannot be written: the event is from origin {event.provider_kind} "
+                f"and its payment from {payment.provider_kind}"
+            )
 
     def _write(self, entry: RevenueLedgerEntry) -> RevenueLedgerEntry:
         try:

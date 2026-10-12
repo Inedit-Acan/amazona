@@ -36,6 +36,22 @@ def run(conn, module, direction: str) -> None:
         getattr(module, direction)()
 
 
+LEDGER_FILE = "c4e8b1d9a273_revenue_ledger_entries.py"
+LEDGER_INDEX_FILE = "e5a1d7c93b04_revenue_ledger_occurred_at_index.py"
+MONEY_PROVENANCE_FILE = "b7e4a1c9d052_money_provenance.py"
+
+
+def apply_through_money_provenance(conn) -> None:
+    """Termina la cadena de pagos hasta la 44.ª (ADR 0031): el modelo declara el origen del dinero, así que la paridad
+    modelo↔migración de una tabla de pagos solo se cumple con **toda** la cadena aplicada. Aplica lo que falte."""
+    if "revenue_ledger_entries" not in sa.inspect(conn).get_table_names():
+        run(conn, load_migration(LEDGER_FILE), "upgrade")
+    indexes = {i["name"] for i in sa.inspect(conn).get_indexes("revenue_ledger_entries")}
+    if "ix_revenue_entries_occurred_at" not in indexes:
+        run(conn, load_migration(LEDGER_INDEX_FILE), "upgrade")
+    run(conn, load_migration(MONEY_PROVENANCE_FILE), "upgrade")
+
+
 def apply_prerequisites(conn, *tables: str) -> None:
     """Crea con el modelo las tablas a las que apuntan las claves ajenas de la migración (productos, proveedores…)."""
     Base.metadata.create_all(conn, tables=[Base.metadata.tables[name] for name in tables])

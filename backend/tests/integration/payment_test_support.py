@@ -27,6 +27,7 @@ from app.actions.contract import (
 from app.core.config import Settings
 from app.db.models.order import Order
 from app.db.models.payment import Payment, PaymentEvent, Refund
+from app.integrations.ports import ProviderKind
 from app.money.money import Money
 from app.orders.payment_attempts import PaymentAttemptService, Requester
 from app.payments.ingress import IngressResult, PaymentIngress
@@ -75,6 +76,24 @@ class ScriptedPaymentProvider(SimulatedPaymentProvider):
         if behavior == "timeout_after":
             raise ProviderTimeoutError("the provider executed and the answer was lost")
         return response
+
+
+class MockPaymentProvider(ScriptedPaymentProvider):
+    """El origen declarado **explícitamente** (ADR 0031): un simulador `mock`."""
+
+    kind = ProviderKind.MOCK
+
+
+class SandboxPaymentProvider(ScriptedPaymentProvider):
+    """Con el **mismo nombre** que el simulador, pero que declara ser el entorno de pruebas de un proveedor."""
+
+    kind = ProviderKind.SANDBOX
+
+
+class RealPaymentProvider(ScriptedPaymentProvider):
+    """Con el **mismo nombre** que el simulador, pero que declara ser un proveedor real (sin dinero: es un doble)."""
+
+    kind = ProviderKind.REAL
 
 
 def add_order(

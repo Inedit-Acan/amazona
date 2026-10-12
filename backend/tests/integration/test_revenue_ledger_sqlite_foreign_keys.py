@@ -29,7 +29,7 @@ from app.db.models.revenue import RevenueLedgerEntry
 
 COLUMNS = (
     "kind", "classification", "payment_event_id", "payment_id", "order_id", "refund_id", "capture_entry_id",
-    "amount", "currency", "occurred_at", "recorded_at",
+    "amount", "currency", "occurred_at", "recorded_at", "provider_kind",
 )  # fmt: skip
 
 

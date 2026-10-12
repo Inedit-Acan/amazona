@@ -87,6 +87,18 @@ class RevenueLedgerEntry(IdMixin, Base):
             ],
             name="fk_revenue_entries_refund_inherits_capture",
         ),
+        # El origen de la entrada es el de su cobro **y** el de su evento (ADR 0031 §7): la base impide cruzarlos,
+        # también en un reembolso (que lleva el `payment_id` de su captura).
+        ForeignKeyConstraint(
+            ["payment_id", "provider_kind"],
+            ["payments.id", "payments.provider_kind"],
+            name="fk_revenue_entries_payment_kind",
+        ),
+        ForeignKeyConstraint(
+            ["payment_event_id", "provider_kind"],
+            ["payment_events.id", "payment_events.provider_kind"],
+            name="fk_revenue_entries_event_kind",
+        ),
         Index(
             "uq_revenue_entries_one_capture_per_payment",
             "payment_id",
@@ -112,6 +124,7 @@ class RevenueLedgerEntry(IdMixin, Base):
             postgresql_include=["currency", "classification", "kind", "amount"],
         ),
         CheckConstraint(_KINDS, name="ck_revenue_entries_kind"),
+        CheckConstraint("provider_kind IN ('mock', 'sandbox', 'real')", name="ck_revenue_entries_provider_kind"),
         CheckConstraint(_CLASSIFICATIONS, name="ck_revenue_entries_classification"),
         CheckConstraint("amount > 0", name="ck_revenue_entries_amount_positive"),
         CheckConstraint("length(currency) = 3", name="ck_revenue_entries_currency_shape"),
@@ -122,6 +135,10 @@ class RevenueLedgerEntry(IdMixin, Base):
     )
 
     kind: Mapped[str] = mapped_column(String(10))
+    #: De dónde viene el dinero (ADR 0031): se **copia** del cobro al escribir la entrada y no se modifica nunca (el
+    #: registro es *append-only*). **Sin valor por defecto.** No es la clasificación (`classification`) ni el tipo de
+    #: entrada (`kind`): es el origen del proveedor.
+    provider_kind: Mapped[str] = mapped_column(String(10))
     classification: Mapped[str] = mapped_column(String(20))
     payment_event_id: Mapped[str] = mapped_column(ForeignKey("payment_events.id"))
     payment_id: Mapped[str] = mapped_column(ForeignKey("payments.id"), index=True)

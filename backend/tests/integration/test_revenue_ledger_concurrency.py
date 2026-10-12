@@ -156,7 +156,7 @@ def test_one_stored_event_applied_by_many_workers_at_once_is_one_entry():
                 event_id="evt_stored",
             )
             verified = provider.verify_webhook(headers=headers, raw_body=raw, now=datetime.datetime.now(datetime.UTC))
-            event_id, _ = ingress(db, provider)._record(verified)
+            event_id, _ = ingress(db, provider)._record(verified, provider.kind)
 
         def apply(session: Session):
             return PaymentService(session).apply(event_id)

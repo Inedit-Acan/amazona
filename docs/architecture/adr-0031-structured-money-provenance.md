@@ -1,6 +1,6 @@
 # ADR 0031: Procedencia estructurada del dinero — dos ejes (evidencia y origen operativo), persistidos como propiedad del hecho
 
-- **Estado:** Aceptada (decisiones del propietario del 2026-10-12, con una segunda ronda el mismo día que retira toda inferencia por nombre: §6 y §18). **No implementada.** Este commit contiene **solo el ADR**: ni código, ni migración, ni frontend, ni cambios de esquema, ni Supabase. La implementación empieza en el Commit 2 de M46 (§20).
+- **Estado:** Aceptada (decisiones del propietario del 2026-10-12, con una segunda ronda el mismo día que retira toda inferencia por nombre: §6 y §18). **Implementada en parte**: el Commit 2A de M46 implementa el origen en el cobro, el evento y el registro, y el emparejado (ver el **addendum, §21**); el Commit 1 de M46 (este ADR) fue solo documentación. Faltan el Commit 2B (`check_ledger` C5/C6 y las defensas), la API, la interfaz y el cierre (§20).
 - **Fecha:** 2026-10-12
 - **Depende de:** [ADR 0003](adr-0003-rls-deny-by-default.md), [ADR 0026](adr-0026-database-identity-guards.md), [ADR 0028](adr-0028-orders-payments-fulfilment-core.md), [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md), [ADR 0030](adr-0030-verified-revenue-ledger.md)
 - **Enmienda a:** [ADR 0030](adr-0030-verified-revenue-ledger.md) (el registro hoy «no distingue de forma estructural una operación simulada de una que no lo sea»: deja de ser cierto) y [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (el alcance de `Order.is_simulated`, §12)
@@ -289,7 +289,8 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 | # | Commit | Migración |
 |---|---|---|
 | 1 | **docs: ADR 0031** (este) | no |
-| 2 | backend: ver el alcance de abajo | **sí (44.ª)** |
+| 2A | backend: migración 44.ª, dominio, propagación del tipo y emparejado (**implementado**, §21) | **sí (44.ª)** |
+| 2B | backend: `check_ledger` C5/C6, defensas, prueba de uso prohibido, caos y mutaciones | no |
 | 3 | API: agregados por origen, `OrderOut`/pagos con origen, `SCOPE` | no |
 | 4 | frontend: `Verified<T>` con origen, etiquetas, fuera «Real»; prueba de frontera actualizada | no |
 | 5 | `POST /api/economics/runs`: canal desconocido → 422 | no |
@@ -298,7 +299,7 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 | 8 | Textos que afirman más de lo que el sistema sabe | no |
 | 9 | docs: milestone 46 y `system-overview` | no |
 
-**Alcance previsto del Commit 2** (backend, **sin implementar todavía**):
+**Alcance previsto del Commit 2** (dividido por decisión del propietario en 2A, ya implementado, y 2B; el addendum §21 recoge lo que 2A hizo de verdad y en qué se aparta de esta lista):
 
 - **Migración 44.ª** (`down_revision = e5a1d7c93b04`): `provider_kind` en **`payments`, `payment_events` y `revenue_ledger_entries`**, con el relleno y las guardas de §8, `CHECK`, `UNIQUE (id, provider_kind)`, claves ajenas compuestas y disparadores de §7. **Sin columna en `refunds`.**
 - **`PaymentIngress`:** recibe (adaptador, tipo) de una única resolución del registro; captura el tipo **antes** de emparejar; rechaza un adaptador sin tipo estructurado. Se adaptan los 3 puntos de producción (`api/payments.py`, `cli.py` ×2) y las 10 líneas de pruebas de 3 ficheros que lo construyen.
@@ -311,6 +312,70 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 - **Pruebas, caos y mutaciones** de §16 (incluidas M13–M15).
 
 Un commit por responsabilidad, CI completo entre commits y push solo con autorización expresa. Los agregados nuevos del CFO quedan fuera salvo que el volumen real los exija.
+
+### 21. Addendum del Commit 2A (2026-10-12): lo que se implementó
+
+Este apartado documenta **exactamente** la implementación del Commit 2A. Donde difiere de lo previsto arriba, manda este apartado.
+
+**D1 — F12, B-parcial.** `provider_kind` entra en la identidad estructural de `Payment` y de `PaymentEvent`; `Refund` **no** gana columna.
+
+- `uq_payments_provider_payment_ref` es ahora `(provider, provider_kind, provider_payment_ref)` (parcial, `provider_payment_ref IS NOT NULL`)
+  y `uq_payment_events_provider_event`, `(provider, provider_kind, provider_event_id)`. `uq_refunds_provider_refund_ref` **no cambia**.
+- Comprobado con pruebas: la misma referencia o el mismo id de evento en **dos orígenes** son dos hechos distintos (incluidos `mock`↔`sandbox`
+  y `sandbox`↔`real`); en el **mismo** origen siguen siendo uno solo, también bajo carrera.
+- **Reembolsos, residual conocido y probado:** su identidad sigue siendo `(proveedor, referencia)`. Una colisión de referencia de reembolso
+  entre dos orígenes se **rechaza** (`uq_refunds_provider_refund_ref`, en voz alta); jamás se funde con el otro hecho. El emparejado por
+  referencia de un reembolso exige el origen **por su cobro** (`Refund.payment_id` es obligatorio): un evento de otro origen que solo coincide con
+  la referencia de un reembolso queda `UNMATCHED`. Condición del propietario: si apareciera una ambigüedad de reembolso que las claves
+  actuales no impidan, se detiene el trabajo antes de ampliar `refunds`.
+
+**D2 — Cómo viaja el tipo: `PaymentProvider.kind`** (refina el §4; el tipo sigue siendo estructurado y sale del registro).
+
+- `PaymentProvider.kind: ProviderKind` es un atributo **obligatorio** del puerto. Solo valen `mock`, `sandbox` y `real`; una cadena suelta
+  (`"mock"`), `None` o `composite` se rechazan con `PaymentProviderKindError` (`require_payment_kind`).
+- `SimulatedPaymentProvider.kind = ProviderKind.MOCK` lo declara él mismo; sus subclases lo heredan y una que quiera otro origen lo declara
+  explícitamente. **Ningún camino** deduce el tipo del nombre, de `Order.is_simulated`, de `ProviderBinding.is_simulated` ni del entorno.
+- **El registro valida dos veces:** al cargar el módulo (`validate_payment_implementations()`: el `kind` de cada adaptador de pagos debe ser
+  el de la clave bajo la que se registra) y al resolver (`ProviderRegistry.resolve`). Un adaptador mal etiquetado no llega a existir.
+- Un proveedor sin `kind` válido no abre cobros (`PaymentAttemptService.start`) ni recibe eventos (`PaymentIngress.receive`): se rechaza **antes**
+  de verificar ni escribir nada.
+
+**Propagación.** `PaymentProvider.kind` → `Payment.provider_kind` (alta del cobro) → `PaymentEvent.provider_kind` (capturado en
+`PaymentIngress.receive`, **antes** de emparejar; lo conserva también un evento `UNMATCHED`) → `RevenueLedgerEntry.provider_kind` (copiado del
+cobro; un reembolso, de su captura). `RevenueLedger` comprueba además que el evento es del mismo origen que el cobro (si no,
+`RevenueLedgerWriteError`: no es la carrera de las capturas).
+
+**Emparejado (precisa §6 y F4).**
+
+- Por **referencia del proveedor** (cobro o reembolso): solo dentro del mismo origen. Si únicamente la referencia coincide en otro origen, no hay
+  emparejado: el evento queda `UNMATCHED`, con su propio origen.
+- Por **nuestro id** (`client_reference`): si el cobro nombrado es de otro origen, el evento es `CONFLICT`, se conserva como evidencia y **no se
+  enlaza** al cobro (`payment_id` queda nulo: la clave ajena compuesta tampoco lo permitiría), sin tocar el cobro, el pedido ni el registro.
+- Pedir un reembolso a un proveedor de otro origen que el del cobro se rechaza (`ConflictError`) sin reservar nada.
+
+**Migración 44.ª (`b7e4a1c9d052`).** Orden: (1) **guarda**, antes de tocar nada: se niega si hay un cobro o un evento cuyo `provider` no es el del
+simulador (no clasifica: solo se niega); (2) `ADD COLUMN … DEFAULT 'mock'` temporal en `payments`, `payment_events` y `revenue_ledger_entries`;
+(3) se **retira** el `DEFAULT`; (4) `CHECK` cerrado; (5) `UNIQUE (id, provider_kind)` en cobros y eventos; (6) las dos identidades por origen;
+(7) tres claves ajenas compuestas (`fk_payment_events_payment_kind`, `fk_revenue_entries_payment_kind`, `fk_revenue_entries_event_kind`);
+(8) disparadores que rechazan el `UPDATE` que **cambia** `provider_kind` en cobros y eventos (función `provider_kind_immutable()` con
+`SET search_path = pg_catalog`). `downgrade` se niega si alguna fila no es `mock`. Una prueba demuestra la premisa del relleno: el registro de
+pagos contiene solo `MOCK`, y cualquier otro tipo lanza `ProviderNotAvailableError`.
+
+- **El relleno no usa `UPDATE`:** el `DEFAULT` temporal no dispara los disparadores *append-only* (demostrado en PostgreSQL con la cadena real de
+  Alembic, no solo en un experimento), y una prueba comprueba que la migración no emite ninguna sentencia DML.
+- **Trampa de SQLite (solo pruebas):** recrear una tabla con `batch_alter_table` **destruye sus disparadores** sin avisar; el registro dejaba de
+  ser *append-only*. La rama SQLite los **vuelve a crear** y hay pruebas, tras subir, bajar y volver a subir, de que existen y rechazan `UPDATE`
+  y `DELETE`.
+- **Sin tablas nuevas:** la RLS se hereda y no se toca (prueba con la cadena real: `relrowsecurity` y las políticas, idénticas antes y después).
+
+**Radio de impacto real** (corrige la estimación del §20). Con `kind` como atributo del adaptador, los siete proveedores de prueba lo heredan del
+simulador y no se tocaron. Hubo que declarar el origen en seis sitios que construyen filas a mano (cobros, un evento «ya guardado» y dos
+clonadores de entradas del registro), cuatro pruebas de paridad modelo↔migración que ahora aplican toda la cadena, y tres pruebas antiguas que
+fijaban un detalle que cambió (las claves de la auditoría, una llamada directa a `PaymentIngress._record` y la migración del registro sobre
+PostgreSQL).
+
+**Lo que queda para 2B y siguientes:** `check_ledger` C5/C6, la prueba que prohíbe `ProviderBinding.is_simulated` en `orders/`, `payments/` y
+`revenue/`, el caos y las mutaciones restantes (M1–M18), la API y la interfaz.
 
 ## Contrastado contra el código el 2026-10-12
 

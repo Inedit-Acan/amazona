@@ -39,6 +39,7 @@ from app.integrations.product_intelligence.ebay import (
 from app.integrations.product_intelligence.langlinks import LanglinkResolver
 from app.integrations.regulatory.eur_lex import EurLexCellarSource
 from app.orders.simulated_fulfilment import SimulatedFulfilmentAdapter
+from app.payments.port import PAYMENT_PROVIDER_KINDS, PaymentProviderKindError, require_payment_kind
 from app.payments.providers.simulated import SimulatedPaymentProvider
 
 
@@ -204,6 +205,30 @@ IMPLEMENTATIONS: dict[IntegrationDomain, dict[ProviderKind, Callable[..., object
 }
 
 
+def validate_payment_implementations(
+    implementations: dict[IntegrationDomain, dict[ProviderKind, Callable[..., object]]] | None = None,
+) -> None:
+    """Todo proveedor de pagos registrado declara un `kind` permitido **y** coincide con la clave bajo la que se
+    registra (ADR 0031 §4). Si no, no puede usarse: falla al cargar el módulo, antes de que nadie lo resuelva.
+
+    El tipo es la clave del registro, no una propiedad del nombre: un mismo adaptador podría registrarse bajo `sandbox`
+    y bajo `real` sin cambiar de nombre, y esta comprobación es la que impide que su `kind` diga una cosa y la clave
+    otra."""
+    table = (implementations if implementations is not None else IMPLEMENTATIONS)[IntegrationDomain.PAYMENTS]
+    for key, factory in table.items():
+        if key not in PAYMENT_PROVIDER_KINDS:
+            raise PaymentProviderKindError(f"payment providers cannot be registered under {key.value!r}")
+        declared = getattr(factory, "kind", None)
+        if declared is not key:
+            raise PaymentProviderKindError(
+                f"{getattr(factory, '__name__', factory)!r} is registered as {key.value!r} "
+                f"but declares kind {getattr(declared, 'value', declared)!r}"
+            )
+
+
+validate_payment_implementations()
+
+
 class ProviderRegistry:
     """Resolves the active provider for each domain from Settings."""
 
@@ -261,9 +286,14 @@ class ProviderRegistry:
         # los globales: si no, un registro creado con otra configuración
         # devolvería un proveedor que no la respeta (Milestone 34).
         builder = BUILDERS.get((domain, kind))
-        if builder is not None:
-            return builder(self._settings, meter or UnmeteredCalls())
-        return factory()
+        adapter = builder(self._settings, meter or UnmeteredCalls()) if builder is not None else factory()
+        if domain is IntegrationDomain.PAYMENTS and require_payment_kind(adapter) is not kind:
+            # El adaptador que sale del registro dice ser de un tipo y se pidió otro: no se usa (ADR 0031 §4).
+            raise PaymentProviderKindError(
+                f"the payment provider resolved for {kind.value!r} "
+                f"declares kind {require_payment_kind(adapter).value!r}"
+            )
+        return adapter
 
     def simulated_domains(self) -> list[IntegrationDomain]:
         """Domains that may serve fixture data. Reads the configured kind

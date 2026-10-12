@@ -430,6 +430,7 @@ def test_every_order_carries_its_own_payments_refunds_and_fulfillments_across_pa
                 order_id=order.id,
                 attempt_number=1,
                 provider="simulated-payments",
+                provider_kind="mock",
                 status="SUCCEEDED",
                 amount=Decimal("50.0000"),
                 currency="EUR",

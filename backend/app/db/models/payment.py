@@ -2,21 +2,54 @@ import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    DDL,
     JSON,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
     String,
     UniqueConstraint,
+    event,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.db.models.mixins import IdMixin, TimestampMixin
+
+#: El origen del dinero (ADR 0031): `mock`, `sandbox` o `real`. Cerrado: no hay `composite` ni valor por defecto.
+_PROVIDER_KINDS = "provider_kind IN ('mock', 'sandbox', 'real')"
+
+#: `provider_kind` es un **hecho histórico** (ADR 0031 §7): una vez persistido no se reescribe. PostgreSQL: una
+#: función compartida y un disparador por tabla que rechaza el `UPDATE` que lo **cambia** (uno que lo deja igual, o
+#: que no lo toca, pasa). SQLite: un disparador por tabla. El texto es el mismo que el de la migración, y una prueba
+#: comprueba que no se separan. Sin `%` (el `DDL` de SQLAlchemy lo interpola) ni `:` (`text()` lo tomaría por un
+#: parámetro).
+PROVIDER_KIND_IMMUTABLE_FUNCTION_POSTGRESQL = """CREATE OR REPLACE FUNCTION provider_kind_immutable() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    RAISE EXCEPTION USING ERRCODE = 'restrict_violation',
+        MESSAGE = TG_TABLE_NAME || '.provider_kind is immutable - it is a historical fact';
+END;
+$$"""
+
+
+def provider_kind_immutable_trigger_postgresql(table: str) -> str:
+    return f"""CREATE TRIGGER {table}_provider_kind_immutable BEFORE UPDATE OF provider_kind ON {table}
+FOR EACH ROW WHEN (OLD.provider_kind IS DISTINCT FROM NEW.provider_kind) EXECUTE FUNCTION provider_kind_immutable()"""
+
+
+def provider_kind_immutable_trigger_sqlite(table: str) -> str:
+    return f"""CREATE TRIGGER {table}_provider_kind_immutable BEFORE UPDATE OF provider_kind ON {table}
+WHEN OLD.provider_kind IS NOT NEW.provider_kind
+BEGIN
+    SELECT RAISE(ABORT, '{table}.provider_kind is immutable - it is a historical fact');
+END"""
+
 
 _ACTIVE = "status IN ('REQUESTED', 'OPENING', 'UNKNOWN_OUTCOME', 'OPEN')"
 _PAYMENT_STATUSES = (
@@ -59,15 +92,21 @@ class Payment(IdMixin, TimestampMixin, Base):
             postgresql_where=text(_ACTIVE),
             sqlite_where=text(_ACTIVE),
         ),
+        # La referencia del proveedor es única **dentro de su origen** (ADR 0031, F12): `sandbox` y `real` son sistemas
+        # distintos y sus ids no tienen por qué ser disjuntos.
         Index(
             "uq_payments_provider_payment_ref",
             "provider",
+            "provider_kind",
             "provider_payment_ref",
             unique=True,
             postgresql_where=text("provider_payment_ref IS NOT NULL"),
             sqlite_where=text("provider_payment_ref IS NOT NULL"),
         ),
         CheckConstraint(_PAYMENT_STATUSES, name="ck_payments_status"),
+        CheckConstraint(_PROVIDER_KINDS, name="ck_payments_provider_kind"),
+        # El objetivo de las claves ajenas compuestas que impiden cruzar el origen (eventos y registro).
+        UniqueConstraint("id", "provider_kind", name="uq_payments_id_provider_kind"),
         CheckConstraint("attempt_number >= 1", name="ck_payments_attempt_positive"),
         CheckConstraint("amount > 0", name="ck_payments_amount_positive"),
         CheckConstraint(
@@ -92,6 +131,10 @@ class Payment(IdMixin, TimestampMixin, Base):
     order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
     attempt_number: Mapped[int] = mapped_column(Integer)
     provider: Mapped[str] = mapped_column(String(64))
+    #: De dónde viene el dinero (ADR 0031): `mock`, `sandbox` o `real`. Lo declara el proveedor
+    #: (`PaymentProvider.kind`) al
+    #: abrir el cobro. **Sin valor por defecto** y **inmutable**.
+    provider_kind: Mapped[str] = mapped_column(String(10))
     status: Mapped[str] = mapped_column(String(24), default="REQUESTED")
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 4))
     currency: Mapped[str] = mapped_column(String(3))
@@ -125,7 +168,17 @@ class PaymentEvent(IdMixin, Base):
 
     __tablename__ = "payment_events"
     __table_args__ = (
-        UniqueConstraint("provider", "provider_event_id", name="uq_payment_events_provider_event"),
+        # Un evento es único **dentro de su origen** (ADR 0031, F12): el mismo id en `mock` y en `sandbox` son dos
+        # eventos.
+        UniqueConstraint("provider", "provider_kind", "provider_event_id", name="uq_payment_events_provider_event"),
+        UniqueConstraint("id", "provider_kind", name="uq_payment_events_id_provider_kind"),
+        # Un evento asociado a un cobro es del mismo origen que él. Con `payment_id` nulo (`UNMATCHED`) no se evalúa y
+        # el evento conserva el suyo.
+        ForeignKeyConstraint(
+            ["payment_id", "provider_kind"],
+            ["payments.id", "payments.provider_kind"],
+            name="fk_payment_events_payment_kind",
+        ),
         Index(
             "ix_payment_events_received",
             "received_at",
@@ -136,11 +189,16 @@ class PaymentEvent(IdMixin, Base):
             "processing_status IN ('RECEIVED', 'APPLIED', 'STALE', 'CONFLICT', 'UNMATCHED', 'REJECTED')",
             name="ck_payment_events_processing_status",
         ),
+        CheckConstraint(_PROVIDER_KINDS, name="ck_payment_events_provider_kind"),
         CheckConstraint("(amount IS NULL) = (currency IS NULL)", name="ck_payment_events_amount_has_currency"),
         CheckConstraint("reconcile_attempts >= 0", name="ck_payment_events_reconcile_attempts_not_negative"),
     )
 
     provider: Mapped[str] = mapped_column(String(64))
+    #: De dónde viene el hecho (ADR 0031): lo captura `PaymentIngress.receive` del proveedor que lo verificó,
+    #: **antes** de emparejarlo con un cobro. Lo conserva también un evento `UNMATCHED`. **Sin valor por defecto** e
+    #: **inmutable**.
+    provider_kind: Mapped[str] = mapped_column(String(10))
     provider_event_id: Mapped[str] = mapped_column(String(128))
     event_type: Mapped[str] = mapped_column(String(32))
     payment_id: Mapped[str | None] = mapped_column(ForeignKey("payments.id"), nullable=True, index=True)
@@ -210,3 +268,15 @@ class Refund(IdMixin, TimestampMixin, Base):
     correlation_id: Mapped[str] = mapped_column(String(36))
     requested_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+for _table, _name in ((Payment.__table__, "payments"), (PaymentEvent.__table__, "payment_events")):
+    event.listen(
+        _table, "after_create", DDL(PROVIDER_KIND_IMMUTABLE_FUNCTION_POSTGRESQL).execute_if(dialect="postgresql")
+    )
+    event.listen(
+        _table, "after_create", DDL(provider_kind_immutable_trigger_postgresql(_name)).execute_if(dialect="postgresql")
+    )
+    event.listen(
+        _table, "after_create", DDL(provider_kind_immutable_trigger_sqlite(_name)).execute_if(dialect="sqlite")
+    )

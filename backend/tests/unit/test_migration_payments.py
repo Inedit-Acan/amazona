@@ -10,6 +10,7 @@ import pytest
 import sqlalchemy as sa
 from m44_migration_test_support import (
     apply_prerequisites,
+    apply_through_money_provenance,
     assert_migration_matches_model,
     assert_rls_pattern,
     load_migration,
@@ -122,6 +123,8 @@ def test_the_migration_creates_what_the_model_declares(connection):
     # M45 (ADR 0029) añadió tres campos de proceso a `payment_events` con su propia migración: lo que declara el
     # modelo es la cadena entera.
     run(connection, load_migration("d7e2a9c4f1b8_payment_event_reconcile_fields.py"), "upgrade")
+    # M46 (ADR 0031) añadió el origen del dinero con la 44.ª: el modelo es la cadena entera.
+    apply_through_money_provenance(connection)
 
     assert_migration_matches_model(connection, TABLES)
 

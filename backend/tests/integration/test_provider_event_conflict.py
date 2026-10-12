@@ -149,7 +149,8 @@ def test_the_same_id_made_at_another_instant_is_a_conflict_that_keeps_the_origin
     assert snapshot(db) == before, "the original is not overwritten and nothing else moves"
     assert captured_total(db, order) == Decimal("50") and fresh_order_status(db, order) == "PAID"
     mismatch = db.scalars(select(AuditLog).where(AuditLog.action == "payment_event.payload_mismatch")).one()
-    assert set(mismatch.after) == {"provider", "provider_event_id"}, "no body, no hash in the trail"
+    # Ni el cuerpo ni el hash: el proveedor, su origen (ADR 0031) y el id del evento.
+    assert set(mismatch.after) == {"provider", "provider_kind", "provider_event_id"}, "no body, no hash in the trail"
 
 
 @pytest.mark.parametrize("state", ["APPLIED", "STALE", "CONFLICT", "UNMATCHED", "REJECTED"])

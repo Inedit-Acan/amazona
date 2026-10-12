@@ -33,6 +33,7 @@ from typing import Any
 
 from app.actions.contract import ActionRequest, ActionResponse, ProviderRejectedError
 from app.core.errors import ValidationError
+from app.integrations.ports import ProviderKind
 from app.money.money import Money
 from app.payments.port import (
     OPERATION_OPEN,
@@ -74,6 +75,10 @@ def _digest(key: str) -> str:
 
 class SimulatedPaymentProvider:
     name = PROVIDER_NAME
+    #: Un simulador nuestro: no habla con nadie ni mueve dinero (ADR 0031 §2). Lo declara **él mismo**, de forma
+    #: estructurada; no se deduce del nombre. Las subclases de las pruebas lo heredan; una que quiera ser otro
+    #: origen lo declara explícitamente.
+    kind = ProviderKind.MOCK
     supports_idempotency = True
     capabilities = PaymentProviderCapabilities(
         name=PROVIDER_NAME,

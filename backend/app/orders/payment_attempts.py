@@ -46,7 +46,7 @@ from app.orders.domain import OrderStatus
 from app.orders.errors import OperationNotAllowedError, OutcomeUnknownBlockError
 from app.orders.gate_inputs import recommendations_for, require_legal_analysis_outside_simulation
 from app.payments.domain import ACTIVE_PAYMENT_STATUSES, PaymentStatus
-from app.payments.port import OPERATION_OPEN, PaymentProvider
+from app.payments.port import OPERATION_OPEN, PaymentProvider, require_payment_kind
 from app.payments.projection import payment_reference
 
 
@@ -92,6 +92,9 @@ class PaymentAttemptService:
 
     def start(self, order_id: str, *, requester: Requester) -> Payment:
         provider = self._resolve_provider()
+        # El origen del dinero lo declara el proveedor (ADR 0031 §4): sin él no se abre ningún cobro, y jamás se deduce
+        # del nombre, de `Order.is_simulated` ni del entorno.
+        provider_kind = require_payment_kind(provider)
         require_operation(provider.name, OPERATION_OPEN, self._settings)
 
         order = self._lock_order(order_id)
@@ -124,6 +127,7 @@ class PaymentAttemptService:
             order_id=order.id,
             attempt_number=self._next_attempt(order.id),
             provider=provider.name,
+            provider_kind=provider_kind.value,
             status=PaymentStatus.REQUESTED.value,
             amount=order.amount_due,
             currency=order.currency,

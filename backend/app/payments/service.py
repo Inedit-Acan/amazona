@@ -125,6 +125,22 @@ class PaymentService:
             self._audit(event, "payment_event.unmatched", {"event_type": event.event_type})
             return EventProcessing.UNMATCHED, "no payment of ours matches this event", None, refund
 
+        if payment.provider_kind != event.provider_kind:
+            # Un hecho de otro origen nunca se convierte en el mismo hecho financiero (ADR 0031 §6): se conserva como
+            # evidencia, **sin enlazarlo** al cobro (la clave ajena compuesta tampoco lo permitiría) y sin tocar nada.
+            self._audit(
+                event,
+                "payment_event.origin_mismatch",
+                {"event_kind": event.provider_kind, "payment_kind": payment.provider_kind, "payment_id": payment.id},
+                payment,
+            )
+            return (
+                EventProcessing.CONFLICT,
+                "the event comes from another origin than the payment it names: it is kept as evidence",
+                None,
+                None,
+            )
+
         order = self._lock_order(payment.order_id)
         self._db.refresh(payment)
         if refund is not None:
@@ -155,9 +171,15 @@ class PaymentService:
 
     def _find_refund(self, event: PaymentEvent) -> Refund | None:
         if event.provider_refund_ref:
+            # La referencia del reembolso es única por proveedor (ADR 0031, F12: `refunds` no lleva `provider_kind`):
+            # el origen se exige por el cobro al que pertenece, que sí lo lleva.
             found = self._db.scalars(
-                select(Refund).where(
-                    Refund.provider == event.provider, Refund.provider_refund_ref == event.provider_refund_ref
+                select(Refund)
+                .join(Payment, Payment.id == Refund.payment_id)
+                .where(
+                    Refund.provider == event.provider,
+                    Refund.provider_refund_ref == event.provider_refund_ref,
+                    Payment.provider_kind == event.provider_kind,
                 )
             ).one_or_none()
             if found is not None:
@@ -176,7 +198,9 @@ class PaymentService:
         if event.provider_payment_ref:
             found = self._db.scalars(
                 select(Payment).where(
-                    Payment.provider == event.provider, Payment.provider_payment_ref == event.provider_payment_ref
+                    Payment.provider == event.provider,
+                    Payment.provider_kind == event.provider_kind,
+                    Payment.provider_payment_ref == event.provider_payment_ref,
                 )
             ).one_or_none()
             if found is not None:

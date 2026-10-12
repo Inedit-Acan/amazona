@@ -21,12 +21,39 @@ from typing import Any, Protocol, runtime_checkable
 
 from app.actions.contract import ExternalActionAdapter
 from app.core.errors import AmazonaError
+from app.integrations.ports import ProviderKind
 from app.money.money import Money
 from app.payments.verification import PROOF
 
 #: Las operaciones salientes que un proveedor de pagos declara (ADR 0028).
 OPERATION_OPEN = "payment.open"
 OPERATION_REFUND = "payment.refund"
+
+#: Los únicos orígenes que un proveedor de pagos puede declarar (ADR 0031 §2). `COMPOSITE` rellena con fixtures y no
+#: existe como origen del dinero.
+PAYMENT_PROVIDER_KINDS: frozenset[ProviderKind] = frozenset(
+    {ProviderKind.MOCK, ProviderKind.SANDBOX, ProviderKind.REAL}
+)
+
+
+class PaymentProviderKindError(AmazonaError):
+    """Un proveedor de pagos sin un `kind` estructurado y permitido (ADR 0031 §4). No se usa: ni para abrir un cobro, ni
+    para recibir un evento. **Nunca se infiere por el nombre**, por `is_simulated` ni por el entorno."""
+
+
+def require_payment_kind(provider: object) -> ProviderKind:
+    """El `kind` declarado por el proveedor, o `PaymentProviderKindError`.
+
+    Es estricto a propósito: debe ser un `ProviderKind` de verdad (una cadena `"mock"` suelta **no** vale) y uno de los
+    tres orígenes de pagos. Un proveedor que no lo declara no recibe eventos ni abre cobros: lo que no se sabe, no se
+    rellena."""
+    kind = getattr(provider, "kind", None)
+    if not isinstance(kind, ProviderKind) or kind not in PAYMENT_PROVIDER_KINDS:
+        raise PaymentProviderKindError(
+            f"{type(provider).__name__} does not declare a structured payment kind "
+            f"({', '.join(sorted(k.value for k in PAYMENT_PROVIDER_KINDS))}): it cannot be used"
+        )
+    return kind
 
 
 class PaymentEventType(StrEnum):
@@ -135,6 +162,10 @@ class VerifiedPaymentEvent:
 class PaymentProvider(ExternalActionAdapter, Protocol):
     """Quien cobra y devuelve dinero, y quien certifica lo que pasó."""
 
+    #: **De dónde viene el dinero que este proveedor mueve** (ADR 0031): `mock`, `sandbox` o `real`. Obligatorio y
+    #: estructurado. El registro de proveedores comprueba que coincide con la clave bajo la que se registra, y quien
+    #: persiste un hecho (el cobro, el evento) lo copia de aquí. Jamás se deduce del nombre.
+    kind: ProviderKind
     capabilities: PaymentProviderCapabilities
 
     def verify_webhook(

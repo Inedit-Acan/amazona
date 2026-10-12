@@ -12,8 +12,11 @@ CLI no toca pedidos ni cobros; el navegador no confirma nada.
 - La verificación va **antes** de cualquier escritura funcional. Si falla, no se escribe ningún evento: solo una
   entrada de auditoría del rechazo, sin el cuerpo.
 - El cuerpo bruto vive solo durante la verificación: se guarda su hash y los campos de una lista blanca.
-- El mismo evento otra vez es **uno**: `(provider, provider_event_id)` es único. Si llega con otro contenido (otro
-  hash), es un 409 y el original queda intacto.
+- El mismo evento otra vez es **uno**: `(provider, provider_kind, provider_event_id)` es único (ADR 0031: el mismo id en
+  `mock` y en `sandbox` son dos eventos). Si llega con otro contenido (otro hash), es un 409 y el original queda
+  intacto.
+- **El origen del evento se captura aquí, antes de emparejarlo con un cobro** (ADR 0031 §6): lo declara el proveedor
+  (`PaymentProvider.kind`), y un proveedor que no lo declara no recibe eventos. Un evento `UNMATCHED` lo conserva.
 - Un evento que quedó `RECEIVED` (el proceso cayó entre las dos transacciones) se **reanuda** en la reentrega.
 """
 
@@ -30,10 +33,15 @@ from app.core.errors import ConflictError, NotFoundError
 from app.core.ids import new_correlation_id
 from app.db.models.audit import AuditLog
 from app.db.models.payment import PaymentEvent
-from app.integrations.ports import IntegrationDomain
+from app.integrations.ports import IntegrationDomain, ProviderKind
 from app.integrations.registry import ProviderRegistry
 from app.payments.domain import EventProcessing
-from app.payments.port import PaymentProvider, VerifiedPaymentEvent, WebhookVerificationError
+from app.payments.port import (
+    PaymentProvider,
+    VerifiedPaymentEvent,
+    WebhookVerificationError,
+    require_payment_kind,
+)
 from app.payments.service import PAYMENTS_ACTOR, PaymentService
 
 #: Más de esto no es un webhook: se rechaza antes de calcular nada sobre él.
@@ -80,6 +88,8 @@ class PaymentIngress:
 
     def receive(self, provider_name: str, headers: Mapping[str, str], raw_body: bytes) -> IngressResult:
         provider = self._provider_for(provider_name)
+        # El origen del hecho: del proveedor, de forma estructurada, antes de verificar nada y antes de emparejar.
+        provider_kind = require_payment_kind(provider)
         if len(raw_body) > MAX_WEBHOOK_BODY_BYTES:
             self._reject(provider.name, "body_too_large")
             raise WebhookVerificationError("webhook body too large", reason="body_too_large")
@@ -88,7 +98,7 @@ class PaymentIngress:
         except WebhookVerificationError as exc:
             self._reject(provider.name, exc.reason)
             raise
-        event_id, duplicate = self._record(verified)
+        event_id, duplicate = self._record(verified, provider_kind)
         outcome = PaymentService(self._db, clock=self._clock).apply(event_id)
         return IngressResult(outcome=outcome.lower(), event_id=event_id, duplicate=duplicate)
 
@@ -103,10 +113,11 @@ class PaymentIngress:
             raise NotFoundError(f"payment provider {name!r} is not enabled here")
         return candidate
 
-    def _record(self, verified: VerifiedPaymentEvent) -> tuple[str, bool]:
+    def _record(self, verified: VerifiedPaymentEvent, provider_kind: ProviderKind) -> tuple[str, bool]:
         """Transacción 1: guarda el evento verificado y confirma. Devuelve su id y si ya existía."""
         event = PaymentEvent(
             provider=verified.provider,
+            provider_kind=provider_kind.value,
             provider_event_id=verified.provider_event_id,
             event_type=verified.event_type.value,
             provider_payment_ref=verified.provider_payment_ref,
@@ -129,6 +140,7 @@ class PaymentIngress:
             existing = self._db.scalars(
                 select(PaymentEvent).where(
                     PaymentEvent.provider == verified.provider,
+                    PaymentEvent.provider_kind == provider_kind.value,
                     PaymentEvent.provider_event_id == verified.provider_event_id,
                 )
             ).one()
@@ -139,7 +151,11 @@ class PaymentIngress:
                         action="payment_event.payload_mismatch",
                         resource=f"payment_event:{existing.id}",
                         before=None,
-                        after={"provider": verified.provider, "provider_event_id": verified.provider_event_id},
+                        after={
+                            "provider": verified.provider,
+                            "provider_kind": provider_kind.value,
+                            "provider_event_id": verified.provider_event_id,
+                        },
                         correlation_id=new_correlation_id(),
                     )
                 )

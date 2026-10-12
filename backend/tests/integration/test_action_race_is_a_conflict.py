@@ -240,6 +240,7 @@ def test_the_state_error_itself_is_what_the_race_raises_so_the_tests_above_prove
         order_id=order.id,
         attempt_number=1,
         provider=provider.name,
+        provider_kind=provider.kind.value,
         status="REQUESTED",
         amount=order.amount_due,
         currency=order.currency,

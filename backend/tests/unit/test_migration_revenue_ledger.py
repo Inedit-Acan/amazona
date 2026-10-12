@@ -11,6 +11,7 @@ import pytest
 import sqlalchemy as sa
 from m44_migration_test_support import (
     apply_prerequisites,
+    apply_through_money_provenance,
     assert_migration_matches_model,
     assert_rls_pattern,
     load_migration,
@@ -116,6 +117,7 @@ def test_it_can_be_applied_again_after_a_downgrade(connection):
 def test_the_migrated_table_is_what_the_model_declares(connection):
     migrate(connection)
     run(connection, load_migration(INDEX_FILE), "upgrade")  # el modelo declara también el índice de las lecturas
+    apply_through_money_provenance(connection)  # M46 (ADR 0031): y el origen del dinero
 
     assert_migration_matches_model(connection, (TABLE,))
     foreign_keys = sa.inspect(connection).get_foreign_keys(TABLE)

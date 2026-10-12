@@ -329,6 +329,7 @@ def test_nothing_can_be_captured_from_an_attempt_that_never_left(db: Session, or
         order_id=order.id,
         attempt_number=1,
         provider=provider.name,
+        provider_kind=provider.kind.value,
         status="REQUESTED",
         amount=Decimal("50"),
         currency="EUR",

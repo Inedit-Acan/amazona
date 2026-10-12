@@ -451,7 +451,7 @@ def _clone(entry: RevenueLedgerEntry, **changes) -> RevenueLedgerEntry:
         column: getattr(entry, column)
         for column in (
             "kind", "classification", "payment_event_id", "payment_id", "order_id", "refund_id",
-            "capture_entry_id", "amount", "currency", "occurred_at", "recorded_at",
+            "capture_entry_id", "amount", "currency", "occurred_at", "recorded_at", "provider_kind",
         )
     }  # fmt: skip
     values.update(changes)

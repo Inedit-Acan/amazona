@@ -10,6 +10,7 @@ import pytest
 import sqlalchemy as sa
 from m44_migration_test_support import (
     apply_prerequisites,
+    apply_through_money_provenance,
     assert_migration_matches_model,
     load_migration,
     new_connection,
@@ -96,6 +97,7 @@ def test_it_can_be_applied_again_after_a_downgrade(connection):
 
 def test_the_migrated_table_is_what_the_model_declares(connection):
     migrate(connection)
+    apply_through_money_provenance(connection)  # M46 (ADR 0031): el modelo declara también el origen del dinero
 
     assert_migration_matches_model(connection, (TABLE,))
 

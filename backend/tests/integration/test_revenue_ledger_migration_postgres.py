@@ -51,6 +51,28 @@ def run(engine, direction: str) -> None:
         conn.commit()
 
 
+#: Lo que la 44.ª (ADR 0031) añade al registro. Esta prueba migra el registro con **su** migración (`c4e8…`), que deja
+#: la tabla como estaba antes de la 44.ª; el flujo de cobros (que escribe `provider_kind`) necesita el origen, así que
+#: se le añade aquí exactamente como lo hace la 44.ª. La cadena entera, con la 44.ª de verdad, está en
+#: `test_money_provenance_migration_postgres.py`.
+PROVENANCE = (
+    f"ALTER TABLE {TABLE} ADD COLUMN provider_kind varchar(10) NOT NULL",
+    f"ALTER TABLE {TABLE} ADD CONSTRAINT ck_revenue_entries_provider_kind "
+    "CHECK (provider_kind IN ('mock', 'sandbox', 'real'))",
+    f"ALTER TABLE {TABLE} ADD CONSTRAINT fk_revenue_entries_payment_kind FOREIGN KEY (payment_id, provider_kind) "
+    "REFERENCES payments (id, provider_kind)",
+    f"ALTER TABLE {TABLE} ADD CONSTRAINT fk_revenue_entries_event_kind FOREIGN KEY (payment_event_id, provider_kind) "
+    "REFERENCES payment_events (id, provider_kind)",
+)
+
+
+def upgrade_with_provenance(engine) -> None:
+    run(engine, "upgrade")
+    with engine.begin() as conn:
+        for statement in PROVENANCE:
+            conn.execute(text(statement))
+
+
 def scalar(engine, sql: str):
     with engine.connect() as conn:
         return conn.execute(text(sql)).scalar()
@@ -112,7 +134,7 @@ def test_rls_is_enabled_and_not_forced(engine):
 
 
 def test_the_migrated_ledger_projects_a_capture_and_rejects_update_delete_and_truncate(engine):
-    run(engine, "upgrade")
+    upgrade_with_provenance(engine)
     payment_id, event_id = capture(engine)
 
     with Session(engine) as db:
@@ -135,7 +157,7 @@ def test_the_migrated_ledger_projects_a_capture_and_rejects_update_delete_and_tr
 
 
 def test_downgrade_removes_the_ledger_the_function_and_the_triggers_without_touching_the_facts(engine):
-    run(engine, "upgrade")
+    upgrade_with_provenance(engine)
     payment_id, _ = capture(engine)
 
     run(engine, "downgrade")
@@ -151,7 +173,7 @@ def test_it_can_be_applied_again_after_a_downgrade(engine):
     run(engine, "upgrade")
     run(engine, "downgrade")
 
-    run(engine, "upgrade")
+    upgrade_with_provenance(engine)
 
     assert exists(engine, "table", TABLE) and exists(engine, "function", FUNCTION)
     capture(engine)

@@ -58,7 +58,7 @@ from app.payments.domain import (
     REFUND_REASONS,
     RefundStatus,
 )
-from app.payments.port import OPERATION_REFUND, PaymentProvider
+from app.payments.port import OPERATION_REFUND, PaymentProvider, require_payment_kind
 from app.payments.refund_projection import refund_reference
 
 
@@ -198,6 +198,13 @@ class RefundService:
             )
         if payment.provider != provider.name:
             raise ConflictError(f"payment {payment.id} was taken by {payment.provider}, not by {provider.name}")
+        # El reembolso conserva el origen del cobro que devuelve (ADR 0031 §6): se pide al proveedor del mismo origen,
+        # o a ninguno. El `Refund` no lleva columna: su origen es el de su `payment_id`.
+        provider_kind = require_payment_kind(provider)
+        if payment.provider_kind != provider_kind.value:
+            raise ConflictError(
+                f"payment {payment.id} was taken at origin {payment.provider_kind}, not at {provider_kind.value}"
+            )
         if not payment.provider_payment_ref:
             raise ConflictError(f"payment {payment.id} has no provider reference: the provider cannot refund it")
         if amount.currency != payment.currency:

@@ -144,6 +144,7 @@ def stored_event(
     received = datetime.datetime.now(datetime.UTC) - received_ago
     event = PaymentEvent(
         provider="simulated-payments",
+        provider_kind="mock",  # estos eventos son del simulador: el origen lo declara el proveedor, no el nombre
         provider_event_id=event_id,
         event_type=event_type,
         provider_payment_ref=payment_ref,
