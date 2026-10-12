@@ -84,7 +84,7 @@ class SettingsView(BaseModel):
 
 class LedgerFindings(BaseModel):
     count: int
-    #: Cada elemento dice qué comprobación (C1–C4) y de qué cobro o entrada; ni cuerpos ni hashes.
+    #: Cada elemento dice qué comprobación (C1–C6) y de qué cobro, entrada o evento; ni cuerpos ni hashes.
     items: list[dict[str, Any]]
 
 

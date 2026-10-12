@@ -171,9 +171,11 @@ def _payments(orders, payments, events) -> list[str]:
             )
 
     applied_money: dict[str, Decimal] = defaultdict(lambda: ZERO)
-    seen: set[tuple[str, str]] = set()
+    #: Un evento es único por (proveedor, **origen**, id): el mismo id en `mock` y en `sandbox` son dos hechos
+    #: (ADR 0031, F12). Con la identidad vieja este oráculo habría llamado «duplicado» a un hecho legítimo.
+    seen: set[tuple[str, str, str]] = set()
     for e in events:
-        key = (e.provider, e.provider_event_id)
+        key = (e.provider, e.provider_kind, e.provider_event_id)
         if key in seen:
             broken.append(f"event {key}: stored twice")
         seen.add(key)

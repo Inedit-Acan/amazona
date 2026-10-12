@@ -1,6 +1,6 @@
 # ADR 0031: Procedencia estructurada del dinero — dos ejes (evidencia y origen operativo), persistidos como propiedad del hecho
 
-- **Estado:** Aceptada (decisiones del propietario del 2026-10-12, con una segunda ronda el mismo día que retira toda inferencia por nombre: §6 y §18). **Implementada en parte**: el Commit 2A de M46 implementa el origen en el cobro, el evento y el registro, y el emparejado (ver el **addendum, §21**); el Commit 1 de M46 (este ADR) fue solo documentación. Faltan el Commit 2B (`check_ledger` C5/C6 y las defensas), la API, la interfaz y el cierre (§20).
+- **Estado:** Aceptada (decisiones del propietario del 2026-10-12, con una segunda ronda el mismo día que retira toda inferencia por nombre: §6 y §18). **Implementada en parte**: el Commit 2A de M46 implementa el origen en el cobro, el evento y el registro, y el emparejado (ver el **addendum, §21**); el Commit 1 de M46 (este ADR) fue solo documentación. El Commit 2B añade `check_ledger` C5/C6, la guarda arquitectónica contra la inferencia, el caos y las mutaciones (**addendum, §22**). Faltan la API, la interfaz y el cierre (§20).
 - **Fecha:** 2026-10-12
 - **Depende de:** [ADR 0003](adr-0003-rls-deny-by-default.md), [ADR 0026](adr-0026-database-identity-guards.md), [ADR 0028](adr-0028-orders-payments-fulfilment-core.md), [ADR 0029](adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md), [ADR 0030](adr-0030-verified-revenue-ledger.md)
 - **Enmienda a:** [ADR 0030](adr-0030-verified-revenue-ledger.md) (el registro hoy «no distingue de forma estructural una operación simulada de una que no lo sea»: deja de ser cierto) y [ADR 0028](adr-0028-orders-payments-fulfilment-core.md) (el alcance de `Order.is_simulated`, §12)
@@ -290,7 +290,7 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 |---|---|---|
 | 1 | **docs: ADR 0031** (este) | no |
 | 2A | backend: migración 44.ª, dominio, propagación del tipo y emparejado (**implementado**, §21) | **sí (44.ª)** |
-| 2B | backend: `check_ledger` C5/C6, defensas, prueba de uso prohibido, caos y mutaciones | no |
+| 2B | backend: `check_ledger` C5/C6, defensas, prueba de uso prohibido, caos y mutaciones (**implementado**, §22) | no |
 | 3 | API: agregados por origen, `OrderOut`/pagos con origen, `SCOPE` | no |
 | 4 | frontend: `Verified<T>` con origen, etiquetas, fuera «Real»; prueba de frontera actualizada | no |
 | 5 | `POST /api/economics/runs`: canal desconocido → 422 | no |
@@ -374,8 +374,37 @@ clonadores de entradas del registro), cuatro pruebas de paridad modelo↔migraci
 fijaban un detalle que cambió (las claves de la auditoría, una llamada directa a `PaymentIngress._record` y la migración del registro sobre
 PostgreSQL).
 
-**Lo que queda para 2B y siguientes:** `check_ledger` C5/C6, la prueba que prohíbe `ProviderBinding.is_simulated` en `orders/`, `payments/` y
+**Lo que quedaba para 2B** (hecho, ver §22) **y siguientes:** `check_ledger` C5/C6, la prueba que prohíbe `ProviderBinding.is_simulated` en `orders/`, `payments/` y
 `revenue/`, el caos y las mutaciones restantes (M1–M18), la API y la interfaz.
+
+### 22. Addendum del Commit 2B (2026-10-12): lo que se implementó
+
+Este apartado documenta **exactamente** el Commit 2B (sin migración, sin cambios de esquema ni de comportamiento de la aplicación: solo la comprobación, la guarda y las pruebas). Donde difiere de lo previsto en §15 y §20, manda este apartado.
+
+**`check_ledger` C5 y C6** (`app/revenue/check.py`; una sola consulta cada una, sin bucle por fila, solo `SELECT`):
+
+- **C5** (entrada ↔ origen). Una entrada es divergente si su `provider_kind` difiere del de su cobro, del de su evento o, si es un reembolso, del de la captura que revierte. El hallazgo trae `entry_id`, `payment_id`, los cuatro orígenes (`origin`, `payment_origin`, `event_origin`, `capture_origin`) y los motivos, uno por comparación que falla.
+- **C6** (evento ↔ cobro). Un evento **enlazado** a un cobro (`payment_id` no nulo) es divergente si su origen difiere del del cobro. Se mira en **todos** los eventos enlazados, no solo en los que causaron una entrada. Un `UNMATCHED` o un `CONFLICT` por origen no tiene cobro y conserva el suyo: no es una divergencia.
+- Se informan en `revenue.ledger.divergences` (y en el recuento del informe programado) junto a C1–C4; **nunca se corrigen** (una prueba exige que mirar no escriba nada, ni siquiera cuando hay divergencias, y que repetirlo dé lo mismo).
+- **Qué son y qué no.** Con el esquema íntegro **no pueden ocurrir**: las claves ajenas compuestas y los disparadores de la 44.ª migración los impiden. Existen por deriva de esquema (una restauración con los disparadores desactivados, SQL a mano, una migración futura que quite una clave). Las pruebas **provocan esa deriva** (PostgreSQL: `SET LOCAL session_replication_role = replica`, que es lo que hace `pg_restore --disable-triggers`; SQLite: sin claves ajenas y sin disparadores) y comprueban que se detecta.
+- **No hay C7.** «Hechos financieros que deberían estar en el registro y no están» ya lo cubren C1, C2 y C4 (importes) y `outside_ledger` (anteriores al registro); 2B solo añade pruebas de esos controles para los tres orígenes. Un valor de origen **fuera del conjunto cerrado** solo puede existir si se ha quitado el `CHECK`: no se informa como comprobación aparte (deuda anotada en el handoff).
+- Coste medido (PostgreSQL local, 300 000 cobros/eventos/entradas sanos, el peor caso para un escaneo): C5 645 ms, C6 255 ms, `check_ledger` completo 3,1 s (C3, ya existente, 390 ms). Joins en *hash* paralelos; escala linealmente.
+
+**La prohibición de inferir el origen deja de ser una convención** (`tests/unit/test_money_provenance_architecture.py`, un recorrido del árbol sintáctico de `orders/`, `payments/`, `revenue/` y `reconciliation/`):
+
+- Prohíbe leer `ProviderBinding.is_simulated`, `ProviderRegistry.kind_for/binding_for/bindings` (leen `Settings`, no al adaptador), `Settings.operating_in_simulation/payments_provider/environment` y `.is_simulated`; nombrar `ProviderKind.X`, construir un `ProviderKind` o escribir `"mock"`, `"sandbox"`, `"real"`, `"simulated-payments"`; comparar el nombre de un proveedor con una constante o mirar su prefijo; dar a `provider_kind=` algo que no sea el origen del proveedor, del cobro o de la captura; asignar a `.provider_kind`; e importar un adaptador concreto.
+- Solo el puerto (`payments/port.py`) y los adaptadores (`payments/providers/`) pueden declarar o validar un origen.
+- Las excepciones son **cinco entradas en cuatro ficheros, nombradas una a una con su motivo**, y la lista solo puede menguar: `orders/service.py` (anota `Order.is_simulated` al crear el pedido: contexto histórico, §12), `orders/gate_inputs.py` (puerta legal), `orders/domain.py` (valida el prefijo `sim_` del pedido) y `reconciliation/config_check.py` (decide qué adaptadores validar al arrancar). Ninguna clasifica un importe.
+- **El propio escáner se prueba**: 32 fragmentos que debe rechazar y 12 que debe dejar pasar. Una guarda que no ve nada pasa siempre.
+- **Prueba dinámica complementaria** (`test_origin_inference_poison.py`): «envenena» `ProviderBinding.is_simulated` y los métodos del registro (leerlos falla en voz alta) y recorre abrir, capturar, duplicar, reembolsar y reconciliar; invierte `Order.is_simulated` por SQL después de abrir el cobro; y pasa unos ajustes que dicen otro proveedor. El origen no cambia.
+
+**Oráculos de las pruebas.** `m45_invariants_test_support` gana un oráculo del origen **escrito a mano e independiente de `check_ledger`** (el origen está en el conjunto cerrado y nunca cruza cobro, evento, entrada ni captura) y `LedgerWatch` recuerda el origen de cada cobro y evento (un hecho conserva con el que nació). Con ello cada tormenta y cada recorrido de M45 vigila también la mezcla. Hallazgo del ejercicio: `m44_invariants_test_support` seguía tratando `(proveedor, id de evento)` como único y habría llamado «duplicado» a un hecho legítimo de otro origen (la identidad es `(proveedor, origen, id)` desde 2A); corregido.
+
+**Caos y concurrencia** (`test_origin_chaos.py`, `test_origin_reconciliation_postgres.py`): entrega repetida y mismo id/referencia en los tres orígenes en los seis órdenes de llegada; eventos fuera de orden por origen; `UNMATCHED` (conserva el origen y no se aplica después aunque aparezca el cobro) y `CONFLICT`; evento ajeno que nombra un cobro; `UNKNOWN_OUTCOME` y respuesta tardía; proceso que cae entre guardar y aplicar, y registro que falla; reconciliación repetida; cambio de configuración a mitad; tormentas aleatorias de 40 pasos con los tres orígenes y los oráculos tras cada paso; varios reconciliadores y reentregas a la vez (PostgreSQL); `check_ledger` leyendo mientras otros hilos escriben, sin C5/C6 falsos (cada uno es una sola sentencia sobre filas que se confirman juntas con su cobro).
+
+**Mutaciones** (fuera del repositorio; prefijo `B` para no chocar con las M01–M29 de 2A ni con las M1–M15 del ADR): 33, 33 muertas, 0 supervivientes, incluidas M12 (segunda lectura de `Settings`), M13 (inferir por nombre), M14 (adoptar el origen tras emparejar) y M15 (`ProviderBinding.is_simulated`), esta última también como lectura muerta que solo el veneno detecta.
+
+**Residuales anotados.** (1) Un `PaymentEvent` también tiene `refund_id`; C6 compara con `payment_id` (un reembolso pertenece al cobro del evento por construcción). (2) `check_ledger` sigue leyendo en varias sentencias: C1 y C4 pueden ver una foto intermedia bajo escrituras concurrentes (ya era así); C5 y C6 no. (3) La guarda no cubre `api/` ni `cli.py`: `OrderOut.is_simulated` y la clave `simulated` de `/api/status` son deuda de los Commits 3–4. (4) Un origen fuera de `mock|sandbox|real` solo existiría sin el `CHECK`; no hay comprobación aparte.
 
 ## Contrastado contra el código el 2026-10-12
 

@@ -8,6 +8,15 @@ prioridad (la invariante L3 dice que no puede ocurrir) y se informa; jamás se a
 - **C3.** Toda entrada nombra un `PaymentEvent` `APPLIED` del tipo que le corresponde, con su mismo importe,
   moneda y cobro.
 - **C4.** Un cobro con dinero capturado desde que existe el registro tiene su entrada `CAPTURE`.
+- **C5.** Toda entrada tiene el **origen** (`provider_kind`) de su cobro, de su evento y, si es un reembolso, de la
+  captura que revierte (ADR 0031, invariante 8).
+- **C6.** Todo evento enlazado a un cobro tiene el origen de ese cobro (ADR 0031, invariante 8).
+
+C5 y C6 no pueden ocurrir con el esquema íntegro: las claves ajenas compuestas y los disparadores de la 44.ª
+migración los impiden. Existen por si el esquema se ha desviado (una restauración con los disparadores
+desactivados, SQL a mano, una migración futura que quite una clave): el origen es lo que separa dinero simulado de
+dinero real, y una mezcla silenciosa es el fallo que M46 existe para evitar. Como el resto, **se informan y no se
+corrigen**: un `UPDATE` que «arreglara» el origen reescribiría la procedencia de un hecho económico.
 
 Un cobro capturado **antes** del registro (sin ninguna entrada y con su captura aplicada antes de la primera
 entrada, o con el registro vacío) es `outside_ledger`: se lista como informativo y **no** cuenta como divergencia.
@@ -16,8 +25,8 @@ entrada, o con el registro vacío) es `outside_ledger`: se lista como informativ
 import datetime
 from decimal import Decimal
 
-from sqlalchemy import case, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models.payment import Payment, PaymentEvent
 from app.db.models.revenue import RevenueLedgerEntry as Entry
@@ -87,6 +96,8 @@ def check_ledger(db: Session, *, limit: int = LISTED_DIVERGENCES) -> dict:
         divergences.append(_amounts("C2", row.id, row.currency, row.refunded_amount, row.total))
 
     divergences.extend(_event_mismatches(db))
+    divergences.extend(_entry_origin_mismatches(db))
+    divergences.extend(_event_origin_mismatches(db))
 
     # C4 y `outside_ledger`: los cobros con dinero capturado y sin ninguna entrada de captura. La época (la primera
     # entrada del registro) solo se busca si hace falta.
@@ -167,3 +178,80 @@ def _event_mismatches(db: Session) -> list[dict]:
             reasons.append("the event names another payment")
         found.append({"check": "C3", "entry_id": row.id, "payment_id": row.payment_id, "reasons": reasons})
     return found
+
+
+def _entry_origin_mismatches(db: Session) -> list[dict]:
+    """C5: el origen de cada entrada contra el de su cobro, el de su evento y el de la captura que revierte.
+
+    Una sola consulta, sin bucle por fila. El origen se compara tal como está guardado: nada se infiere del nombre del
+    proveedor, de `Order.is_simulated` ni del entorno (ADR 0031 §4)."""
+    capture = aliased(Entry)
+    rows = db.execute(
+        select(
+            Entry.id,
+            Entry.payment_id,
+            Entry.provider_kind,
+            Payment.provider_kind.label("payment_origin"),
+            PaymentEvent.provider_kind.label("event_origin"),
+            capture.provider_kind.label("capture_origin"),
+        )
+        .join(Payment, Payment.id == Entry.payment_id)
+        .join(PaymentEvent, PaymentEvent.id == Entry.payment_event_id)
+        .outerjoin(capture, capture.id == Entry.capture_entry_id)
+        .where(
+            or_(
+                Entry.provider_kind != Payment.provider_kind,
+                Entry.provider_kind != PaymentEvent.provider_kind,
+                and_(Entry.capture_entry_id.is_not(None), Entry.provider_kind != capture.provider_kind),
+            )
+        )
+        .order_by(Entry.id)
+    ).all()
+    found = []
+    for row in rows:
+        reasons = []
+        if row.provider_kind != row.payment_origin:
+            reasons.append("the origin differs from the payment's")
+        if row.provider_kind != row.event_origin:
+            reasons.append("the origin differs from the event's")
+        if row.capture_origin is not None and row.provider_kind != row.capture_origin:
+            reasons.append("the origin differs from the capture it reverses")
+        found.append(
+            {
+                "check": "C5",
+                "entry_id": row.id,
+                "payment_id": row.payment_id,
+                "origin": row.provider_kind,
+                "payment_origin": row.payment_origin,
+                "event_origin": row.event_origin,
+                "capture_origin": row.capture_origin,
+                "reasons": reasons,
+            }
+        )
+    return found
+
+
+def _event_origin_mismatches(db: Session) -> list[dict]:
+    """C6: el origen de cada evento enlazado a un cobro contra el del cobro. Se miran todos los eventos enlazados, no
+    solo los que causaron una entrada; un `UNMATCHED` no tiene cobro y conserva el suyo."""
+    rows = db.execute(
+        select(
+            PaymentEvent.id,
+            PaymentEvent.payment_id,
+            PaymentEvent.provider_kind,
+            Payment.provider_kind.label("payment_origin"),
+        )
+        .join(Payment, Payment.id == PaymentEvent.payment_id)
+        .where(PaymentEvent.provider_kind != Payment.provider_kind)
+        .order_by(PaymentEvent.id)
+    ).all()
+    return [
+        {
+            "check": "C6",
+            "event_id": row.id,
+            "payment_id": row.payment_id,
+            "origin": row.provider_kind,
+            "payment_origin": row.payment_origin,
+        }
+        for row in rows
+    ]

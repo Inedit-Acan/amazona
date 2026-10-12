@@ -42,6 +42,8 @@ CLASSIFICATION_OF_PAYMENT = {
 #: Los estados de un evento que **no** son dinero asentado: nunca pueden tener una entrada.
 NOT_SETTLED = {"RECEIVED", "STALE", "CONFLICT", "UNMATCHED", "REJECTED"}
 UNDER_REVIEW = ("DUPLICATE_RECEIPT", "MISMATCH_RECEIPT")
+#: El conjunto cerrado de orígenes del dinero (ADR 0031 §1), escrito a mano.
+ORIGINS = {"mock", "sandbox", "real"}
 
 
 def _dec(value: object) -> Decimal:
@@ -67,6 +69,7 @@ def check_revenue_invariants(db: Session) -> list[str]:
     broken += _refunds_never_exceed_what_was_captured(entries, payments, refunds)
     broken += _an_order_is_paid_only_with_verified_revenue(entries, payments, orders)
     broken += _no_event_that_is_not_settled_moves_the_ledger(entries, events)
+    broken += _the_origin_of_money_never_mixes(entries, events, payments)
     broken += _the_aggregates_say_what_the_entries_say(db, entries, events)
     return broken
 
@@ -295,6 +298,43 @@ def _the_aggregates_say_what_the_entries_say(db: Session, entries, events) -> li
     return broken
 
 
+# --- El origen del dinero no se mezcla nunca (Milestone 46, ADR 0031) -----------------------------------------------
+
+
+def _the_origin_of_money_never_mixes(entries, events, payments) -> list[str]:
+    """Oráculo independiente de C5/C6: el origen es del hecho, está en el conjunto cerrado y nunca cruza un cobro."""
+    broken: list[str] = []
+    by_id = {e.id: e for e in entries}
+    for payment in payments.values():
+        if payment.provider_kind not in ORIGINS:
+            broken.append(
+                f"payment {payment.id} has the origin {payment.provider_kind!r}, which is not mock/sandbox/real"
+            )
+    for event in events.values():
+        if event.provider_kind not in ORIGINS:
+            broken.append(f"event {event.id} has the origin {event.provider_kind!r}, which is not mock/sandbox/real")
+        payment = payments.get(event.payment_id) if event.payment_id else None
+        if payment is not None and event.provider_kind != payment.provider_kind:
+            broken.append(
+                f"event {event.id} is {event.provider_kind} but is linked to payment {payment.id} "
+                f"({payment.provider_kind})"
+            )
+    for entry in entries:
+        tag = f"ledger entry {entry.id} ({entry.provider_kind})"
+        if entry.provider_kind not in ORIGINS:
+            broken.append(f"{tag} has an origin that is not mock/sandbox/real")
+        payment = payments.get(entry.payment_id)
+        if payment is not None and entry.provider_kind != payment.provider_kind:
+            broken.append(f"{tag} differs from its payment {payment.id} ({payment.provider_kind})")
+        event = events.get(entry.payment_event_id)
+        if event is not None and entry.provider_kind != event.provider_kind:
+            broken.append(f"{tag} differs from its event {event.id} ({event.provider_kind})")
+        capture = by_id.get(entry.capture_entry_id) if entry.capture_entry_id else None
+        if capture is not None and entry.provider_kind != capture.provider_kind:
+            broken.append(f"{tag} differs from the capture it reverses ({capture.id}, {capture.provider_kind})")
+    return broken
+
+
 # --- El registro no se reescribe nunca ---------------------------------------------------------------------------
 
 
@@ -303,12 +343,23 @@ class LedgerWatch:
 
     def __init__(self) -> None:
         self._seen: dict[str, tuple] = {}
+        #: El origen de cada cobro y de cada evento, tal como se vio la primera vez: una vez guardado, no cambia.
+        self._origins: dict[str, str] = {}
 
     def check(self, db: Session) -> list[str]:
         db.expire_all()
+        origins = {f"payment:{p.id}": p.provider_kind for p in db.scalars(select(Payment))}
+        origins |= {f"event:{e.id}": e.provider_kind for e in db.scalars(select(PaymentEvent))}
+        changed = [
+            f"{key} changed origin {self._origins[key]} -> {value} (a fact keeps the origin it was born with)"
+            for key, value in origins.items()
+            if key in self._origins and self._origins[key] != value
+        ]
+        self._origins.update(origins)
         now = {
             e.id: (
                 e.kind,
+                e.provider_kind,
                 e.classification,
                 e.payment_event_id,
                 e.payment_id,
@@ -322,7 +373,7 @@ class LedgerWatch:
             )
             for e in db.scalars(select(RevenueLedgerEntry))
         }
-        broken = [
+        broken = changed + [
             f"ledger entry {entry_id} disappeared (the ledger is append-only)"
             for entry_id in self._seen
             if entry_id not in now
