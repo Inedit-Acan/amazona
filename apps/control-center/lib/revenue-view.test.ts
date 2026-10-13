@@ -393,15 +393,15 @@ test("settle: un dato sale como dato", async () => {
   assert.deepEqual(await settle(async () => 42), { ok: true, data: 42 });
 });
 
-test("settle: un error del backend sale como error visible, con su estado", async () => {
+test("settle: un error del backend sale como error visible, sin su estado ni su detalle (M46, Commit 6)", async () => {
   const failure = Object.assign(new Error("{}"), { status: 500, detail: "database unavailable" });
   const result = await settle(async () => {
     throw failure;
   });
   assert.equal(result.ok, false);
   if (!result.ok) {
-    assert.match(result.message, /500/);
-    assert.match(result.message, /database unavailable/);
+    assert.match(result.message, /no están disponibles/);
+    assert.doesNotMatch(result.message, /500|database unavailable/);
   }
 });
 
@@ -417,7 +417,8 @@ test("settle: sin permiso o sin sesión, el texto lo dice; y un fallo de red no 
   const offline = await settle(async () => {
     throw new TypeError("fetch failed");
   });
-  assert.ok(!offline.ok && offline.message === "fetch failed");
+  // Un fallo de red no se traga, pero tampoco se enseña como `fetch failed` (M46, Commit 6).
+  assert.ok(!offline.ok && offline.message === "No se pudieron cargar los ingresos.");
 });
 
 test("settle: nunca devuelve datos cuando la lectura falla", async () => {
@@ -428,10 +429,40 @@ test("settle: nunca devuelve datos cuando la lectura falla", async () => {
   assert.ok(!("data" in result));
 });
 
-test("revenueErrorText: un 422 y un 5xx dicen qué pasó", () => {
-  assert.match(revenueErrorText(422, "bad window"), /rechazó/);
-  assert.match(revenueErrorText(503, "down"), /503/);
-  assert.equal(revenueErrorText(undefined, ""), "Error desconocido");
+test("revenueErrorText: un 422 y un 5xx dicen qué pasó, sin enseñar el estado HTTP ni el detalle del backend", async () => {
+  assert.match(revenueErrorText(422), /rechazó/);
+  assert.match(revenueErrorText(503), /no están disponibles/);
+  assert.equal(revenueErrorText(undefined), "No se pudieron cargar los ingresos.");
+
+  // M46, Commit 6: nada técnico llega al usuario, venga del estado o del detalle que el backend devuelva.
+  for (const [status, detail] of [
+    [422, "bad window"],
+    [500, "Traceback (most recent call last)"],
+    [503, "ECONNREFUSED 127.0.0.1:8000"],
+    [undefined, "fetch failed"],
+  ] as const) {
+    const settled = await settle(async () => {
+      throw Object.assign(new Error(detail), { status, detail });
+    });
+    assert.equal(settled.ok, false);
+    const message = settled.ok ? "" : settled.message;
+    assert.doesNotMatch(message, /\b(?:4\d\d|5\d\d)\b|ECONNREFUSED|fetch failed|Traceback|HTTP/i);
+    assert.ok(!message.includes(detail), `el texto repite el detalle: ${message}`);
+  }
+});
+
+test("settle: el texto del error lo da quien llama y nunca se pierde el estado", async () => {
+  const failing = async () => {
+    throw Object.assign(new Error("boom"), { status: 503, detail: "ECONNREFUSED 127.0.0.1" });
+  };
+
+  const byDefault = await settle(failing);
+  const custom = await settle(failing, (status) => `custom ${status}`);
+  const ok = await settle(async () => [1, 2]);
+
+  assert.deepEqual(byDefault, { ok: false, message: "Los ingresos no están disponibles en este momento." });
+  assert.deepEqual(custom, { ok: false, message: "custom 503" });
+  assert.deepEqual(ok, { ok: true, data: [1, 2] });
 });
 
 // --- Procedencia (M46, ADR 0031): cada cifra es de UN origen y la vista nunca los suma -----------------------------

@@ -3,12 +3,10 @@ import { test } from "node:test";
 import type { Agent } from "./api.ts";
 import type { AgentCardView } from "./agents-view.ts";
 import type { ApprovalRequest } from "./approvals-view.ts";
-import type { ResearchRow } from "./research-view.ts";
 import {
   activityRows,
   dashboardKpis,
   decisionRows,
-  opportunityRows,
   opportunityStage,
   type ProductDepth,
 } from "./dashboard-view.ts";
@@ -69,27 +67,6 @@ const card = (over: Partial<AgentCardView> = {}): AgentCardView =>
     tools: [],
     ...over,
   }) as AgentCardView;
-
-const researchRow = (over: Partial<ResearchRow> = {}): ResearchRow =>
-  ({
-    productId: "p1",
-    name: "AirPure X2",
-    category: "electronics",
-    categoryLabel: "Electrónica",
-    subcategory: "Purificador de aire",
-    score: 82,
-    demand: "Alta",
-    competition: "Media",
-    growth: 0.1,
-    trend: [1, 2],
-    margin: [24, 32],
-    risk: "Bajo",
-    insights: [],
-    rationale: "",
-    radar: {} as ResearchRow["radar"],
-    isDemo: true,
-    ...over,
-  }) as ResearchRow;
 
 const depth = (over: Partial<ProductDepth> = {}): ProductDepth => ({
   productId: "p1",
@@ -177,34 +154,4 @@ test("opportunityStage sigue hasta dónde ha llegado de verdad el pipeline del p
   assert.equal(opportunityStage(depth({ campaigns: 1 })), "Lanzamiento");
 });
 
-test("opportunityRows: usa el margen del modelo económico y el de Investigación si no lo hay", () => {
-  const rows = opportunityRows(
-    [
-      researchRow(),
-      researchRow({ productId: "p2", name: "EcoBottle", score: 74 }),
-      researchRow({ productId: "p3", name: "SolarCharge", score: 70 }),
-    ],
-    [
-      depth({ marginPct: 0.31, marginIsReal: true, economics: 1, quotes: 1 }),
-      // Tiene modelo, pero sobre supuestos de demostración: no es margen real.
-      depth({ productId: "p2", marginPct: 0.19 }),
-      depth({ productId: "p3" }),
-    ],
-    5,
-  );
-  assert.equal(rows[0].marginPct, 0.31);
-  assert.equal(rows[0].marginIsReal, true);
-  assert.equal(rows[0].stage, "Análisis");
-  assert.equal(rows[1].marginPct, 0.19);
-  assert.equal(rows[1].marginIsReal, false);
-  // Sin modelo, el punto medio del rango 24–32 % de Investigación.
-  assert.equal(rows[2].marginPct, 0.28);
-  assert.equal(rows[2].marginIsReal, false);
-  assert.equal(rows[2].stage, "En observación");
-});
-
-test("opportunityRows respeta el orden y el tope de Investigación", () => {
-  const rows = opportunityRows([researchRow(), researchRow({ productId: "p2", score: 74 }), researchRow({ productId: "p3", score: 60 })], [], 2);
-  assert.deepEqual(rows.map((row) => row.productId), ["p1", "p2"]);
-  assert.ok(rows.every((row) => row.stage === "En observación"));
-});
+// `opportunityRows` se sustituyó por `opportunitiesView` (M46, Commit 6): sus pruebas viven en `lib/dashboard-states.test.ts`.

@@ -341,11 +341,8 @@ export function RevenueEntriesCard({
       const page = await api.revenueEntries({ window, cursor: loaded.nextCursor, limit: REVENUE_ENTRIES_PAGE_SIZE });
       setLoaded((current) => (current ? appendEntries(current, page) : entriesFromPage(page)));
     } catch (err) {
-      setLoadError(
-        err instanceof ApiError
-          ? revenueErrorText(err.status, err.detail)
-          : revenueErrorText(undefined, err instanceof Error ? err.message : "error desconocido"),
-      );
+      // Solo el estado decide qué se dice: ni el detalle del backend ni el mensaje del error llegan al usuario.
+      setLoadError(revenueErrorText(err instanceof ApiError ? err.status : undefined));
     } finally {
       inFlight.current = false;
       setLoading(false);

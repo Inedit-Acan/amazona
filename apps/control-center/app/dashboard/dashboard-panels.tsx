@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { ArrowRight, Bot, ChevronRight, Landmark, Megaphone, Package, Rocket, Scale, ShoppingCart, Truck } from "lucide-react";
-import type { ActivityRow, DecisionRow, OpportunityRow } from "@/lib/dashboard-view";
+import type { ActivityRow, ActivityView, Cell, DecisionRow, DecisionsView, OpportunitiesView } from "@/lib/dashboard-view";
+import { READ_ERROR_TEXT, READ_UNAVAILABLE_VALUE, READ_UNREAD_TEXT } from "@/lib/read-state";
 import type { RequestKind, Severity } from "@/lib/demo/approvals";
 import { relativeTime } from "@/lib/dates";
 import { formatInteger, formatPercent } from "@/lib/format";
@@ -10,6 +11,7 @@ import type { Level, Risk } from "@/lib/research-view";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
+import { ReadErrorNotice } from "@/components/read-error-notice";
 import { TEAM_ICON } from "@/components/team-icon";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,7 +66,7 @@ function SeeAll({ href, label }: { href: string; label: string }) {
 
 // --- Actividad empresarial ----------------------------------------------------------
 
-export function ActivityCard({ rows, usingDemoRuns, now }: { rows: ActivityRow[]; usingDemoRuns: boolean; now: number }) {
+export function ActivityCard({ view, now }: { view: ActivityView; now: number }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -74,7 +76,9 @@ export function ActivityCard({ rows, usingDemoRuns, now }: { rows: ActivityRow[]
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-2.5">
-        {rows.length === 0 ? (
+        {view.kind === "unavailable" ? (
+          <ReadErrorNotice title={view.state === "error" ? READ_ERROR_TEXT : READ_UNREAD_TEXT} message={view.message} />
+        ) : view.kind === "no-agents" ? (
           <EmptyState icon={Bot} title="Sin agentes registrados" description="La actividad aparecerá en cuanto haya agentes en el registro." />
         ) : (
           <div className="overflow-x-auto">
@@ -87,7 +91,7 @@ export function ActivityCard({ rows, usingDemoRuns, now }: { rows: ActivityRow[]
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
+                {view.rows.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell>
                       <span className="flex items-center gap-2">
@@ -118,10 +122,12 @@ export function ActivityCard({ rows, usingDemoRuns, now }: { rows: ActivityRow[]
             </Table>
           </div>
         )}
-        <p className="text-[11px] text-muted-foreground">
-          El agente, su estado y sus ejecuciones son reales; la tarea en curso es de demostración.
-          {usingDemoRuns ? " El log de ejecuciones está vacío: se usan las mismas de demostración que en Agentes." : ""}
-        </p>
+        {view.kind === "rows" ? (
+          <p className="text-[11px] text-muted-foreground">
+            El agente, su estado y sus ejecuciones son reales; la tarea en curso es de demostración.
+            {view.usingDemoRuns ? " El log de ejecuciones está vacío: se usan las mismas de demostración que en Agentes." : ""}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -129,7 +135,7 @@ export function ActivityCard({ rows, usingDemoRuns, now }: { rows: ActivityRow[]
 
 // --- Decisiones necesarias ----------------------------------------------------------
 
-export function DecisionsCard({ rows, pending, now }: { rows: DecisionRow[]; pending: number; now: number }) {
+export function DecisionsCard({ view, rows, now }: { view: DecisionsView; rows: DecisionRow[]; now: number }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -139,7 +145,9 @@ export function DecisionsCard({ rows, pending, now }: { rows: DecisionRow[]; pen
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-2.5">
-        {rows.length === 0 ? (
+        {view.kind === "unavailable" ? (
+          <ReadErrorNotice title={view.state === "error" ? READ_ERROR_TEXT : READ_UNREAD_TEXT} message={view.message} />
+        ) : rows.length === 0 ? (
           <EmptyState
             icon={Rocket}
             title="Nada esperando tu decisión"
@@ -168,10 +176,12 @@ export function DecisionsCard({ rows, pending, now }: { rows: DecisionRow[]; pen
             ))}
           </ul>
         )}
-        <p className="text-[11px] text-muted-foreground">
-          {pending} pendiente{pending === 1 ? "" : "s"} en total. Se aprueban o rechazan en Aprobaciones; las de demostración no se
-          pueden decidir.
-        </p>
+        {view.kind === "ready" ? (
+          <p className="text-[11px] text-muted-foreground">
+            {view.pending} pendiente{view.pending === 1 ? "" : "s"} en total. Se aprueban o rechazan en Aprobaciones; las de demostración no se
+            pueden decidir.
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -179,7 +189,20 @@ export function DecisionsCard({ rows, pending, now }: { rows: DecisionRow[]; pen
 
 // --- Oportunidades ------------------------------------------------------------------
 
-export function OpportunitiesCard({ rows }: { rows: OpportunityRow[] }) {
+/** Una celda sin valor: el error se dice como error y lo que no se leyó, como «Sin leer». Nunca una cifra ni una fase. */
+function UnavailableCell({ cell }: { cell: Exclude<Cell<unknown>, { kind: "value" }> }) {
+  return cell.kind === "error" ? (
+    <span className="text-xs whitespace-nowrap text-destructive" title={cell.text}>
+      {READ_UNAVAILABLE_VALUE}
+    </span>
+  ) : (
+    <span className="text-xs whitespace-nowrap text-muted-foreground" title={cell.text}>
+      {READ_UNREAD_TEXT}
+    </span>
+  );
+}
+
+export function OpportunitiesCard({ view }: { view: OpportunitiesView }) {
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -189,7 +212,9 @@ export function OpportunitiesCard({ rows }: { rows: OpportunityRow[] }) {
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-2.5">
-        {rows.length === 0 ? (
+        {view.kind === "unavailable" ? (
+          <ReadErrorNotice title={view.state === "error" ? READ_ERROR_TEXT : READ_UNREAD_TEXT} message={view.message} />
+        ) : view.kind === "no-catalog" ? (
           <EmptyState
             icon={Package}
             title="Todavía no hay catálogo"
@@ -213,7 +238,7 @@ export function OpportunitiesCard({ rows }: { rows: OpportunityRow[] }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
+                {view.rows.map((row) => (
                   <TableRow key={row.productId}>
                     <TableCell>
                       <span className="flex items-center gap-2">
@@ -228,28 +253,36 @@ export function OpportunitiesCard({ rows }: { rows: OpportunityRow[] }) {
                       <LevelChip tone={LEVEL_TONE[row.demand]}>{row.demand}</LevelChip>
                     </TableCell>
                     <TableCell className="text-right">
-                      <span className="inline-flex items-center gap-1 tabular-nums">
-                        {formatPercent(row.marginPct, 0)}
-                        {row.marginIsReal ? (
-                          <DataProvenanceBadge
-                            status="estimated"
-                            compact
-                            tooltip="Margen de contribución del modelo económico sobre el análisis del producto: una estimación, no un margen medido. AMAZONA todavía no tiene costes ni ventas reales."
-                          />
-                        ) : (
-                          <DataProvenanceBadge
-                            status="demo"
-                            compact
-                            tooltip="Este producto no tiene análisis económico: el margen sale del modelo con los supuestos de demostración de Economía."
-                          />
-                        )}
-                      </span>
+                      {row.margin.kind === "value" ? (
+                        <span className="inline-flex items-center gap-1 tabular-nums">
+                          {formatPercent(row.margin.value.pct, 0)}
+                          {row.margin.value.isReal ? (
+                            <DataProvenanceBadge
+                              status="estimated"
+                              compact
+                              tooltip="Margen de contribución del modelo económico sobre el análisis del producto: una estimación, no un margen medido. AMAZONA todavía no tiene costes ni ventas reales."
+                            />
+                          ) : (
+                            <DataProvenanceBadge
+                              status="demo"
+                              compact
+                              tooltip="Este producto no tiene análisis económico: el margen sale del modelo con los supuestos de demostración de Economía."
+                            />
+                          )}
+                        </span>
+                      ) : (
+                        <UnavailableCell cell={row.margin} />
+                      )}
                     </TableCell>
                     <TableCell>
                       <LevelChip tone={RISK_TONE[row.risk]}>{row.risk}</LevelChip>
                     </TableCell>
                     <TableCell>
-                      <span className="text-xs whitespace-nowrap text-muted-foreground">{row.stage}</span>
+                      {row.stage.kind === "value" ? (
+                        <span className="text-xs whitespace-nowrap text-muted-foreground">{row.stage.value}</span>
+                      ) : (
+                        <UnavailableCell cell={row.stage} />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -259,8 +292,8 @@ export function OpportunitiesCard({ rows }: { rows: OpportunityRow[] }) {
         )}
         <p className="text-[11px] text-muted-foreground">
           Productos reales del catálogo, ordenados por el mismo score de Investigación, con el margen del mismo modelo económico que
-          Economía. La fase sale de hasta dónde ha llegado su pipeline de verdad; las señales de mercado son de demostración
-          mientras no se lance un análisis.
+          Economía. La fase sale de hasta dónde ha llegado su pipeline de verdad; si no se pudo leer, se dice. Las señales de mercado
+          son de demostración mientras no se lance un análisis.
         </p>
       </CardContent>
     </Card>

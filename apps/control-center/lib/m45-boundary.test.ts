@@ -110,13 +110,11 @@ test("4 · una cifra ausente no se pinta como cero: ni `?? 0` ni `|| 0` en las t
 /** `.catch(() => [])`, `.catch((): X[] => [])`, `.catch(() => null)`…: una lectura que falla y se vuelve un dato vacío. */
 const SILENT = /\.catch\(\s*\(\s*\)\s*(?::\s*[^=]+)?=>\s*(\[\]|null|undefined|0|\{\}|"")\s*\)/g;
 
-/** Lecturas que hoy tragan su error y NO son dinero: el panel operativo y el catálogo del Panel (agentes, ejecuciones,
- * aprobaciones, revisiones y, por producto, proveedores, economía, legal, tienda y campañas). Es una DEUDA conocida
- * (pasa a M46), y el trinquete solo permite que mengüe: añadir una nueva, o dejar de contarla sin bajar el número,
- * rompe la prueba. */
-const LEGACY_SILENT_READS: Record<string, number> = {
-  "app/dashboard/page.tsx": 9,
-};
+/** Lecturas que tragan su error en estas tres pantallas. Eran 9 en el Panel (agentes, ejecuciones, aprobaciones,
+ * revisiones y, por producto, proveedores, economía, legal, tienda y campañas) y M46 (Commit 6) las cerró: el trinquete
+ * está a CERO. Sigue siendo un trinquete —solo puede mengüar—, y la guarda de `lib/read-boundary.test.ts` vigila además las
+ * formas que esta expresión regular no ve (`[] as T[]`, `catch { return [] }`…) en las capas del Panel. */
+const LEGACY_SILENT_READS: Record<string, number> = {};
 
 const silentReads = (file: string) => [...stripComments(read(file)).matchAll(SILENT)].map((match) => match[0]);
 
@@ -170,7 +168,8 @@ test("5d · `settle` convierte un fallo en un fallo con su motivo, nunca en dato
   assert.deepEqual(other, { ok: true, data: { entries: 5 } }, "otra lectura sana, también");
   assert.equal(failed.ok, false);
   if (!failed.ok) {
-    assert.match(failed.message, /500/);
+    assert.match(failed.message, /no están disponibles/);
+    assert.doesNotMatch(failed.message, /500|db down/, "el estado y el detalle del backend no llegan al usuario");
     assert.ok(!("data" in failed), "un fallo no lleva datos, ni vacíos ni cero");
   }
 });

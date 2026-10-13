@@ -30,7 +30,6 @@ const ALLOWED = [
   "app/audit/audit-panels.tsx",
   "app/audit/audit-workspace.tsx",
   "app/dashboard/dashboard-panels.tsx",
-  "app/dashboard/dashboard-workspace.tsx",
   "app/ecommerce/ecommerce-workspace.tsx",
   "app/ecommerce/store-builder.tsx",
   "app/economics/economics-workspace.tsx",

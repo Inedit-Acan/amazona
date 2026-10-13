@@ -3,35 +3,29 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { Bot, ClipboardCheck, Coins, Plus, ReceiptText, Scale } from "lucide-react";
-import type {
-  Agent,
-  AgentExecution,
-  Approval,
-  PipelineReview,
-  Product,
-  RevenueEntriesPage,
-  RevenueSeries,
-  RevenueSummary,
-} from "@/lib/api";
-import { teamOf } from "@/lib/agents";
-import { agentCards } from "@/lib/agents-view";
-import { demoRequests, requestFromApproval, requestFromReview, type ApprovalRequest } from "@/lib/approvals-view";
-import { activityRows, dashboardKpis, decisionRows, opportunityRows, type ProductDepth } from "@/lib/dashboard-view";
-import { demoExecutions } from "@/lib/demo/agents";
-import { buildBaseline } from "@/lib/economics-baseline";
-import { dedupeQuotesBySupplier } from "@/lib/economics";
-import { evaluate } from "@/lib/economics-model";
-import { formatInteger, formatPercent } from "@/lib/format";
+import type { RevenueEntriesPage, RevenueSeries, RevenueSummary } from "@/lib/api";
+import { demoRequests } from "@/lib/approvals-view";
+import type { DashboardReads } from "@/lib/dashboard-reads";
+import {
+  activityView,
+  agentsKpiView,
+  decisionRows,
+  decisionsKpiView,
+  decisionsView,
+  demoContext,
+  opportunitiesView,
+  readIssues,
+} from "@/lib/dashboard-view";
+import { listOf } from "@/lib/read-state";
 import { type RevenueWindow } from "@/lib/revenue-query";
 import { periodLabel, revenueKpis, type KpiText, type Settled } from "@/lib/revenue-view";
-import { buildRows } from "@/lib/research-view";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { HeaderClock } from "@/components/header-clock";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
+import { ReadErrorNotice } from "@/components/read-error-notice";
 import { PeriodSelect } from "@/components/period-select";
 import { Button } from "@/components/ui/button";
-import type { DashboardProductData } from "./page";
 import { DASHBOARD_DESCRIPTION, DASHBOARD_TITLE } from "./copy";
 import { ActivityCard, DecisionsCard, OpportunitiesCard } from "./dashboard-panels";
 import { OutsideVerifiedCard, RevenueBreakdownCard, RevenueEntriesCard, RevenueSeriesCard } from "./revenue-panels";
@@ -101,22 +95,13 @@ function RevenueKpi({
 }
 
 export function DashboardWorkspace({
-  data,
-  products,
-  agents,
-  executions,
-  approvals,
-  reviews,
+  reads,
   now,
   days,
   revenue,
 }: {
-  data: DashboardProductData[];
-  products: Product[];
-  agents: Agent[];
-  executions: AgentExecution[];
-  approvals: Approval[];
-  reviews: PipelineReview[];
+  /** Las lecturas del Panel, cada una con su estado (`loaded` / `empty` / `unread` / `error`). */
+  reads: DashboardReads;
   now: number;
   /** Periodo de los ingresos (7, 14 o 30 días): lo elige la URL y lo lee el servidor. */
   days: number;
@@ -127,65 +112,38 @@ export function DashboardWorkspace({
     entries: Settled<RevenueEntriesPage>;
   };
 }) {
-  // Mismo criterio que Agentes: si el log está vacío se usan las ejecuciones de
-  // demostración, para que las dos pantallas cuenten lo mismo.
-  const usingDemoRuns = executions.length === 0;
-  const runs = useMemo(
-    () => (usingDemoRuns ? demoExecutions(agents, teamOf, now, 7) : executions),
-    [agents, executions, usingDemoRuns, now],
-  );
-  const cards = useMemo(() => agentCards(agents, runs, now), [agents, runs, now]);
-
-  // Mismas solicitudes que Aprobaciones: las reales primero y las de
-  // demostración sobre el producto más avanzado.
-  const best = useMemo(() => [...data].sort((a, b) => b.depth - a.depth)[0], [data]);
-  const requests = useMemo<ApprovalRequest[]>(
-    () => [
-      ...approvals.map((approval) => requestFromApproval(approval, now)),
-      ...reviews.map((review) => requestFromReview(review, now)),
-      ...demoRequests(best, agents, now),
-    ],
-    [approvals, reviews, best, agents, now],
+  // Mismo criterio que Agentes: si el log es VÁLIDO y está vacío se usan las ejecuciones de demostración. Un log que no se
+  // pudo leer NO es un log vacío: se dice (`activity.kind === "unavailable"`) y no se sustituye por demostración.
+  const activity = useMemo(
+    () => activityView({ agents: reads.agents, executions: reads.executions, now, limit: ACTIVITY_LIMIT }),
+    [reads.agents, reads.executions, now],
   );
 
-  // El margen es el mismo que enseña Economía: el del modelo sobre los supuestos
-  // del producto (cotización real o la que recomienda Proveedores, y el último
-  // análisis económico). Es una ESTIMACIÓN del modelo, no un margen medido.
-  const depths = useMemo<ProductDepth[]>(
-    () =>
-      data.map(({ product, quotes, economics, legal, storefronts, campaigns }) => {
-        const analysis = economics[0];
-        const options = dedupeQuotesBySupplier(quotes, analysis?.supplier_quote_id);
-        const quote = options.find((q) => q.id === analysis?.supplier_quote_id) ?? options[0];
-        return {
-          productId: product.id,
-          quotes: quotes.length,
-          economics: economics.length,
-          legal: legal.length,
-          storefronts: storefronts.length,
-          campaigns: campaigns.length,
-          marginPct: evaluate(buildBaseline(quote, analysis).inputs).contributionMargin,
-          marginIsReal: economics.length > 0,
-        };
-      }),
-    [data],
+  // Mismas solicitudes que Aprobaciones: las reales primero y las de demostración sobre el producto más avanzado. Si una de
+  // las lecturas del backend falló no hay lista parcial ni conteo (`decisions.kind === "unavailable"`).
+  const demo = useMemo(
+    () => (reads.agents.kind === "loaded" || reads.agents.kind === "empty" ? demoRequests(demoContext(reads.catalog), listOf(reads.agents) ?? [], now) : []),
+    [reads.agents, reads.catalog, now],
+  );
+  const decisions = useMemo(
+    () => decisionsView({ approvals: reads.approvals, reviews: reads.reviews, demo, now }),
+    [reads.approvals, reads.reviews, demo, now],
+  );
+  const decisionList = useMemo(
+    () => (decisions.kind === "ready" ? decisionRows(decisions.requests, DECISION_LIMIT) : []),
+    [decisions],
   );
 
-  const kpis = useMemo(() => dashboardKpis({ agents, requests }), [agents, requests]);
-  const research = useMemo(() => buildRows(products, []), [products]);
-  const opportunities = useMemo(() => opportunityRows(research, depths, OPPORTUNITY_LIMIT), [research, depths]);
-  const activity = useMemo(() => activityRows(cards, ACTIVITY_LIMIT), [cards]);
-  const decisions = useMemo(() => decisionRows(requests, DECISION_LIMIT), [requests]);
-  const runsPerDay = useMemo(() => {
-    const dayStart = now - (now % 86_400_000);
-    return Array.from({ length: 7 }, (_, index) => {
-      const from = dayStart - (6 - index) * 86_400_000;
-      return runs.filter((run) => {
-        const at = new Date(`${run.created_at}${/[zZ]|[+-]\d{2}:?\d{2}$/.test(run.created_at) ? "" : "Z"}`).getTime();
-        return at >= from && at < from + 86_400_000;
-      }).length;
-    });
-  }, [runs, now]);
+  // El margen es el mismo que enseña Economía: el del modelo sobre los supuestos del producto. Es una ESTIMACIÓN del modelo,
+  // no un margen medido; y si el producto no se pudo leer, el margen y la fase se dicen como no disponibles.
+  const opportunities = useMemo(
+    () => opportunitiesView({ products: reads.products, catalog: reads.catalog, limit: OPPORTUNITY_LIMIT }),
+    [reads.products, reads.catalog],
+  );
+
+  const agentsKpi = useMemo(() => agentsKpiView(reads.agents, reads.executions), [reads.agents, reads.executions]);
+  const decisionsKpi = useMemo(() => decisionsKpiView(decisions), [decisions]);
+  const issues = useMemo(() => readIssues(reads, revenue), [reads, revenue]);
 
   const period = periodLabel(days);
 
@@ -206,6 +164,13 @@ export function DashboardWorkspace({
           </>
         }
       />
+
+      {issues.length > 0 ? (
+        <ReadErrorNotice
+          title="Algunos datos no están disponibles en este momento"
+          message={`No se pudieron cargar: ${issues.map((issue) => issue.label).join(", ")}. Las cifras de esas secciones no se muestran hasta que la lectura funcione; no se han sustituido por datos de demostración ni por un cero.`}
+        />
+      ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Indicadores del negocio">
         <RevenueKpi
@@ -231,48 +196,64 @@ export function DashboardWorkspace({
           pick={(k) => k.pending}
           tooltip="Eventos de pago (cobros o reembolsos) que no se pudieron asentar. No son ingreso ni reembolso y no entran en ningún total."
         />
-        <KpiCard
-          label="Agentes en línea"
-          value={`${kpis.agentsOnline} / ${kpis.agentsTotal}`}
-          leading={iconBox(<Bot className="size-5 text-primary" />)}
-          trailing={<RunBars values={runsPerDay} />}
-          caption={`${formatPercent(kpis.agentsRatio, 0)} operativos`}
-          provenance="verified"
-          provenanceCompact
-          provenanceTooltip="Agentes del registro que no están fuera de servicio. Las barras son sus ejecuciones de los últimos siete días."
-        />
-        <KpiCard
-          label="Aprobaciones pendientes"
-          value={formatInteger(kpis.pendingDecisions)}
-          leading={iconBox(<ClipboardCheck className="size-5 text-primary" />)}
-          tone={kpis.pendingDecisions > 0 ? "warning" : "default"}
-          caption={
-            kpis.realDecisions > 0
-              ? `${kpis.realDecisions} del backend · ${kpis.pendingDecisions - kpis.realDecisions} de demostración`
-              : "Requieren una decisión"
-          }
-          footer={
-            <Button size="sm" variant="ghost" nativeButton={false} render={<Link href="/approvals" />}>
-              Revisar
-            </Button>
-          }
-          provenance={kpis.realDecisions === kpis.pendingDecisions ? "verified" : "demo"}
-          provenanceCompact
-          provenanceTooltip="Solicitudes pendientes de decisión: las del backend (aprobaciones y revisiones de pipeline) más las de demostración de Aprobaciones."
-        />
+        {agentsKpi.kind === "error" || agentsKpi.kind === "unread" ? (
+          <KpiCard
+            label="Agentes en línea"
+            value={agentsKpi.value}
+            leading={iconBox(<Bot className="size-5 text-primary" />)}
+            caption={agentsKpi.caption}
+            tone={agentsKpi.kind === "error" ? "danger" : "default"}
+          />
+        ) : (
+          <KpiCard
+            label="Agentes en línea"
+            value={agentsKpi.value}
+            leading={iconBox(<Bot className="size-5 text-primary" />)}
+            trailing={activity.kind === "rows" ? <RunBars values={activity.runsPerDay} /> : undefined}
+            caption={agentsKpi.caption}
+            provenance="verified"
+            provenanceCompact
+            provenanceTooltip="Agentes del registro que no están fuera de servicio. Las barras son sus ejecuciones de los últimos siete días."
+          />
+        )}
+        {decisionsKpi.kind === "error" || decisionsKpi.kind === "unread" ? (
+          <KpiCard
+            label="Aprobaciones pendientes"
+            value={decisionsKpi.value}
+            leading={iconBox(<ClipboardCheck className="size-5 text-primary" />)}
+            caption={decisionsKpi.caption}
+            tone={decisionsKpi.kind === "error" ? "danger" : "default"}
+          />
+        ) : (
+          <KpiCard
+            label="Aprobaciones pendientes"
+            value={decisionsKpi.value}
+            leading={iconBox(<ClipboardCheck className="size-5 text-primary" />)}
+            tone={decisions.kind === "ready" && decisions.pending > 0 ? "warning" : "default"}
+            caption={decisionsKpi.caption}
+            footer={
+              <Button size="sm" variant="ghost" nativeButton={false} render={<Link href="/approvals" />}>
+                Revisar
+              </Button>
+            }
+            provenance={decisions.kind === "ready" && decisions.fromBackend === decisions.pending ? "verified" : "demo"}
+            provenanceCompact
+            provenanceTooltip="Solicitudes pendientes de decisión: las del backend (aprobaciones y revisiones de pipeline) más las de demostración de Aprobaciones."
+          />
+        )}
       </section>
 
       <section className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-12" aria-label="Actividad y decisiones">
         <div className="min-w-0 2xl:col-span-7">
-          <ActivityCard rows={activity} usingDemoRuns={usingDemoRuns} now={now} />
+          <ActivityCard view={activity} now={now} />
         </div>
         <div className="min-w-0 2xl:col-span-5">
-          <DecisionsCard rows={decisions} pending={kpis.pendingDecisions} now={now} />
+          <DecisionsCard view={decisions} rows={decisionList} now={now} />
         </div>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-2" aria-label="Oportunidades e ingresos por día">
-        <OpportunitiesCard rows={opportunities} />
+        <OpportunitiesCard view={opportunities} />
         <RevenueSeriesCard key={revenue.window.from} series={revenue.series} window={revenue.window} days={days} />
       </section>
 

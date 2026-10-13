@@ -7,6 +7,7 @@ import type {
   RevenueSummary,
 } from "./api.ts";
 import { ORIGIN_MULTIPLE_LABEL, originName } from "./provenance.ts";
+import { RevenueContractError } from "./revenue-contract.ts";
 
 // Vista de los ingresos del Panel (M45, ADR 0030). Aquí NO se calcula nada económico: el backend ya devolvió cada cifra
 // por moneda, separando lo verificado, lo que está en revisión y la evidencia pendiente. Este módulo solo decide QUÉ SE
@@ -93,21 +94,30 @@ export function periodLabel(days: number): string {
 /** Lo que devuelve cada lectura del Panel. Un error se enseña como error; NUNCA se sustituye por datos de demostración. */
 export type Settled<T> = { ok: true; data: T } | { ok: false; message: string };
 
-/** Texto de un error de lectura. `detail` es el cuerpo legible del backend (`ApiError.detail`). */
-export function revenueErrorText(status: number | undefined, detail: string): string {
+/** Texto de un error de lectura de ingresos. **No repite el estado HTTP ni el detalle del backend** (M46, Commit 6): al
+ * usuario no se le enseña `500`, `ECONNREFUSED` ni un cuerpo de error, sino qué no se pudo hacer. Por eso solo recibe el
+ * estado, que decide QUÉ se dice y no se escribe. */
+export function revenueErrorText(status: number | undefined): string {
   if (status === 401) return "La sesión no es válida o ha caducado. Vuelve a iniciar sesión.";
   if (status === 403) return "Tu usuario no tiene permiso para leer los ingresos (business.read).";
-  if (status === 422) return `El backend rechazó la petición de ingresos: ${detail}`;
-  if (status !== undefined && status >= 500) return `El backend falló al leer los ingresos (${status}): ${detail}`;
-  return detail || "Error desconocido";
+  if (status === 422) return "El backend rechazó la petición de ingresos.";
+  if (status !== undefined && status >= 500) return "Los ingresos no están disponibles en este momento.";
+  return "No se pudieron cargar los ingresos.";
 }
 
+/** Cómo se convierte un fallo de lectura en el texto que ve el usuario. */
+export type DescribeReadError = (status: number | undefined, detail: string) => string;
+
 /** Ejecuta una lectura y devuelve el dato o el error. Reconoce un `ApiError` por su forma (`status`, `detail`) para no
- * depender de `lib/api.ts`, que arrastra el resolutor de token. */
-export async function settle<T>(read: () => Promise<T>): Promise<Settled<T>> {
+ * depender de `lib/api.ts`, que arrastra el resolutor de token. `describe` da el texto del error; por defecto el de los
+ * ingresos (M45). */
+export async function settle<T>(read: () => Promise<T>, describe: DescribeReadError = revenueErrorText): Promise<Settled<T>> {
   try {
     return { ok: true, data: await read() };
   } catch (err) {
+    // El error de contrato es texto NUESTRO, escrito para verse («El contrato de ingresos cambió: …»): es el aviso de que
+    // el backend y la pantalla ya no se entienden, y no se esconde detrás de un mensaje genérico.
+    if (err instanceof RevenueContractError) return { ok: false, message: err.message };
     const status = err !== null && typeof err === "object" && "status" in err && typeof err.status === "number" ? err.status : undefined;
     const detail =
       err !== null && typeof err === "object" && "detail" in err && typeof err.detail === "string"
@@ -115,7 +125,7 @@ export async function settle<T>(read: () => Promise<T>): Promise<Settled<T>> {
         : err instanceof Error
           ? err.message
           : "error desconocido";
-    return { ok: false, message: revenueErrorText(status, detail) };
+    return { ok: false, message: describe(status, detail) };
   }
 }
 
