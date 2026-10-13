@@ -293,7 +293,7 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 | 2B | backend: `check_ledger` C5/C6, defensas, prueba de uso prohibido, caos y mutaciones (**implementado**, §22) | no |
 | 3 | API: agregados por origen, `OrderOut`/pagos con origen, `SCOPE` (**implementado**, §23) | no |
 | 4 | frontend: `Verified<T>` con origen, etiquetas, fuera «Real»; prueba de frontera actualizada (**implementado**, §24) | no |
-| 5 | `POST /api/economics/runs`: canal desconocido → 422 | no |
+| 5 | `POST /api/economics/runs`: canal desconocido → 422 (**implementado**, §25) | no |
 | 6 | Las 9 lecturas silenciosas del Panel → `UNREAD` | no |
 | 7 | `ProjectOut.created_at` (y moneda de `finance_validation` solo si existe) | no |
 | 8 | Textos que afirman más de lo que el sistema sabe | no |
@@ -454,6 +454,20 @@ Este apartado documenta **exactamente** el Commit 4 (solo Control Center: sin ca
 **Pruebas.** 715 de frontend (+57 sobre las 658 del Commit 3): las 7 combinaciones de orígenes en el margen y en Operaciones, pedido sin cobros, intento sin dinero, varias monedas, coste parcial y ausente, reembolso, duplicado, origen desconocido, `Order.is_simulated` invertido sin que cambie nada, el nombre del proveedor sin efecto, y `lib/origin-boundary.test.ts` (15 pruebas arquitectónicas que leen el código: dónde se lee `is_simulated`, que nada suma por encima del origen, que el vocabulario vive en un sitio, que ningún provider_kind se pinta crudo, que ningún texto afirma «dinero real», «ingresos reales» o «realmente cobrado»). 27 mutaciones, 27 muertas.
 
 **Deuda restante de M46** (§20): Commit 5 (`POST /api/economics/runs`: canal desconocido ⇒ 422), 6 (las 9 lecturas silenciosas del Panel ⇒ `UNREAD`), 7 (`ProjectOut.created_at`; moneda de `finance_validation` solo si existe), 8 (textos que afirman más de lo que el sistema sabe), 9 (docs: milestone 46 y `system-overview`). Y la Fase B de Supabase (7 revisiones pendientes).
+
+### 25. Addendum del Commit 5 (2026-10-13): un canal que el catálogo no declara es un 422
+
+Este apartado documenta **exactamente** el Commit 5 (solo backend, un endpoint: sin migración, sin cambio de esquema ni de frontend). No tiene relación con el origen del dinero; cierra una deuda de §20.
+
+**Causa.** `POST /api/economics/runs` aceptaba `channel` como cadena libre y el servicio lo resolvía con `channel_for()`, que lanza `UnknownChannelError`. Esa excepción es un `ValueError` suelto —no un `ValidationError` del dominio— y ningún manejador la traducía: un typo del cliente salía como un **500**. No escribía nada (la comprobación ocurre antes de cualquier escritura), pero decía «fallo del servidor» donde el fallo era de quien llama.
+
+**Cambio.** `_require_declared_channel` en `app/api/economics.py` comprueba el canal en la frontera de entrada, antes de crear nada, y traduce **solo** `UnknownChannelError` a `ValidationError`, que ya tiene su 422 registrado (`{"detail": "<mensaje>"}`, el mismo cuerpo que una moneda fuera de catálogo). El mensaje lista los canales declarados. La comparación es literal: `OWN_WEB`, `" own_web "` o `""` **no** se normalizan; recortarlos guardaría un análisis bajo un canal que el cliente no escribió.
+
+**Lo que no cambia, a propósito.** El servicio sigue fallando en voz alta si un llamador interno le pasa un canal inexistente, y eso sigue siendo un 500: no se hizo `UnknownChannelError` hija de `ValidationError` porque convertiría en «culpa del cliente» un typo de un adaptador nuestro. Un canal declarado pero **no transaccional** (`search:google`, `social:*`) ya era un 422 del dominio y lo sigue siendo. El canal por defecto (`own_web`) y el pipeline no cambian.
+
+**Pruebas.** `tests/integration/test_economics_channel_boundary.py`, 36: cada canal transaccional aceptado y conservado tal cual; los no transaccionales con su 422; 13 valores no declarados (typo, vacío, mayúsculas, espacios, salto de línea, NUL) con 422, cuerpo `{"detail": <cadena>}` sin clase interna, ruta ni traceback, y **ninguna fila nueva en ninguna tabla**; tipo incorrecto, payload incompleto, dos llamadas inválidas seguidas sin envenenar la siguiente, producto inexistente que sigue siendo 404, y dos pruebas de que un fallo interno sigue siendo 500 sin filtrar su mensaje. Con el código anterior fallan 15. 16 mutaciones, 16 muertas.
+
+**Fuera de alcance, anotado.** Otras entradas de economics que también acaban en 500 y no comparten esta frontera: `sale_price = 0` (`ZeroDivisionError` en `economics/scenarios.py`), `provenance` fuera del enum en `POST /api/exchange-rates` (`ValueError` del enum), y un `sale_price` negativo que se acepta con 201.
 
 ## Contrastado contra el código el 2026-10-12
 

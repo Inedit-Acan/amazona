@@ -18,6 +18,7 @@ from app.db.models.exchange_rate import ExchangeRate as ExchangeRateModel
 from app.db.session import get_db
 from app.economics.service import DEFAULT_CHANNEL, EconomicAnalysisService
 from app.idempotency.service import IdempotencyKeyHeader, run_idempotent
+from app.integrations.channels import UnknownChannelError, channel_for
 from app.integrations.fx.ecb import FeedUnavailableError
 from app.money.ecb import ATTRIBUTION, NOTICE, is_ecb_source
 from app.money.fx_refresh import FxRefreshService, FxSourceNotConfiguredError, RefreshResult
@@ -182,12 +183,28 @@ def _load_run(correlation_id: str, db: Session) -> EconomicAnalysisOut:
     return _to_out(analysis)
 
 
+def _require_declared_channel(channel: str) -> None:
+    """Un canal que el catálogo no declara es un error de quien llama, no del servidor.
+
+    Se comprueba **antes** de cualquier escritura y solo aquí, en la frontera de entrada: el
+    servicio sigue fallando en voz alta si un llamador interno le pasa un canal inexistente, y
+    eso sigue siendo un 500 porque ahí sí es un fallo nuestro. Se compara tal cual, sin
+    normalizar: `OWN_WEB` o `" own_web "` no son `own_web`, y recortarlos guardaría un análisis
+    bajo un canal que el cliente no escribió.
+    """
+    try:
+        channel_for(channel)
+    except UnknownChannelError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
 @router.post("/api/economics/runs", response_model=EconomicAnalysisOut, status_code=201)
 def create_economic_analysis_run(
     payload: EconomicAnalysisRunCreate,
     db: Session = Depends(get_db),
     actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
 ) -> EconomicAnalysisOut:
+    _require_declared_channel(payload.channel)
     correlation_id = new_correlation_id()
     EconomicAnalysisService(db).run_analysis(
         product_id=payload.product_id,
