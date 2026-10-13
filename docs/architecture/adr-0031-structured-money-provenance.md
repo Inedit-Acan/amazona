@@ -294,6 +294,7 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 | 3 | API: agregados por origen, `OrderOut`/pagos con origen, `SCOPE` (**implementado**, §23) | no |
 | 4 | frontend: `Verified<T>` con origen, etiquetas, fuera «Real»; prueba de frontera actualizada (**implementado**, §24) | no |
 | 5 | `POST /api/economics/runs`: canal desconocido → 422 (**implementado**, §25) | no |
+| 5b | `POST /api/economics/runs`: precio > 0 y costes fijos ≥ 0; `POST /api/exchange-rates`: `provenance` como enum canónico (**implementado**, §26) | no |
 | 6 | Las 9 lecturas silenciosas del Panel → `UNREAD` | no |
 | 7 | `ProjectOut.created_at` (y moneda de `finance_validation` solo si existe) | no |
 | 8 | Textos que afirman más de lo que el sistema sabe | no |
@@ -468,6 +469,22 @@ Este apartado documenta **exactamente** el Commit 5 (solo backend, un endpoint: 
 **Pruebas.** `tests/integration/test_economics_channel_boundary.py`, 36: cada canal transaccional aceptado y conservado tal cual; los no transaccionales con su 422; 13 valores no declarados (typo, vacío, mayúsculas, espacios, salto de línea, NUL) con 422, cuerpo `{"detail": <cadena>}` sin clase interna, ruta ni traceback, y **ninguna fila nueva en ninguna tabla**; tipo incorrecto, payload incompleto, dos llamadas inválidas seguidas sin envenenar la siguiente, producto inexistente que sigue siendo 404, y dos pruebas de que un fallo interno sigue siendo 500 sin filtrar su mensaje. Con el código anterior fallan 15. 16 mutaciones, 16 muertas.
 
 **Fuera de alcance, anotado.** Otras entradas de economics que también acaban en 500 y no comparten esta frontera: `sale_price = 0` (`ZeroDivisionError` en `economics/scenarios.py`), `provenance` fuera del enum en `POST /api/exchange-rates` (`ValueError` del enum), y un `sale_price` negativo que se acepta con 201.
+
+### 26. Addendum del Commit 5b (2026-10-13): precio, costes fijos y procedencia del tipo de cambio en la frontera de entrada
+
+Este apartado documenta **exactamente** el Commit 5b (solo backend, un fichero de aplicación: sin migración, sin esquema de base de datos ni frontend). Cierra los tres hallazgos anotados en §25 y no tiene relación con el origen del dinero.
+
+**Causas.** (A) `sale_price = 0` llegaba a `economics/scenarios.py` y dividía por cero (500). (B) un `sale_price` o un `monthly_fixed_costs` negativo se aceptaba y se guardaba con un 201. (C) `ExchangeRateCreate.provenance` era una cadena libre y el endpoint hacía `SupplierFactProvenance(valor)`: un valor fuera del enum lanzaba un `ValueError` que ningún manejador traducía (500).
+
+**Decisiones de dominio.** El `sale_price` es un precio de venta comercial: **estrictamente positivo**; cero y los negativos son inválidos y no se usan para modelar promociones gratuitas ni subvenciones (si existen, tendrán semántica propia). Los `monthly_fixed_costs` son **≥ 0**: cero es válido y un negativo no representa ingresos, subvenciones ni créditos. «Positivo» se entiende **como importe monetario**: `Money` guarda `INTERNAL_PLACES` (4) decimales y redondea con ROUND_HALF_UP, así que un precio por debajo de 0,00005 se queda en 0,0000 —un precio cero que el análisis daba por «evaluable»—; el mínimo aceptado se deriva de esa constante (`MIN_SALE_PRICE`). Esta lectura es una **precisión nuestra** sobre la decisión «> 0», no una cota comercial.
+
+**Cambio.** `_require_amounts_the_analysis_can_use` (`app/api/economics.py`) exige un precio finito ≥ `MIN_SALE_PRICE` y unos costes fijos finitos ≥ 0, y es lo primero que hace el endpoint, antes de crear nada: un 422 de dominio `{"detail": "<cadena>"}` que nombra los campos y **no repite lo que mandó el cliente**. Es una precondición, no un `except ZeroDivisionError`. No se usó `Field(ge=...)`: el 422 de esquema repite el valor recibido en su cuerpo y un `NaN` o un `Infinity` no se pueden escribir en JSON, de modo que habría convertido un 422 que ya era limpio en un 500 (lo detectaron las pruebas). `ExchangeRateCreate.provenance` pasa a ser el enum canónico `SupplierFactProvenance` (no se creó un segundo enum): un valor fuera de él es un 422 de esquema de FastAPI antes de entrar en el endpoint, sin normalizar, sin sustituir por un valor por defecto y sin inferir; `unknown` está en el enum y `ExchangeRate` lo sigue rechazando con su propio mensaje de dominio.
+
+**Lo que no cambia, a propósito.** Los fallos internos (`RuntimeError`, `ZeroDivisionError` o `ValueError` de dentro) siguen siendo un 500 y no filtran su mensaje. El servicio no se tocó. El tipo incorrecto (`"abc"`, `null`, lista…) sigue siendo el 422 de esquema de siempre.
+
+**Pruebas.** `tests/integration/test_economics_input_bounds.py` y `tests/integration/test_exchange_rate_provenance_boundary.py`: precios válidos hasta el mínimo representable, 17 precios inválidos (cero, negativos, sub-resolución, `NaN`, `Infinity`, cadenas numéricas), costes fijos válidos y 10 inválidos, 14 procedencias fuera del enum (mayúsculas, espacios, vacía…), tipos incorrectos, payload incompleto, dos inválidas seguidas, ninguna fila nueva en ninguna tabla tras una entrada inválida y fallos internos que siguen siendo 500. Contra el código del Commit 5 fallan 44. 27 mutaciones, 27 muertas.
+
+**Fuera de alcance, anotado.** `sale_price` o `monthly_fixed_costs` de ~1e308 (`decimal.InvalidOperation` en `Money`; requeriría una cota de dominio) siguen dando 500; `POST /api/pipeline/runs` (`PipelineRunCreate`) tiene el mismo esquema sin validar; Pydantic acepta `true` y `"20"` como número; un tipo de cambio se puede declarar como `simulated` por la API; y `ApiError.detail` del frontend solo muestra el `detail` cuando es una cadena.
 
 ## Contrastado contra el código el 2026-10-12
 

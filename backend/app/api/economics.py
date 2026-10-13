@@ -1,4 +1,5 @@
 import datetime
+import math
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -22,6 +23,7 @@ from app.integrations.channels import UnknownChannelError, channel_for
 from app.integrations.fx.ecb import FeedUnavailableError
 from app.money.ecb import ATTRIBUTION, NOTICE, is_ecb_source
 from app.money.fx_refresh import FxRefreshService, FxSourceNotConfiguredError, RefreshResult
+from app.money.money import INTERNAL_PLACES
 from app.money.rates import ExchangeRate
 from app.permissions.policies import ApiAction
 from app.sourcing.provenance import SupplierFactProvenance
@@ -29,11 +31,18 @@ from app.sourcing.trade_terms import ACCOUNTING_CURRENCY
 
 router = APIRouter(tags=["economics"])
 
+#: El menor precio de venta que `Money` distingue de cero. `Money` guarda `INTERNAL_PLACES` decimales y redondea
+#: con ROUND_HALF_UP: 0,00005 pasa a 0,0001 y todo lo que está por debajo se queda en 0,0000, que es un precio
+#: cero. Un precio es estrictamente positivo **como importe**, no solo como `float`.
+MIN_SALE_PRICE = float(Decimal(5).scaleb(-(INTERNAL_PLACES + 1)))
+
 
 class EconomicAnalysisRunCreate(BaseModel):
     product_id: str
     supplier_quote_id: str
+    #: Un precio de venta comercial: estrictamente positivo (`_require_amounts_the_analysis_can_use`).
     sale_price: float
+    #: Cero es válido; un negativo no representa ingresos, subvenciones ni créditos (ídem).
     monthly_fixed_costs: float = Field(default=500.0)
     monthly_unit_sales_base: float | None = None
     #: Dónde se vende. Del catálogo del Milestone 38.
@@ -89,7 +98,9 @@ class ExchangeRateCreate(BaseModel):
     rate: Decimal = Field(gt=0)
     effective_date: datetime.date
     source: str | None = None
-    provenance: str = SupplierFactProvenance.DECLARED.value
+    #: El enum canónico, no una cadena libre: un valor fuera de él es un 422 de esquema antes de entrar aquí.
+    #: Incluye `unknown`, que `ExchangeRate` ya rechaza con su propio mensaje: no hay una segunda lista.
+    provenance: SupplierFactProvenance = SupplierFactProvenance.DECLARED
     declared_by: str | None = None
     note: str | None = None
 
@@ -183,6 +194,31 @@ def _load_run(correlation_id: str, db: Session) -> EconomicAnalysisOut:
     return _to_out(analysis)
 
 
+def _require_amounts_the_analysis_can_use(sale_price: float, monthly_fixed_costs: float) -> None:
+    """Un precio de venta estrictamente positivo y unos costes fijos >= 0, ambos finitos.
+
+    Es una **precondición**, no un `except`: con `sale_price = 0` el análisis dividía por cero en `scenarios.py`
+    (500) y un precio o unos costes negativos se guardaban. Se comprueba en la frontera de entrada, antes de crear
+    nada, y no con `Field(ge=...)`: el 422 de esquema repite el valor recibido en su cuerpo, y un `NaN` o un
+    `Infinity` no se pueden escribir en JSON (500). Este mensaje no repite lo que mandó el cliente.
+
+    No es la forma de modelar una promoción gratuita ni una subvención: eso tendría semántica propia.
+    """
+    problems = []
+    if not math.isfinite(sale_price) or sale_price < MIN_SALE_PRICE:
+        problems.append(
+            f"sale_price must be a finite amount of at least {format(Decimal(str(MIN_SALE_PRICE)), 'f')}: "
+            "a price is strictly positive as money, and a smaller one rounds to zero"
+        )
+    if not math.isfinite(monthly_fixed_costs) or monthly_fixed_costs < 0:
+        problems.append(
+            "monthly_fixed_costs must be a finite amount of zero or more: "
+            "a negative cost is not income, a subsidy or a credit"
+        )
+    if problems:
+        raise ValidationError("; ".join(problems))
+
+
 def _require_declared_channel(channel: str) -> None:
     """Un canal que el catálogo no declara es un error de quien llama, no del servidor.
 
@@ -204,6 +240,7 @@ def create_economic_analysis_run(
     db: Session = Depends(get_db),
     actor: Actor = Depends(authorize(ApiAction.AGENT_RUN)),
 ) -> EconomicAnalysisOut:
+    _require_amounts_the_analysis_can_use(payload.sale_price, payload.monthly_fixed_costs)
     _require_declared_channel(payload.channel)
     correlation_id = new_correlation_id()
     EconomicAnalysisService(db).run_analysis(
@@ -276,7 +313,7 @@ def create_exchange_rate(
         rate=payload.rate,
         effective_date=payload.effective_date,
         source=source,
-        provenance=SupplierFactProvenance(payload.provenance),
+        provenance=payload.provenance,
         declared_by=payload.declared_by,
     )
     if rate.effective_date > datetime.datetime.now(datetime.UTC).date():
