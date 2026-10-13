@@ -35,6 +35,7 @@ from app.db.models.product import Product
 from app.db.models.product_analysis import ProductAnalysis
 from app.db.models.supplier import Supplier
 from app.db.models.supplier_quote import SupplierQuote
+from app.db.numeric_capacity import require_row_fits_storage
 from app.economics.channel_costs import ChannelFee, QuoteCosts, build_breakdown
 from app.economics.components import CostBreakdown
 from app.economics.scenarios import estimate_monthly_unit_sales
@@ -224,6 +225,9 @@ class EconomicAnalysisService:
             },
             correlation_id=correlation_id,
         )
+        # Dos entradas válidas pueden dar un resultado que las columnas no guardan (`Numeric(12, 4)`): en PostgreSQL
+        # sería un 500 al escribir. Se comprueba aquí, antes de `add`, y falla con un error de validación estable.
+        require_row_fits_storage(analysis)
         self._db.add(analysis)
         self._db.add(
             AuditLog(

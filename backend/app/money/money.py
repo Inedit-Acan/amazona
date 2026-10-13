@@ -53,6 +53,20 @@ class CurrencyMismatchError(ValidationError):
     """
 
 
+class AmountNotRepresentableError(ValidationError):
+    """Un importe **finito** que `Money` no puede representar: con sus decimales no cabe en la precisión de
+    `Decimal`.
+
+    Es una propiedad del importe, no un fallo interno: lo producen una entrada demasiado grande o dos entradas
+    válidas cuyo producto no cabe (precio × unidades). Antes salía como un `decimal.InvalidOperation` suelto
+    (500); falla en voz alta con un mensaje estable y sin repetir el valor.
+
+    **No es un máximo comercial ni fiscal.** Es la consecuencia técnica de la representación actual (precisión 28
+    y `INTERNAL_PLACES` decimales ⇒ solo caben importes de valor absoluto inferior a 1e24). La política de
+    límites de negocio sigue sin definirse.
+    """
+
+
 Scalar = int | Decimal
 
 
@@ -84,7 +98,38 @@ class Money:
 
     @staticmethod
     def _quantize(value: Decimal, exponent: Decimal) -> Decimal:
-        return value.quantize(exponent, rounding=ROUND_HALF_UP)
+        """Redondea al exponente dado. **La única fuente de verdad de «cabe como `Money`»**.
+
+        `quantize` lanza `InvalidOperation` cuando el resultado necesita más cifras que el contexto de `Decimal`.
+        Solo ese caso —un importe **finito** demasiado grande— es una propiedad del importe y se traduce a un
+        error de validación. Cualquier otro `InvalidOperation` (un `NaN`, o un fallo interno) sigue siéndolo y
+        sigue siendo visible: no se captura `InvalidOperation` en general.
+        """
+        try:
+            return value.quantize(exponent, rounding=ROUND_HALF_UP)
+        except InvalidOperation as exc:
+            if value.is_finite():
+                raise AmountNotRepresentableError(
+                    "an amount is too large to be represented as money: the values received are individually "
+                    "valid but not together"
+                ) from exc
+            raise
+
+    @classmethod
+    def can_represent(cls, amount: "float | int | Decimal") -> bool:
+        """Si un importe cabe como `Money`. La misma regla que aplica el constructor, no una copia.
+
+        Un `float` se convierte por su representación decimal (como `from_legacy_float`). `NaN` e infinito
+        no son importes. **No es un máximo comercial**: ver `AmountNotRepresentableError`.
+        """
+        value = amount if isinstance(amount, Decimal) else Decimal(str(amount))
+        if not value.is_finite():
+            return False
+        try:
+            cls._quantize(value, _INTERNAL_EXP)
+        except AmountNotRepresentableError:
+            return False
+        return True
 
     @classmethod
     def of(cls, amount: str | int | Decimal, currency: str) -> "Money":

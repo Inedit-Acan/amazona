@@ -1,4 +1,6 @@
 from fastapi import Depends, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -34,6 +36,7 @@ from app.api import (
     sourcing,
     tasks,
 )
+from app.api.validation_body import safe_validation_errors
 from app.approvals.service import ApprovalNotPendingError
 from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
@@ -79,6 +82,14 @@ app.add_middleware(
 )
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    # Lo mismo que el manejador por defecto de FastAPI (422, `{"detail": [...]}`, mismos `type`/`loc`/`msg`), con una
+    # sola diferencia: `input`/`ctx` no repiten un `NaN`/`Infinity` (que JSON no puede escribir y convertía el 422 en
+    # un 500) ni un eco arbitrariamente grande. No captura nada más ni toca otros errores.
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(safe_validation_errors(exc.errors()))})
 
 
 @app.exception_handler(NotFoundError)

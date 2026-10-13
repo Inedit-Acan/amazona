@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
+from app.api.numeric_inputs import MAX_RESULTS_MAX, MAX_RESULTS_MIN
 from app.auth.actor import Actor
 from app.auth.dependencies import authorize
 from app.core.errors import NotFoundError
@@ -24,7 +25,7 @@ class SourcingRunCreate(BaseModel):
     product_id: str
     category: str
     destination_region: str
-    max_results: int = Field(default=5, ge=1, le=20)
+    max_results: int = Field(default=5, ge=MAX_RESULTS_MIN, le=MAX_RESULTS_MAX)
 
 
 class SupplierOut(BaseModel):

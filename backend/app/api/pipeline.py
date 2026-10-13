@@ -2,11 +2,12 @@ import datetime
 from typing import cast
 
 from fastapi import APIRouter, Depends, Header, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt
 from sqlalchemy import update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from app.api.numeric_inputs import MAX_RESULTS_MAX, MAX_RESULTS_MIN, require_amounts
 from app.auth.actor import Actor
 from app.auth.dependencies import actor_name, authorize
 from app.core.config import Settings, get_settings
@@ -28,16 +29,24 @@ router = APIRouter(tags=["pipeline"])
 
 
 class PipelineRunCreate(BaseModel):
+    """Los campos numéricos son `StrictFloat`/`StrictInt`: rechazan `bool` y cadenas numéricas (`true`, `"20"`).
+
+    `sale_price` y `monthly_fixed_costs` pasan por **las mismas** precondiciones que `POST /api/economics/runs`
+    (`require_amounts`): el pipeline se los pasa tal cual a `run_analysis`. El presupuesto diario tiene las suyas
+    (finito, `>= 0`, cabe donde se guarda el gasto). Todo ello se comprueba antes de encolar nada: un valor que el
+    worker no sabe procesar no debe llegar a él (antes dejaba el run en `RUNNING`).
+    """
+
     category: str
-    sale_price: float
+    sale_price: StrictFloat
     destination_region: str
     market: str = "us"
     marketplace_platform: str = "amazon"
     marketing_platform: str = "meta"
-    daily_budget: float = 20.0
-    monthly_fixed_costs: float = 500.0
+    daily_budget: StrictFloat = 20.0
+    monthly_fixed_costs: StrictFloat = 500.0
     certification_available: bool = False
-    max_results: int = 5
+    max_results: StrictInt = Field(default=5, ge=MAX_RESULTS_MIN, le=MAX_RESULTS_MAX)
 
 
 class PipelineRunOut(BaseModel):
@@ -190,6 +199,11 @@ def create_pipeline_run(
     ejecución** con la cabecera `Idempotency-Replayed: true`, sin crear ni ejecutar otra.
     Sin clave, y solo si todos los proveedores son simulados, cada petición es una ejecución
     nueva."""
+    require_amounts(
+        sale_price=payload.sale_price,
+        monthly_fixed_costs=payload.monthly_fixed_costs,
+        daily_budget=payload.daily_budget,
+    )
     key = _idempotency_key(idempotency_key, identity, settings)
     request = PipelineRequest(**payload.model_dump())
     run, replayed = PipelineOrchestrator(db).enqueue_or_replay(

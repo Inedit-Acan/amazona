@@ -6,7 +6,8 @@ Antes: `sale_price = 0` llegaba a `scenarios.py` y era un 500 (`ZeroDivisionErro
 Ahora el endpoint exige, antes de crear nada, un precio estrictamente positivo **como importe monetario** (un precio
 que `Money` redondea a 0,0000 es un precio cero) y unos costes fijos >= 0, ambos finitos: un 422 de dominio
 `{"detail": <cadena>}` que no repite lo recibido (con `Field(ge=...)` el 422 de esquema lo repite, y un `NaN` no se
-puede escribir en JSON: 500). Un tipo incorrecto sigue siendo el 422 de esquema de siempre. No entra al servicio, no
+puede escribir en JSON: 500; el Commit 5c lo hace seguro con un manejador global). Un tipo incorrecto (también un
+booleano o una cadena numérica, desde el 5c) es el 422 de esquema de siempre. No entra al servicio, no
 escribe nada. Un fallo interno de verdad sigue siendo un 500.
 
 `raise_server_exceptions=False`: con el valor por defecto un 500 se vería como excepción dentro del test.
@@ -140,10 +141,6 @@ def test_a_positive_price_is_accepted_down_to_the_smallest_the_money_type_can_ho
         NAN,
         INF,
         -INF,
-        "NaN",  # Pydantic lee estas cadenas como número: tampoco pasan
-        "Infinity",
-        "-1",
-        "0",
     ],
 )
 def test_a_price_that_is_not_strictly_positive_as_money_is_a_422_and_writes_nothing(world, price):
@@ -157,7 +154,9 @@ def test_a_price_that_is_not_strictly_positive_as_money_is_a_422_and_writes_noth
     assert _rows(session_factory) == before
 
 
-@pytest.mark.parametrize("price", ["abc", "", None, [20], {"a": 1}])
+@pytest.mark.parametrize(
+    "price", ["abc", "", None, [20], {"a": 1}, True, False, "20", "0", "-1", "NaN", "Infinity"]
+)
 def test_a_price_of_the_wrong_type_is_a_422_and_writes_nothing(world, price):
     client, session_factory = world
     product_id, quote_id = _product_and_quote(client)
@@ -206,7 +205,7 @@ def test_omitted_fixed_costs_keep_their_declared_default(world):
     assert response.json()["monthly_fixed_costs"] == 500.0
 
 
-@pytest.mark.parametrize("costs", [-1, -0.01, -0.0001, -1e-300, NAN, INF, -INF, "NaN", "Infinity", "-1"])
+@pytest.mark.parametrize("costs", [-1, -0.01, -0.0001, -1e-300, NAN, INF, -INF])
 def test_negative_or_non_finite_fixed_costs_are_a_422_and_write_nothing(world, costs):
     """Un negativo no representa ingresos, subvenciones ni créditos: sería un coste que resta."""
     client, session_factory = world
@@ -219,7 +218,9 @@ def test_negative_or_non_finite_fixed_costs_are_a_422_and_write_nothing(world, c
     assert _rows(session_factory) == before
 
 
-@pytest.mark.parametrize("costs", ["abc", "", None, [500], {"a": 1}])
+@pytest.mark.parametrize(
+    "costs", ["abc", "", None, [500], {"a": 1}, True, False, "500", "0", "-1", "NaN", "Infinity"]
+)
 def test_fixed_costs_of_the_wrong_type_are_a_422_and_write_nothing(world, costs):
     client, session_factory = world
     product_id, quote_id = _product_and_quote(client)
