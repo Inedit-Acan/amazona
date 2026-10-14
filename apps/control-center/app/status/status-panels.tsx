@@ -134,7 +134,7 @@ export function ServicesCard({ rows, summary }: { rows: ServiceRow[]; summary: S
                     <span className="flex items-center gap-1">
                       {row.name}
                       {row.isDemo ? null : (
-                        <ShieldCheck className="size-3 shrink-0 text-primary/70" aria-label="Estado medido de verdad" />
+                        <ShieldCheck className="size-3 shrink-0 text-primary/70" aria-label="Estado medido en esta carga" />
                       )}
                     </span>
                   </TableCell>
@@ -154,7 +154,7 @@ export function ServicesCard({ rows, summary }: { rows: ServiceRow[]; summary: S
           </Table>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          El estado está medido de verdad <ShieldCheck className="inline size-3 align-[-1px] text-primary/70" /> en{" "}
+          El estado está medido en esta carga <ShieldCheck className="inline size-3 align-[-1px] text-primary/70" /> en{" "}
           {summary.withRealSignal} de {summary.total} servicios: frontend, API, Postgres, Auth, Storage y los workers de agentes.
           El uptime (30 días), la latencia p95 y la tendencia son de demostración en todos.
         </p>
@@ -220,7 +220,7 @@ export function ServiceMapCard({ real, summary }: { real: Record<string, RealSig
       <CardContent className="space-y-3">
         <ServiceMap tiers={tiers} />
         <p className="text-[11px] text-muted-foreground">
-          Borde continuo: estado medido de verdad · borde a trazos: estado de demostración · gris: sin telemetría. Pasa el cursor por
+          Borde continuo: estado medido en esta carga · borde a trazos: estado de demostración · gris: sin telemetría. Pasa el cursor por
           cada nodo para ver el motivo.
         </p>
       </CardContent>
@@ -255,7 +255,7 @@ export function SystemHealthCard({ scores, overall }: { scores: HealthScore[]; o
           {HEALTH_NOTE}
         </p>
         <p className="text-[11px] text-muted-foreground">
-          API, Database, Auth, Storage y Workers salen de la señal real; Queues, Integrations, Security y Observability son de
+          API, Database, Auth, Storage y Workers salen de la comprobación de salud del backend; Queues, Integrations, Security y Observability son de
           demostración.
         </p>
       </CardContent>
@@ -310,7 +310,7 @@ export function AgentRuntimeCard({ runtime }: { runtime: RuntimeView }) {
         <div className="space-y-2 border-t pt-3">
           <RuntimeStat value={formatInteger(runtime.runningJobs)} label="Jobs ejecutándose" />
           <RuntimeStat value={formatInteger(runtime.pendingJobs)} label="Jobs pendientes" />
-          <RuntimeStat value={formatInteger(runtime.failedJobs)} label="Jobs fallidos hoy (real)" tone={runtime.failedJobs > 0 ? "danger" : undefined} />
+          <RuntimeStat value={formatInteger(runtime.failedJobs)} label="Jobs fallidos hoy (del backend)" tone={runtime.failedJobs > 0 ? "danger" : undefined} />
           <RuntimeStat value={`${runtime.avgQueueSeconds.toLocaleString("es-ES", { minimumFractionDigits: 1 })} s`} label="Tiempo medio en cola" />
         </div>
 
@@ -333,7 +333,7 @@ export function AgentRuntimeCard({ runtime }: { runtime: RuntimeView }) {
           </ul>
           <p className="pt-1 text-[11px] text-muted-foreground">Tarea más antigua: {runtime.oldestTaskSeconds} s</p>
           <p className="text-[11px] text-muted-foreground">
-            Real: los agentes registrados y las ejecuciones fallidas de hoy. De demostración: los jobs en ejecución, las colas, el
+            Del backend: los agentes registrados y las ejecuciones fallidas de hoy. De demostración: los jobs en ejecución, las colas, el
             tiempo medio en cola y la dead-letter queue.
           </p>
         </div>
@@ -417,8 +417,7 @@ export function MetricsCard({
           </MiniChartFrame>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Las tres series son de demostración: el backend no guarda historial de latencia, tráfico ni errores. Lo único medido de
-          verdad es la latencia de la comprobación de salud de esta carga.
+          Las tres series son de demostración: el backend no guarda historial de latencia, tráfico ni errores. Lo único medido es la latencia de la comprobación de salud de esta carga.
         </p>
       </CardContent>
     </Card>
@@ -543,7 +542,7 @@ export function DatabaseCard({ state }: { state: ServiceState }) {
           <DbRow label="IOPS" value={metrics.iops} />
         </ul>
         <p className="text-[11px] text-muted-foreground">
-          Real: que el backend puede consultar la base de datos. Las métricas del motor (CPU, memoria, conexiones, cache, queries,
+          Medido en esta carga: que el backend puede consultar la base de datos. Las métricas del motor (CPU, memoria, conexiones, cache, queries,
           locks, storage e IOPS) son de demostración.
         </p>
       </CardContent>
@@ -721,7 +720,7 @@ export function IncidentsCard({
         <p className="text-[11px] text-muted-foreground">
           {usingDemo
             ? "El backend no tiene ningún incidente registrado en los últimos 30 días: los de la lista son de demostración. Los incidentes se abren a mano («Registrar»), el sistema no los detecta solo."
-            : "Incidentes reales del backend. Se abren a mano («Registrar»), el sistema no los detecta solo; causa e impacto siguen pendientes."}
+            : "Incidentes registrados en el backend. Se abren a mano («Registrar»), el sistema no los detecta solo; causa e impacto siguen pendientes."}
         </p>
       </CardContent>
     </Card>
@@ -750,7 +749,7 @@ export function CostCard({ lines }: { lines: CostLine[] }) {
                   <DataProvenanceBadge
                     status="estimated"
                     compact
-                    tooltip="Ejecuciones reales de agentes de hoy por el coste por ejecución de demostración de cada equipo: el mismo número que el coste de hoy de la pantalla de Agentes."
+                    tooltip="Ejecuciones de agentes de hoy (log del backend) por el coste por ejecución de demostración de cada equipo: el mismo número que el coste de hoy de la pantalla de Agentes."
                   />
                 ) : null}
               </span>
@@ -819,9 +818,9 @@ export function PipelineRunsCard({ runs }: { runs: PipelineRun[] | null }) {
         <CardTitle className="flex items-center gap-2">
           Pipeline
           <DataProvenanceBadge
-            status="verified"
+            status="recorded"
             compact
-            tooltip="Ejecuciones reales del backend: sin datos de demostración."
+            tooltip="Ejecuciones del log del backend: sin datos de demostración."
           />
         </CardTitle>
         <CardDescription className={`text-xs ${tone}`}>{verdict.headline}</CardDescription>
@@ -940,7 +939,7 @@ export function JobRuntimeCard({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           Runtime de trabajos
-          <DataProvenanceBadge status="verified" compact tooltip="Cola real del backend: sin datos de demostración." />
+          <DataProvenanceBadge status="recorded" compact tooltip="Cola del backend: sin datos de demostración." />
         </CardTitle>
         <CardDescription className={`text-xs ${tone}`}>{verdict.headline}</CardDescription>
       </CardHeader>

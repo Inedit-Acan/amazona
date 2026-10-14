@@ -22,7 +22,7 @@ export function VersionCard({ version, costProfile }: { version: string; costPro
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground">Versión</span>
         <span className="font-mono">{version}</span>
-        <DataProvenanceBadge status="verified" tooltip="Versión asignada por el registro de agentes." />
+        <DataProvenanceBadge status="recorded" tooltip="Versión asignada por el registro de agentes." />
       </div>
       {costEntries.length > 0 ? (
         <div className="flex items-center gap-1.5">

@@ -745,7 +745,7 @@ export function ResearchWorkspace({
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="size-5 text-primary" /> Tendencia de interés por fuente
                   <DataProvenanceBadge
-                    status={chart.provenance === "real" ? "verified" : "demo"}
+                    status={chart.provenance === "real" ? "third_party" : "demo"}
                     compact
                     tooltip={chart.caption}
                   />

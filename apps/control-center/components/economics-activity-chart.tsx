@@ -38,7 +38,7 @@ export function EconomicsActivityChart({ points }: { points: EconomicsTimeseries
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">Análisis económicos por día — recuento real</p>
+        <p className="text-xs text-muted-foreground">Análisis económicos por día — recuento de análisis guardados</p>
         <Button size="sm" variant="ghost" onClick={() => setShowTable((v) => !v)}>
           <TableIcon className="size-3.5" />
           {showTable ? "Ver gráfico" : "Ver tabla"}

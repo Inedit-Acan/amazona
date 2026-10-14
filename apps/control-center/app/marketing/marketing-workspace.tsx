@@ -74,8 +74,11 @@ const MARKETS = [
   { value: "mx", label: "México" },
 ];
 
+const PERFORMANCE_DEMO_TOOLTIP =
+  "Cifra de demostración: no hay integración con Meta / Google / TikTok Ads, así que ninguna campaña ha gastado ni vendido nada.";
+
 const DEMO_TOOLTIP =
-  "Incluye datos de demostración: no hay integración con Meta / Google / TikTok Ads, así que la inversión, las conversiones, los ingresos atribuidos, el funnel, el rendimiento diario y la atribución son simulados, igual que las creatividades, las audiencias sin propuesta del agente y los canales sin integración. Real: las propuestas de campaña del agente (canal, presupuesto diario, audiencias, creatividad, CTR y conversión estimados) y los supuestos de Economía (precio, margen, CAC objetivo y CAC máximo).";
+  "Incluye datos de demostración: no hay integración con Meta / Google / TikTok Ads, así que la inversión, las conversiones, los ingresos atribuidos, el funnel, el rendimiento diario y la atribución son simulados, igual que las creatividades, las audiencias sin propuesta del agente y los canales sin integración. Del backend: las propuestas de campaña del agente (canal, presupuesto diario, audiencias, creatividad, CTR y conversión estimados) y los supuestos de Economía (precio, margen, CAC objetivo y CAC máximo).";
 
 const CHANNEL_MARK: Record<ChannelKey, { color: string; letter?: string; icon?: LucideIcon }> = {
   meta: { color: "#4f8df7", letter: "M" },
@@ -357,6 +360,9 @@ export function MarketingWorkspace({
           label="Inversión"
           leading={<Receipt className="size-9 shrink-0 text-primary" />}
           value={formatEuro(summary.spend, 0)}
+          provenance="demo"
+          provenanceCompact
+          provenanceTooltip={PERFORMANCE_DEMO_TOOLTIP}
           footer={<Delta value={summary.spendVsPlan} text={`${signedPercent(summary.spendVsPlan)} vs. previsto`} good={Math.abs(summary.spendVsPlan) <= 0.15} />}
         />
         <KpiCard
@@ -364,18 +370,27 @@ export function MarketingWorkspace({
           leading={<Wallet className="size-9 shrink-0 text-primary" />}
           value={formatEuro(summary.revenue, 0)}
           accent
+          provenance="demo"
+          provenanceCompact
+          provenanceTooltip={PERFORMANCE_DEMO_TOOLTIP}
           footer={<Delta value={summary.revenueVsPlan} text={`${signedPercent(summary.revenueVsPlan)} vs. objetivo`} good={summary.revenueVsPlan >= 0} />}
         />
         <KpiCard
           label="CAC / CPA"
           leading={<MousePointerClick className="size-9 shrink-0 text-primary" />}
           value={formatEuro(summary.cac)}
+          provenance="demo"
+          provenanceCompact
+          provenanceTooltip={PERFORMANCE_DEMO_TOOLTIP}
           footer={<Delta value={summary.cacVsMax} text={`${signedPercent(summary.cacVsMax)} vs. máximo`} good={summary.cacVsMax < 0} />}
         />
         <KpiCard
           label="ROAS"
           leading={<TrendingUp className="size-9 shrink-0 text-primary" />}
           value={roasText(summary.roas)}
+          provenance="demo"
+          provenanceCompact
+          provenanceTooltip={PERFORMANCE_DEMO_TOOLTIP}
           footer={
             <Delta
               value={summary.roasVsTarget}
@@ -388,6 +403,9 @@ export function MarketingWorkspace({
           label="Conversiones"
           leading={<Target className="size-9 shrink-0 text-primary" />}
           value={formatInteger(summary.conversions)}
+          provenance="demo"
+          provenanceCompact
+          provenanceTooltip={PERFORMANCE_DEMO_TOOLTIP}
           footer={<Delta value={summary.conversionsVsPlan} text={`${signedPercent(summary.conversionsVsPlan)} vs. previsto`} good={summary.conversionsVsPlan >= 0} />}
         />
         <KpiCard
@@ -396,6 +414,9 @@ export function MarketingWorkspace({
           value={summary.healthLabel}
           tone={summary.health >= 80 && summary.cac <= maxCac ? "success" : summary.cac > maxCac ? "danger" : "warning"}
           caption={`${DEMO_PERIOD.label} · CAC, ROAS y ritmo de gasto`}
+          provenance="demo"
+          provenanceCompact
+          provenanceTooltip={PERFORMANCE_DEMO_TOOLTIP}
         />
       </section>
 
@@ -430,7 +451,7 @@ export function MarketingWorkspace({
             </ul>
             <p className="text-[11px] text-muted-foreground">
               Total {formatEuro(budget, 0)} al mes (los pedidos de Economía al CAC objetivo de {formatEuro(cacObjective)}).
-              {basePlan.some((r) => r.isReal) ? " Los canales con propuesta del agente usan su presupuesto diario real." : ""}
+              {basePlan.some((r) => r.isReal) ? " Los canales con propuesta del agente usan el presupuesto diario de su propuesta." : ""}
             </p>
           </CardContent>
         </Card>

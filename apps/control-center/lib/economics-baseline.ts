@@ -34,7 +34,7 @@ export function buildBaseline(quote: SupplierQuoteDetail | undefined, analysis: 
   const unitPrice = priced.unit_price ?? 0;
   const logistics = priced.logistics_cost_per_unit ?? 0;
   if (!quote) demoFields.push("proveedor y su cotización");
-  else if (!complete) demoFields.push("precio o coste logístico (la cotización real no los declara)");
+  else if (!complete) demoFields.push("precio o coste logístico (la cotización no los declara)");
 
   const baseOrders = analysis?.data?.scenarios?.base?.monthly_unit_sales;
   if (!analysis) demoFields.push("precio de venta y costes fijos");

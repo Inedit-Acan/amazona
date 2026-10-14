@@ -27,6 +27,14 @@ const DAY_MS = 86_400_000;
 export type Criticality = "Alta" | "Media" | "Baja";
 export type EventResult = "Éxito" | "Creado" | "Error";
 
+/** El backend no guarda el resultado de una acción: «Éxito» se infiere de que el nombre de la acción no marque un error. En
+ * pantalla se dice lo que se sabe («Sin error registrado»), no que la acción saliera bien. La clave interna no cambia. */
+export const RESULT_LABEL: Record<EventResult, string> = { "Éxito": "Sin error registrado", Creado: "Creado", Error: "Error" };
+
+export function resultLabel(result: EventResult): string {
+  return RESULT_LABEL[result];
+}
+
 export interface AuditRow {
   id: string;
   code: string;
@@ -233,7 +241,7 @@ export function detailFields(row: AuditRow): { real: DetailField[]; demo: Detail
       { label: "Tipo", value: row.action },
       { label: "Actor", value: `${row.actor} (${row.actorKind})` },
       { label: "Proyecto", value: [row.projectCode, row.productName].filter(Boolean).join(" · ") || "—" },
-      { label: "Resultado", value: row.result },
+      { label: "Resultado", value: resultLabel(row.result) },
       { label: "ID de correlación", value: row.correlationId },
       { label: "Recurso", value: row.resource },
     ],

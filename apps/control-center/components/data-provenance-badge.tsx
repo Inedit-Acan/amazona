@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Building2, Clock, Database, FileSignature, FlaskConical, LineChart, ShieldCheck, Sparkles } from "lucide-react";
+import { Building2, Clock, Database, FileSignature, FlaskConical, LineChart, Server, ShieldCheck, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ export type DataProvenance =
   | "ledger"
   | "declared"
   | "planned"
+  | "recorded"
   | "verified"
   | "third_party"
   | "estimated"
@@ -51,10 +52,24 @@ const PROVENANCE_CONFIG: Record<
     icon: LineChart,
     className: "bg-warning/15 text-warning border-warning/30",
   },
+  // M46, Commit 8: lo que el backend GUARDA (un registro, un estado, un recuento de lo que hay en su base). Dice dónde está
+  // el dato, no que alguien lo haya contrastado: un registro que existe no es un registro verificado. Neutral a propósito:
+  // ningún color dice «bien».
+  recorded: {
+    label: "Registro del backend",
+    short: "Backend",
+    description:
+      "Dato que el backend guarda tal cual: lo que el sistema registró, no una comprobación contra la fuente original. Que exista no lo hace verificado.",
+    icon: Server,
+    className: "bg-muted text-foreground border-border",
+  },
+  // `verified` queda para una verificación que consta en la fuente (p. ej. el proveedor de una cotización verificado por un
+  // tercero). Lo que el backend solo guarda se llama `recorded`.
   verified: {
-    label: "Verificado",
-    short: "Verificado",
-    description: "Dato verificado contra su fuente original.",
+    label: "Verificado por un tercero",
+    short: "Verificado (3.º)",
+    description:
+      "Lo verificó un tercero que consta en la fuente (por ejemplo, el proveedor de la cotización). AMAZONA no lo ha contrastado.",
     icon: ShieldCheck,
     className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
   },

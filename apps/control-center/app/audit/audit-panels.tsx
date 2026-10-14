@@ -12,7 +12,7 @@ import {
 } from "@/lib/demo/audit";
 import { formatInteger, formatPercent } from "@/lib/format";
 import type { Anomaly, AuditRow, TraceStep } from "@/lib/audit-view";
-import { actorActivity, correlationTrace, detailFields, projectActivity, rowChanges, rowsByDay } from "@/lib/audit-view";
+import { actorActivity, correlationTrace, detailFields, projectActivity, resultLabel, rowChanges, rowsByDay } from "@/lib/audit-view";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
 import { Button } from "@/components/ui/button";
@@ -41,9 +41,9 @@ export function EventFieldsCard({ row }: { row: AuditRow }) {
         <CardTitle>Datos del evento</CardTitle>
         <CardAction>
           <DataProvenanceBadge
-            status={row.isDemo ? "demo" : "verified"}
+            status={row.isDemo ? "demo" : "recorded"}
             compact
-            tooltip={row.isDemo ? "Evento de demostración: el registro real solo tiene una decena de entradas." : "Entrada real del registro de auditoría."}
+            tooltip={row.isDemo ? "Evento de demostración: el registro del backend solo tiene una decena de entradas." : "Entrada del registro de auditoría del backend: el backend no la firma ni la encadena."}
           />
         </CardAction>
       </CardHeader>
@@ -197,7 +197,7 @@ export function IntegrityCard({ row }: { row: AuditRow }) {
           ))}
         </ul>
         <p className="border-t pt-2 text-[11px] text-muted-foreground">
-          Hash {demoHash(row.id).slice(0, 12)} · última verificación hace {INTEGRITY_LAST_CHECK_MINUTES} min.
+          Hash {demoHash(row.id).slice(0, 12)} · última comprobación (demo) hace {INTEGRITY_LAST_CHECK_MINUTES} min.
         </p>
         <DataProvenanceBadge status="demo" compact tooltip="El backend no firma ni encadena las entradas de auditoría: la integridad es de demostración." />
       </CardContent>
@@ -263,7 +263,7 @@ export function JsonCard({ row }: { row: AuditRow }) {
         <CardTitle>JSON del evento</CardTitle>
         <CardAction>
           <DataProvenanceBadge
-            status={row.isDemo ? "demo" : "verified"}
+            status={row.isDemo ? "demo" : "recorded"}
             compact
             tooltip={row.isDemo ? "Evento de demostración." : "Tal cual lo devuelve /api/audit."}
           />
@@ -303,7 +303,7 @@ export function TimelineCard({ rows }: { rows: AuditRow[] }) {
                       {row.projectCode ? ` · ${row.projectCode}` : ""}
                     </span>
                   </span>
-                  <LevelChip tone={row.result === "Error" ? "bad" : row.result === "Creado" ? "neutral" : "ok"}>{row.result}</LevelChip>
+                  <LevelChip tone={row.result === "Error" ? "bad" : row.result === "Creado" ? "neutral" : "ok"}>{resultLabel(row.result)}</LevelChip>
                 </li>
               ))}
             </ol>
@@ -422,13 +422,13 @@ export function IntegrityTabCard({ rows, evidenceRate }: { rows: AuditRow[]; evi
       <CardHeader>
         <CardTitle>Integridad del registro</CardTitle>
         <CardAction>
-          <DataProvenanceBadge status="demo" compact tooltip="El backend no firma ni encadena las entradas: hash y verificación son de demostración." />
+          <DataProvenanceBadge status="demo" compact tooltip="El backend no firma ni encadena las entradas: el hash y la comprobación de integridad son de demostración." />
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-3">
         <dl className="grid gap-2 text-sm sm:grid-cols-3">
           <div className="rounded-lg border bg-background/40 p-2.5">
-            <dt className="text-xs text-muted-foreground">Eventos verificados</dt>
+            <dt className="text-xs text-muted-foreground">Eventos registrados</dt>
             <dd className="mt-0.5 text-lg font-semibold">{formatInteger(rows.length)}</dd>
           </div>
           <div className="rounded-lg border bg-background/40 p-2.5">
@@ -436,7 +436,7 @@ export function IntegrityTabCard({ rows, evidenceRate }: { rows: AuditRow[]; evi
             <dd className="mt-0.5 text-lg font-semibold text-primary">{formatPercent(evidenceRate)}</dd>
           </div>
           <div className="rounded-lg border bg-background/40 p-2.5">
-            <dt className="text-xs text-muted-foreground">Última verificación</dt>
+            <dt className="text-xs text-muted-foreground">Última comprobación (demo)</dt>
             <dd className="mt-0.5 text-lg font-semibold">hace {INTEGRITY_LAST_CHECK_MINUTES} min</dd>
           </div>
         </dl>

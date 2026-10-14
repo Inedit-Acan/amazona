@@ -129,7 +129,7 @@ export function StagesCard({ stages }: { stages: PipelineStep[] }) {
         <CardDescription>Las cuatro validaciones que el Director ejecutivo encarga por proyecto.</CardDescription>
         <CardAction>
           <DataProvenanceBadge
-            status="verified"
+            status="recorded"
             compact
             tooltip="El estado sale de la tarea del grafo y la recomendación de la evidencia que dejó el especialista."
           />
@@ -163,7 +163,7 @@ export function NextStepCard({ step }: { step: NextStep }) {
         <CardTitle>Lo siguiente</CardTitle>
         <CardAction>
           <DataProvenanceBadge
-            status="verified"
+            status="recorded"
             compact
             tooltip="La primera etapa del grafo que el backend no tiene completada. No es una recomendación nuestra."
           />
@@ -214,7 +214,7 @@ export function DecisionCard({ project }: { project: ProjectCard }) {
           <Gavel className="size-4 text-primary" /> Decisión del Director ejecutivo
         </CardTitle>
         <CardAction>
-          <DataProvenanceBadge status="verified" compact tooltip="La decisión que el backend guarda para este proyecto, con su confianza y su razonamiento." />
+          <DataProvenanceBadge status="recorded" compact tooltip="La decisión que el backend guarda para este proyecto, con su confianza y su razonamiento." />
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-2.5">
@@ -367,7 +367,7 @@ export function RisksCard({ risks, unread }: { risks: ProjectRisk[]; unread: boo
         <CardTitle>Riesgos</CardTitle>
         <CardDescription>Los que cada especialista dejó escritos en la evidencia de la decisión.</CardDescription>
         <CardAction>
-          <DataProvenanceBadge status="verified" compact tooltip="Texto literal de la evidencia. Nadie gradúa su nivel, así que esta pantalla no lo inventa." />
+          <DataProvenanceBadge status="recorded" compact tooltip="Texto literal de la evidencia. Nadie gradúa su nivel, así que esta pantalla no lo inventa." />
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -400,7 +400,7 @@ export function MilestonesCard({ milestones, unread }: { milestones: ProjectMile
         <CardTitle>Hitos del proyecto</CardTitle>
         <CardDescription>Cada etapa con la fecha en que la auditoría registró que se completó.</CardDescription>
         <CardAction>
-          <DataProvenanceBadge status="verified" compact tooltip="La fecha es la de la entrada `task.completed` del registro de auditoría. Sin entrada, «Sin datos»." />
+          <DataProvenanceBadge status="recorded" compact tooltip="La fecha es la de la entrada `task.completed` del registro de auditoría. Sin entrada, «Sin datos»." />
         </CardAction>
       </CardHeader>
       <CardContent>

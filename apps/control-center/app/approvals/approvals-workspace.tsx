@@ -70,7 +70,7 @@ import {
 const APPROVER_ACTOR = "owner@amazona.local";
 
 const DEMO_TOOLTIP =
-  "Incluye datos de demostración: una aprobación del backend solo guarda acción, importe, vencimiento y estado, sin tipo, severidad, proyecto, agente solicitante, análisis, documentos ni impacto, y hoy la bandeja está vacía. Real: las aprobaciones y revisiones de pipeline cuando existan (con sus botones de aprobar y rechazar), los agentes registrados y los análisis del producto que alimentan validaciones, hallazgos y riesgos.";
+  "Incluye datos de demostración: una aprobación del backend solo guarda acción, importe, vencimiento y estado, sin tipo, severidad, proyecto, agente solicitante, análisis, documentos ni impacto, y hoy la bandeja está vacía. Del backend: las aprobaciones y revisiones de pipeline cuando existan (con sus botones de aprobar y rechazar), los agentes registrados y los análisis del producto que alimentan validaciones, hallazgos y riesgos.";
 
 const KIND_ICON: Record<RequestKind, LucideIcon> = {
   marketing: Megaphone,
@@ -378,7 +378,7 @@ export function ApprovalsWorkspace({
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {selected.isDemo ? (
                   <p className="mr-auto text-[11px] text-muted-foreground">
-                    Solicitud de demostración: aprobar o rechazar solo funciona con las aprobaciones reales del backend.
+                    Solicitud de demostración: aprobar o rechazar solo funciona con las aprobaciones del backend.
                   </p>
                 ) : null}
                 <Button
@@ -410,9 +410,9 @@ export function ApprovalsWorkspace({
 
       <p className="text-[11px] text-muted-foreground">
         {realPending > 0
-          ? `${formatInteger(realPending)} solicitudes reales del backend en la bandeja`
+          ? `${formatInteger(realPending)} solicitudes del backend en la bandeja`
           : "El backend no tiene aprobaciones ni revisiones pendientes"}{" "}
-        · el resto son solicitudes de demostración sobre productos y análisis reales.
+        · el resto son solicitudes de demostración sobre productos y análisis del backend.
       </p>
     </div>
   );

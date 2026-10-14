@@ -23,6 +23,7 @@ import { DEMO_AB_TESTS, DEMO_PAGES, DEMO_REVIEWS, DEMO_TRUST_BADGES, THEMES } fr
 import { formatEuro, formatInteger } from "@/lib/format";
 import { LevelChip } from "@/components/level-chip";
 import { Button } from "@/components/ui/button";
+import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -103,7 +104,7 @@ function StorePreview({
                 <Star key={k} className="size-3.5 fill-amber-400 text-amber-400" />
               ))}
               <span className="ml-1">
-                {DEMO_REVIEWS.rating.toLocaleString("es-ES")} ({formatInteger(DEMO_REVIEWS.count)} reseñas)
+                {DEMO_REVIEWS.rating.toLocaleString("es-ES")} ({formatInteger(DEMO_REVIEWS.count)} reseñas de ejemplo)
               </span>
             </p>
           </div>
@@ -131,6 +132,7 @@ function StorePreview({
             <ShoppingCart className="size-4" /> {content.cta}
           </button>
           <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-zinc-600">
+            <li className="text-zinc-500 italic">De ejemplo:</li>
             {DEMO_TRUST_BADGES.map((badge, k) => {
               const Icon = TRUST_ICONS[k];
               return (
@@ -178,7 +180,7 @@ export function StoreBuilder({
     <Card id="constructor" className="scroll-mt-4">
       <CardHeader>
         <CardTitle>Constructor de página (Tienda propia)</CardTitle>
-        <CardDescription>Genera y personaliza la página del producto con IA. Contenido basado en datos verificados.</CardDescription>
+        <CardDescription>Genera y personaliza la página del producto con IA. Contenido basado en los datos del producto.</CardDescription>
         <CardAction>
           <Button size="sm" variant="outline" className="border-primary/50 text-primary" onClick={onGenerate} disabled={generating}>
             <Sparkles /> {generating ? "Generando…" : "Generar con IA"}
@@ -300,6 +302,9 @@ export function StoreBuilder({
           </TabsContent>
 
           <TabsContent value="pages">
+            <div className="mb-2 flex justify-end">
+              <DataProvenanceBadge status="demo" compact tooltip="Páginas de ejemplo: la tienda no está publicada, así que ninguna de estas páginas lo está." />
+            </div>
             <ul className="divide-y rounded-lg border">
               {DEMO_PAGES.map((page) => (
                 <li key={page.name} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
@@ -311,6 +316,9 @@ export function StoreBuilder({
           </TabsContent>
 
           <TabsContent value="ab">
+            <div className="mb-2 flex justify-end">
+              <DataProvenanceBadge status="demo" compact tooltip="Pruebas A/B de ejemplo: no hay tráfico ni conversiones, porque la tienda no está publicada." />
+            </div>
             <ul className="space-y-2">
               {DEMO_AB_TESTS.map((t) => (
                 <li key={t.name} className="rounded-lg border bg-background/40 p-3 text-sm">

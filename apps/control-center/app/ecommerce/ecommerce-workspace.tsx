@@ -108,7 +108,7 @@ function contentFrom(storefront: Storefront | undefined, product: Product): Stor
   if (!copy) {
     return {
       title: product.name,
-      subtitle: "Diseñado para el día a día, con calidad verificada por AMAZONA.",
+      subtitle: "Diseñado para el día a día.",
       features: demoFeatures,
       cta: "Comprar ahora",
     };
@@ -201,7 +201,7 @@ export function EcommerceWorkspace({
   const legalGate = {
     blocked: { label: "Bloqueado", icon: Ban, tone: "text-destructive" },
     review: { label: "Revisión humana", icon: AlertTriangle, tone: "text-warning" },
-    ready: { label: "Aprobado", icon: CircleCheck, tone: "text-primary" },
+    ready: { label: "Sin bloqueo", icon: CircleCheck, tone: "text-primary" },
   }[legalView.gate.state];
 
   function changeMarket(next: string) {
@@ -272,7 +272,7 @@ export function EcommerceWorkspace({
           <>
             <DataProvenanceBadge
               status="demo"
-              tooltip="Incluye datos de demostración: Google Shopping y TikTok Shop, el estado de Amazon si no hay listado, valoraciones, precio tachado, diseño, páginas, A/B testing, métodos de pago, embudo, calidad del escaparate (salvo la información legal), mercados europeos y la ficha maestra (EAN, peso, dimensiones). Real: borradores de tienda y de Amazon con su copy, estado, plan de pasarela y catálogo."
+              tooltip="Incluye datos de demostración: Google Shopping y TikTok Shop, el estado de Amazon si no hay listado, valoraciones, precio tachado, diseño, páginas, A/B testing, métodos de pago, embudo, calidad del escaparate (salvo la información legal), mercados europeos y la ficha maestra (EAN, peso, dimensiones). Del backend: borradores de tienda y de Amazon con su copy, estado, plan de pasarela y catálogo."
             />
             <HeaderClock />
             <HeaderTile
@@ -300,7 +300,7 @@ export function EcommerceWorkspace({
               <div className="h-full rounded-full bg-primary" style={{ width: `${researchScore}%` }} />
             </div>
           </InfoTile>
-          <InfoTile label="Precio aprobado">
+          <InfoTile label="Precio de venta del análisis">
             <p className="text-xl font-semibold">{formatEuro(approvedPrice)}</p>
           </InfoTile>
           <InfoTile label="Proveedor">
@@ -560,7 +560,8 @@ export function EcommerceWorkspace({
           <CardHeader>
             <CardTitle>Configuración por mercado</CardTitle>
             <CardDescription>Precio, idioma y disponibilidad por país o región.</CardDescription>
-            <CardAction>
+            <CardAction className="flex items-center gap-1.5">
+              <DataProvenanceBadge status="demo" compact tooltip="Estados de mercado de demostración, salvo el del borrador de tienda de la UE (Preparada, En preparación o Bloqueada): ninguna tienda está publicada en ningún mercado." />
               <Button size="xs" variant="outline" className="text-primary" disabled title="Pendiente: el backend solo genera tiendas para UE, EE. UU. y México">
                 <Plus /> Añadir mercado
               </Button>

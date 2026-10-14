@@ -159,7 +159,7 @@ test("audienceRows: segmentos reales primero, demo hasta tres y luego remarketin
 });
 
 test("creativeRows y creativeStatus: el primer vídeo lleva la creatividad real", () => {
-  assert.equal(creativeStatus(90), "Aprobado");
+  assert.equal(creativeStatus(90), "Puntuación alta");
   assert.equal(creativeStatus(82), "En revisión");
   assert.equal(creativeStatus(70), "Ajustar");
   const demo = creativeRows("p1", "home", undefined);

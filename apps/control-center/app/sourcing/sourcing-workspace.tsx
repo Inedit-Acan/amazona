@@ -478,7 +478,7 @@ export function SourcingWorkspace({
           <>
             <DataProvenanceBadge
               status="demo"
-              tooltip={`Incluye datos de demostración: ${isDemo ? "los proveedores y sus cotizaciones (este producto aún no tiene ninguna real); " : ""}país y ciudad, certificaciones, envío directo, plazos de entrega, calidad, compliance, escalabilidad, compatibilidad, desglose del coste, score de investigación y descripción del producto.`}
+              tooltip={`Incluye datos de demostración: ${isDemo ? "los proveedores y sus cotizaciones (este producto aún no tiene ninguna guardada); " : ""}país y ciudad, certificaciones, envío directo, plazos de entrega, calidad, compliance, escalabilidad, compatibilidad, desglose del coste, score de investigación y descripción del producto.`}
             />
             <HeaderClock />
             <HeaderTile label="Modo" value="Búsqueda de proveedores" />
@@ -962,7 +962,7 @@ export function SourcingWorkspace({
 
       <NextStepBar
         steps={[
-          { label: "Proveedor validado", icon: UserCheck, state: selected ? "done" : "current" },
+          { label: "Proveedor seleccionado", icon: UserCheck, state: selected ? "done" : "current" },
           { label: "Análisis económico", icon: Calculator, state: selected ? "current" : "todo" },
           { label: "Revisión legal", icon: Scale, state: "todo" },
           { label: "Aprobación CEO", icon: Brain, state: "todo" },

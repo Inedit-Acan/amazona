@@ -45,7 +45,7 @@ export function ValidationsCard({ validations }: { validations: ValidationRow[] 
       <CardHeader>
         <CardTitle>Estado de validaciones</CardTitle>
         <CardAction>
-          <DataProvenanceBadge status="verified" compact tooltip="Cada validación es la de su pantalla: Economía, Legal Gate, readiness de Tienda y presupuesto de Finanzas." />
+          <DataProvenanceBadge status="estimated" compact tooltip="Derivadas de los análisis del producto (Economía, Legal Gate, readiness de Tienda y presupuesto de Finanzas): son recomendaciones, no aprobaciones." />
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -126,7 +126,7 @@ export function AgentAnalysisCard({ request }: { request: ApprovalRequest }) {
         <CardTitle>Análisis de AMAZONA</CardTitle>
         <CardDescription>{consulted} agentes consultados</CardDescription>
         <CardAction>
-          <DataProvenanceBadge status="estimated" compact tooltip="Los agentes son los registrados; su veredicto se deriva de los análisis del producto." />
+          <DataProvenanceBadge status="demo" compact tooltip="Veredictos de demostración: los agentes son los registrados; Economía, Legal, Tienda y Finanzas se derivan de los análisis del producto, e Investigación y Operaciones llevan un veredicto fijo." />
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -366,7 +366,7 @@ export function StatusSharesCard({ rows }: { rows: StatusShare[] }) {
       <CardHeader>
         <CardTitle>Estado de solicitudes</CardTitle>
         <CardAction>
-          <DataProvenanceBadge status="demo" compact tooltip="Solo las pendientes son reales de la bandeja; las resueltas son de demostración." />
+          <DataProvenanceBadge status="demo" compact tooltip="Solo las pendientes vienen de la bandeja del backend; las resueltas son de demostración." />
         </CardAction>
       </CardHeader>
       <CardContent>

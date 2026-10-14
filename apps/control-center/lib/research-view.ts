@@ -227,7 +227,7 @@ export function topInsight(rows: ResearchRow[]): string | null {
  * relleno para que la cabecera no pueda decir «real». Decir «real» de un
  * conjunto que es medio inventado es la clase de media verdad que este
  * milestone existe para quitar de en medio. */
-export function signalsMode(rows: ResearchRow[]): { label: string; status: "verified" | "mixed" | "demo" } {
+export function signalsMode(rows: ResearchRow[]): { label: string; status: "third_party" | "mixed" | "demo" } {
   if (rows.length === 0) return { label: "Sin señales", status: "demo" };
   const kinds = new Set(rows.map((row) => row.provenance));
   if (kinds.has("demo")) {
@@ -245,7 +245,7 @@ export function signalsMode(rows: ResearchRow[]): { label: string; status: "veri
   if (kinds.has("estimated")) {
     return { label: "Estimado (modelado por el proveedor, no observado)", status: "mixed" };
   }
-  return { label: "Real (señales medidas)", status: "verified" };
+  return { label: "Señales medidas (proxy de interés)", status: "third_party" };
 }
 
 // --- La evidencia real en el gráfico (Milestone 35) ------------------------

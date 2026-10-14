@@ -211,7 +211,7 @@ export function DashboardWorkspace({
             leading={iconBox(<Bot className="size-5 text-primary" />)}
             trailing={activity.kind === "rows" ? <RunBars values={activity.runsPerDay} /> : undefined}
             caption={agentsKpi.caption}
-            provenance="verified"
+            provenance="recorded"
             provenanceCompact
             provenanceTooltip="Agentes del registro que no están fuera de servicio. Las barras son sus ejecuciones de los últimos siete días."
           />
@@ -236,7 +236,7 @@ export function DashboardWorkspace({
                 Revisar
               </Button>
             }
-            provenance={decisions.kind === "ready" && decisions.fromBackend === decisions.pending ? "verified" : "demo"}
+            provenance={decisions.kind === "ready" && decisions.fromBackend === decisions.pending ? "recorded" : "demo"}
             provenanceCompact
             provenanceTooltip="Solicitudes pendientes de decisión: las del backend (aprobaciones y revisiones de pipeline) más las de demostración de Aprobaciones."
           />

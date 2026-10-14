@@ -298,7 +298,7 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 | 5c | Entradas numéricas: `NaN`/`±Infinity`, `bool`, desbordes y paridad economics/pipeline/tipos de cambio (**implementado**, §27) | no |
 | 6 | Las 9 lecturas silenciosas del Panel → estados de lectura `loaded` / `empty` / `unread` / `error` (**implementado**, §28) | no |
 | 7 | `ProjectOut.created_at` (y moneda de `finance_validation` solo si existe) (**implementado**, §29: `created_at` sí; la moneda no existe en la fuente y no se añade) | no |
-| 8 | Textos que afirman más de lo que el sistema sabe | no |
+| 8 | Textos que afirman más de lo que el sistema sabe (**implementado**, §30) | no |
 | 9 | docs: milestone 46 y `system-overview` | no |
 
 **Alcance previsto del Commit 2** (dividido por decisión del propietario en 2A, ya implementado, y 2B; el addendum §21 recoge lo que 2A hizo de verdad y en qué se aparta de esta lista):
@@ -548,6 +548,29 @@ Solo `ProjectOut` y la pantalla de Proyectos. Sin migración (la columna ya exis
 **Pruebas y guardas.** Backend: `tests/integration/test_project_created_at.py` (contrato exacto de claves, la fecha persistida, varios proyectos con orden distinto, no es `updated_at` ni «ahora», lista = detalle, zona UTC explícita, instante conservado, y la moneda ausente). Frontend: la fecha de inicio solo sale de `created_at` y no depende de la auditoría, `startedAtOf` devuelve `null` ante un valor no fechable sin recurrir a otra fuente, y una guarda acotada a las capas de Proyectos prohíbe `new Date()`, restas «hoy − N», fechas derivadas de la posición, códigos `CEO-0001` y cualquier moneda (`currency`, `EUR`, `€`, `formatEuro`).
 
 **Deuda restante de M46:** Commit 8 (textos que afirman más de lo que el sistema sabe), 9 (docs: milestone 46 y `system-overview`) y la Fase B de Supabase.
+
+### 30. Addendum del Commit 8 (2026-10-14): la interfaz no eleva el nivel de certeza de un dato
+
+Solo texto, etiquetas e insignias del Control Center (sin cambio de backend, de contrato, de datos ni de lógica). Principio: **la interfaz no puede decir más de lo que el sistema sabe**; cambia el nombre de cada cosa, no la cosa.
+
+**Método.** Barrido de solo código de los 222 ficheros de `app/`, `components/` y `lib/` con 17 familias de vocabulario de certeza (`real*`, `verific*`, `confirm*`, `aprob*`, `complet*`, `éxito`, `beneficio`, `margen`, `ingres*`, `cobr*`, `activ*`, `actual`, `final`, `segur*`, `list*`, `garant*`, `demo*`): ≈1.600 coincidencias, ninguna cambiada por coincidencia. La inmensa mayoría son identificadores (`success`, `active`, `ready`…), estados literales del backend o usos legítimos; **37 entradas exageraban** y se corrigieron.
+
+**Qué se corrigió, por clase.**
+- **«real» como «no es demo» / «existe en el backend»** (Agentes, Aprobaciones, Auditoría, Estado, Panel, Tienda, Marketing, Proveedores, Economía, Nexus): pasa a «del backend», «declarado», «guardado» o «medido en esta carga» según lo que de verdad es. «Real:» como prefijo de lo que sí viene del backend pasa a «Del backend:».
+- **La insignia `verified` decía dos cosas.** Su texto («Dato verificado contra su fuente original») se aplicaba a 19 sitios donde solo significaba «el backend devolvió este registro». Esos pasan a la insignia **`recorded`** («Registro del backend»), neutral y sin pretensión de verificación; `verified` queda solo para el coste de una cotización cuyo proveedor consta como verificado por un tercero («Verificado por un tercero»). Es la única categoría de insignia nueva: ninguna existente decía «lo guarda el backend» sin elevarlo (`ledger` es solo dinero).
+- **Una recomendación no es una aprobación.** `Decision.status = GO/NO_GO` lo sintetiza un motor sobre agentes simulados; la aprobación humana es `HUMAN_APPROVAL`. GO pasa de «Aprobada» a **«Favorable»** («recomienda avanzar; no una aprobación humana») y NO_GO de «Rechazada» a «No viable»; las validaciones derivadas de un análisis dicen «Sin bloqueo» o «Favorable»; la puerta legal de Tienda dice «Sin bloqueo».
+- **Un estado técnico no es «activo».** `launch_status = READY` de una tienda es «Preparada», no «Activo»: nada está publicado.
+- **Lo que existe no es lo que está validado.** «Economía validada», «Proveedor validado» y «Precio aprobado» pasan a «Economía analizada», «Proveedor seleccionado» y «Precio de venta del análisis». La creatividad «Aprobado» por una puntuación de demostración pasa a «Puntuación alta».
+- **Una inferencia no es un resultado.** El backend no guarda el resultado de una acción de auditoría: «Éxito» se infería del nombre. Se dice **«Sin error registrado»** (la clave interna no cambia); «Evento verificado», «Eventos verificados» y «Última verificación» (la integridad es de demostración) pasan a «Evento del registro», «Eventos registrados» y «Última comprobación (demo)».
+- **Certeza en el copy:** «datos verificados», «calidad verificada», «costes reales», «tiempo real» (Estado y Agentes: la página se carga una vez), «de verdad».
+- **DEMO sin su etiqueta:** cada KPI y tarjeta de rendimiento de Marketing, las certificaciones y los documentos de Legal, la configuración por mercado y las pestañas de páginas y pruebas A/B de Tienda llevan ya su insignia DEMO; la vista previa de la tienda dice que reseñas y distintivos son «de ejemplo»; los veredictos fijos de las solicitudes de demostración de Aprobaciones se rotulan DEMO.
+- **Un tercero no es «real».** Las señales de Investigación pasan de «Real (señales medidas)» con insignia `verified` a «Señales medidas (proxy de interés)» con `third_party`.
+
+**Lo que se revisó y se deja, con su porqué.** El CFO y los ingresos (ADR 0030, ya vigilados por `origin-boundary`); el rótulo «Proveedor real» del origen del dinero (dato estructurado `provider_kind`, con su salvedad: no confirma liquidación); los usos de «real» que niegan o marcan lo pendiente («sin proveedores reales»); «Verificado por un tercero» (campo estructurado con «quién verificó» obligatorio); «SIN BLOQUEO EN LO DECLARADO» de Legal; el estado literal `Project.status = APPROVED`, que el orquestador asigna ante `GO` sin persona (se mantiene el valor del backend); `status-chip.tsx` y `kill-switch-control.tsx` (ficheros protegidos).
+
+**Guarda.** `lib/certainty-boundary.test.ts` no es una lista negra de palabras: cada aparición de «real» en lo que se lee en pantalla se juzga **en su contexto** (un fragmento concreto de un fichero concreto, con su porqué) y solo en una lista cerrada de ficheros gobernados; lo que no está en la lista falla, y una entrada permitida que ya no existe también. Además fija, por contexto, que la insignia `verified` no se pinta sobre un registro, que una recomendación no se llama aprobación, que el resultado inferido pasa por `resultLabel`, que el DEMO no se pierde y que PLAN, declarado y registro siguen siendo tres cosas. Probada contra el código anterior (15 de sus 21 primeras comprobaciones fallaban) y con 44 mutaciones muertas.
+
+**Deuda restante (no se corrige aquí).** Las derivaciones del frontend de la auditoría (`resultOf`, `criticalityOf`) son inferencias: se corrigió cómo se llaman, no la derivación. `Project.status = APPROVED` es un estado que el orquestador asigna solo. El contenido de ejemplo de la tienda (distintivos «Pago seguro», «Envío gratis») y los textos de `lib/demo/**` no se barrieron. `components/cash-flow-chart.tsx` («Saldo real») no se usa en ningún sitio. Las 35 lecturas silenciosas fuera del Panel, la Fase B y el Commit 9 siguen pendientes.
 
 ## Contrastado contra el código el 2026-10-12
 

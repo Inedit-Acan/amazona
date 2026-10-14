@@ -316,7 +316,7 @@ export function audienceRows(segments: AudienceSegment[] | undefined, category: 
   return [...real, ...demo, ...DEMO_OWNED_AUDIENCES.map((a) => ({ ...a, isDemo: true }))];
 }
 
-export type CreativeStatus = "Aprobado" | "En revisión" | "Ajustar";
+export type CreativeStatus = "Puntuación alta" | "En revisión" | "Ajustar";
 
 export interface CreativeRow {
   name: string;
@@ -332,7 +332,7 @@ export interface CreativeRow {
 }
 
 export function creativeStatus(score: number): CreativeStatus {
-  return score >= 85 ? "Aprobado" : score >= 80 ? "En revisión" : "Ajustar";
+  return score >= 85 ? "Puntuación alta" : score >= 80 ? "En revisión" : "Ajustar";
 }
 
 /** Cuatro creatividades: la primera lleva el titular y el texto reales si el agente los generó. */

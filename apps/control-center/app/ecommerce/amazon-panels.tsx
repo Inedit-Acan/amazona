@@ -103,7 +103,7 @@ export function AmazonPanels({
             <CardAction>
               <DataProvenanceBadge
                 status="estimated"
-                tooltip="Tarifas de un directorio de marketplaces simulado; el margen neto usa el coste entregado real de la cotización."
+                tooltip="Tarifas de un directorio de marketplaces simulado; el margen neto usa el coste entregado declarado en la cotización."
               />
             </CardAction>
           </CardHeader>

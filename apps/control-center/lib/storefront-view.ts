@@ -26,7 +26,7 @@ export interface ChannelCardView {
 }
 
 const LAUNCH_STATUS: Record<Storefront["launch_status"], { label: string; tone: ChannelTone; readiness: number }> = {
-  READY: { label: "Activo", tone: "ok", readiness: 1 },
+  READY: { label: "Preparada", tone: "ok", readiness: 1 },
   NEEDS_REVIEW: { label: "Preparación", tone: "warn", readiness: 0.62 },
   BLOCKED: { label: "Bloqueado", tone: "bad", readiness: 0.25 },
 };
@@ -118,7 +118,7 @@ export interface MarketConfigRow {
   tone: ChannelTone;
 }
 
-const STATUS_TONE: Record<string, ChannelTone> = { Activo: "ok", Preparación: "warn", Pendiente: "bad", Bloqueado: "bad" };
+const STATUS_TONE: Record<string, ChannelTone> = { Activo: "ok", Preparada: "ok", Preparación: "warn", Pendiente: "bad", Bloqueado: "bad" };
 
 /** Mercados de venta: los países de la UE (demo, con el precio aprobado como base y
  * el estado real de la tienda de la UE en España) y los borradores reales de otros mercados. */

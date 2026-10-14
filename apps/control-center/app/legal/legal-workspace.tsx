@@ -192,7 +192,7 @@ export function LegalWorkspace({
   const gate = {
     blocked: { title: "BLOQUEADO", banner: "NO APTO PARA LANZAMIENTO", tone: "danger" as const },
     review: { title: "REVISIÓN HUMANA", banner: "REQUIERE REVISIÓN HUMANA", tone: "warning" as const },
-    ready: { title: "PREPARADO", banner: "PREPARADO PARA LANZAMIENTO", tone: "success" as const },
+    ready: { title: "SIN BLOQUEO", banner: "SIN BLOQUEO EN LA MATRIZ DE DEMOSTRACIÓN", tone: "success" as const },
   }[view.gate.state];
   // `PASS` de un análisis real solo significa «sin bloqueo en lo declarado»: no se
   // presenta como «preparado para lanzamiento» ni como «legal».
@@ -387,12 +387,18 @@ export function LegalWorkspace({
           leading={<FileCheck2 className="size-9 shrink-0 text-primary" />}
           value={`${view.certifications.verified} verificada${view.certifications.verified === 1 ? "" : "s"}`}
           caption={`${view.certifications.pending} pendiente${view.certifications.pending === 1 ? "" : "s"}`}
+          provenance="demo"
+          provenanceCompact
+          provenanceTooltip="Matriz de requisitos de demostración: ninguna de sus certificaciones la ha verificado nadie."
         />
         <KpiCard
           label="Evidencias documentales"
           leading={<Layers className="size-9 shrink-0 text-primary" />}
           value={`${view.documents.verified} / ${view.documents.required}`}
           caption={`${view.documents.pending} pendiente${view.documents.pending === 1 ? "" : "s"}`}
+          provenance="demo"
+          provenanceCompact
+          provenanceTooltip="Documentos de demostración: ninguno de ellos existe en el backend."
         />
         <KpiCard
           label="Cambios regulatorios"

@@ -725,7 +725,7 @@ export function EconomicsWorkspace({
         <Card id="resumen" className="scroll-mt-4">
           <CardHeader>
             <CardTitle>Viabilidad económica</CardTitle>
-            <CardDescription>Evaluación final del análisis.</CardDescription>
+            <CardDescription>Evaluación del análisis (estimación).</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div id="riesgo" className="scroll-mt-4 space-y-2 text-sm">
@@ -747,7 +747,7 @@ export function EconomicsWorkspace({
                 <li className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 text-muted-foreground">
                     {result.monthlyProfit > 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
-                    Beneficio anual
+                    Beneficio anual estimado
                   </span>
                   <span className="font-medium whitespace-nowrap tabular-nums">{formatEuro(result.monthlyProfit * 12, 0)}</span>
                 </li>
@@ -779,7 +779,7 @@ export function EconomicsWorkspace({
 
       <NextStepBar
         steps={[
-          { label: "Economía validada", icon: Calculator, state: latestAnalysis || saved ? "done" : "current" },
+          { label: "Economía analizada", icon: Calculator, state: latestAnalysis || saved ? "done" : "current" },
           { label: "Revisión legal", icon: Scale, state: latestAnalysis || saved ? "current" : "todo" },
           { label: "Plan de lanzamiento", icon: Rocket, state: "todo" },
           { label: "Seguimiento de resultados", icon: Activity, state: "todo" },
@@ -790,7 +790,7 @@ export function EconomicsWorkspace({
               variant="outline"
               onClick={saveAnalysis}
               disabled={saving || !quote}
-              title={quote ? "Guarda el análisis con este precio y estos costes fijos" : "Hace falta una cotización real de proveedor para guardar"}
+              title={quote ? "Guarda el análisis con este precio y estos costes fijos" : "Hace falta una cotización de proveedor guardada para guardar"}
             >
               {saving ? <Loader2 className="animate-spin" /> : saved ? <CircleCheck /> : <Save />}
               {saved ? "Análisis guardado" : "Guardar análisis"}

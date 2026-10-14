@@ -188,7 +188,7 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
         {view === "3d"
           ? "Arrastra para orbitar, rueda para hacer zoom y haz clic en un nodo para ver su detalle."
           : "Haz clic en un nodo para ver su detalle. La vista 2D usa los mismos datos que la 3D."}{" "}
-        Real: los {counts.running + counts.available + counts.waiting + counts.blocked + counts.error + counts.inactive} agentes del
+        Del backend: los {counts.running + counts.available + counts.waiting + counts.blocked + counts.error + counts.inactive} agentes del
         registro con su estado, sus ejecuciones y la decisión del CEO. De demostración: la tarea en curso de cada agente, su
         progreso, los handoffs entre dominios y las métricas del Decision Engine.
       </p>

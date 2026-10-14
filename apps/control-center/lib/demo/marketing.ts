@@ -160,5 +160,5 @@ export const DEMO_RECOMMENDATIONS = {
 
 /** Texto del anuncio cuando el agente aún no ha generado creatividad. */
 export function demoAdText(productName: string): string {
-  return `${productName}: calidad verificada, envío rápido y devolución gratuita en 30 días.`;
+  return `${productName}: envío rápido y devolución gratuita en 30 días.`;
 }

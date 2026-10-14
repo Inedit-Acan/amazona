@@ -177,7 +177,7 @@ export function ProjectsWorkspace({
               <CardTitle>Cartera</CardTitle>
               <CardAction className="flex gap-1.5">
                 <DataProvenanceBadge
-                  status="verified"
+                  status="recorded"
                   compact
                   tooltip="Estado, tareas e inicio salen del backend y de su registro de auditoría. No cubre la columna de proyección."
                 />
@@ -272,7 +272,7 @@ export function ProjectsWorkspace({
             <CardHeader>
               <CardTitle>Proyectos por estado</CardTitle>
               <CardAction>
-                <DataProvenanceBadge status="verified" compact tooltip="Reparto de los estados que guarda el backend." />
+                <DataProvenanceBadge status="recorded" compact tooltip="Reparto de los estados que guarda el backend." />
               </CardAction>
             </CardHeader>
             <CardContent className="flex flex-wrap items-center gap-4">

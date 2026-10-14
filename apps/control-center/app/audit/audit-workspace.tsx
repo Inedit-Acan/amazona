@@ -22,6 +22,7 @@ import {
   filterOptions,
   filterRows,
   paginate,
+  resultLabel,
   type AuditRow,
   type AuditWindow,
   type RowFilters,
@@ -58,7 +59,7 @@ import {
 } from "./audit-panels";
 
 const DEMO_TOOLTIP =
-  "Incluye datos de demostración: una entrada real del registro solo guarda actor, acción, recurso, estado antes/después, ID de correlación y fecha, y hoy hay poco más de una decena. Los eventos que llenan la tabla, la criticidad, la IP, el user agent, las evidencias, el hash de integridad, las anomalías y la política de retención son simulados. Real: las entradas del backend, su tipo y actor deducidos de la acción, sus cambios de estado y su cadena de correlación.";
+  "Incluye datos de demostración: una entrada del registro solo guarda actor, acción, recurso, estado antes/después, ID de correlación y fecha, y hoy hay poco más de una decena. Los eventos que llenan la tabla, la criticidad, la IP, el user agent, las evidencias, el hash de integridad, las anomalías y la política de retención son simulados. Del backend: las entradas del backend, su tipo y actor deducidos de la acción, sus cambios de estado y su cadena de correlación.";
 
 const MAIN_TABS = [
   { key: "eventos", label: "Eventos" },
@@ -132,7 +133,7 @@ export function AuditWorkspace({
           row.title,
           row.actor,
           row.projectCode ?? "",
-          row.result,
+          resultLabel(row.result),
           row.criticality,
           row.correlationId,
           row.isDemo ? "demostración" : "backend",
@@ -298,7 +299,7 @@ export function AuditWorkspace({
                           <td className="py-1.5 break-words">{row.actor}</td>
                           <td className="py-1.5 whitespace-nowrap">{row.projectCode ?? "—"}</td>
                           <td className="py-1.5">
-                            <LevelChip tone={RESULT_TONE[row.result]}>{row.result}</LevelChip>
+                            <LevelChip tone={RESULT_TONE[row.result]}>{resultLabel(row.result)}</LevelChip>
                           </td>
                           <td className="py-1.5">
                             <LevelChip tone={CRITICALITY_TONE[row.criticality]}>{row.criticality}</LevelChip>
@@ -350,7 +351,7 @@ export function AuditWorkspace({
                       <div className="min-w-0">
                         <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           {selected.code}
-                          <LevelChip tone={selected.isDemo ? "neutral" : "ok"}>{selected.isDemo ? "Evento de demostración" : "Evento verificado"}</LevelChip>
+                          <LevelChip tone={selected.isDemo ? "neutral" : "ok"}>{selected.isDemo ? "Evento de demostración" : "Evento del registro"}</LevelChip>
                         </p>
                         <p className="flex flex-wrap items-center gap-2 text-xl leading-tight font-semibold">
                           {selected.title}
@@ -415,7 +416,7 @@ export function AuditWorkspace({
 
       <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
         <Package className="size-3.5" />
-        {formatInteger(realCount)} eventos reales del registro del backend · {formatInteger(rows.length - realCount)} de demostración para llenar la
+        {formatInteger(realCount)} eventos del registro del backend · {formatInteger(rows.length - realCount)} de demostración para llenar la
         ventana de 30 días.
       </p>
     </div>

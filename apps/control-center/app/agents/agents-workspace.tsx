@@ -53,7 +53,7 @@ import {
   VersionsTable,
 } from "./agents-panels";
 const DEMO_TOOLTIP =
-  "Incluye datos de demostración: el registro de agentes no guarda descripción, evaluaciones, coste por ejecución (devuelve 0), tarea en curso, herramientas ni histórico de versiones. Real: los agentes registrados con su rol, capacidades, estado y versión, y el log de ejecuciones, de donde salen la tasa de éxito, la latencia, la actividad, la distribución por equipo y las alertas.";
+  "Incluye datos de demostración: el registro de agentes no guarda descripción, evaluaciones, coste por ejecución (devuelve 0), tarea en curso, herramientas ni histórico de versiones. Del backend: los agentes registrados con su rol, capacidades, estado y versión, y el log de ejecuciones, de donde salen la tasa de éxito, la latencia, la actividad, la distribución por equipo y las alertas.";
 const MAIN_TABS = [
   { key: "agentes", label: "Agentes" },
   { key: "actividad", label: "Actividad" },

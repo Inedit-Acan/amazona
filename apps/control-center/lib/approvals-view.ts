@@ -126,12 +126,12 @@ export function demoRequests(context: ProductContext | undefined, agents: Agent[
   const legalRow: ValidationRow = {
     label: "Legal",
     state: legalOk ? "ok" : legalView.gate.state === "blocked" ? "bad" : "warn",
-    detail: legalOk ? "Aprobado" : legalView.gate.state === "blocked" ? "Bloqueado" : "Revisión",
+    detail: legalOk ? "Sin bloqueo" : legalView.gate.state === "blocked" ? "Bloqueado" : "Revisión",
   };
   const economicsRow: ValidationRow = {
     label: "Economía",
     state: analysis ? (analysis.recommendation === "GO" ? "ok" : analysis.recommendation === "NO_GO" ? "bad" : "warn") : "warn",
-    detail: analysis ? (analysis.recommendation === "GO" ? "Aprobado" : analysis.recommendation === "NO_GO" ? "No viable" : "Revisión") : "Sin análisis",
+    detail: analysis ? (analysis.recommendation === "GO" ? "Favorable" : analysis.recommendation === "NO_GO" ? "No viable" : "Revisión") : "Sin análisis",
   };
   const storeRow: ValidationRow = {
     label: "Tienda",
@@ -153,12 +153,12 @@ export function demoRequests(context: ProductContext | undefined, agents: Agent[
   const projectedCac = round2(baseline.inputs.cac);
   const roas = round2(baseline.inputs.salePrice / baseline.inputs.cac);
   const opinions: AgentOpinion[] = [
-    { agent: agentNamed(agents, "research", "Market Analyst"), verdict: "Oportunidad validada", ok: true },
+    { agent: agentNamed(agents, "research", "Market Analyst"), verdict: "Veredicto de demostración", ok: true },
     { agent: agentNamed(agents, "finance", "Unit Economics"), verdict: "CAC y margen dentro de objetivos", ok: analysis?.recommendation !== "NO_GO" },
     { agent: agentNamed(agents, "legal", "Product Compliance"), verdict: legalRow.detail, ok: legalOk },
     { agent: agentNamed(agents, "ecommerce", "Storefront Builder"), verdict: storeRow.detail, ok: readyRatio >= 0.9 },
     { agent: agentNamed(agents, "marketing", "Acquisition Agent"), verdict: campaign ? "Creatividades listas" : "Sin propuesta de campaña", ok: Boolean(campaign) },
-    { agent: agentNamed(agents, "operations", "Operations & CS"), verdict: "Capacidad operativa confirmada", ok: true },
+    { agent: agentNamed(agents, "operations", "Operations & CS"), verdict: "Veredicto de demostración", ok: true },
     { agent: agentNamed(agents, "cfo", "CFO Controller"), verdict: financeRow.detail, ok: financeRow.state === "ok" },
   ];
 

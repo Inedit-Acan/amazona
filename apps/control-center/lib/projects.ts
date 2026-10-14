@@ -107,7 +107,12 @@ export interface DecisionVerdict {
 
 /** Estado de la decisión del director ejecutivo, en lenguaje llano. */
 export const DECISION_VERDICT: Record<DecisionStatus, DecisionVerdict> = {
-  GO: { title: "Aprobada", detail: "Todas las validaciones pasan: el proyecto puede avanzar.", tone: "ok" },
+  GO: {
+    title: "Favorable",
+    detail:
+      "Todas las validaciones pasan: el Director ejecutivo recomienda avanzar. Es una recomendación del motor de decisión, no una aprobación humana.",
+    tone: "ok",
+  },
   REVIEW: {
     title: "Requiere revisión",
     detail: "Falta información o alguna validación pide revisión antes de decidir.",
@@ -118,5 +123,5 @@ export const DECISION_VERDICT: Record<DecisionStatus, DecisionVerdict> = {
     detail: "El gasto o la acción propuesta necesita que una persona la autorice en Aprobaciones.",
     tone: "warn",
   },
-  NO_GO: { title: "Rechazada", detail: "Alguna validación bloquea el proyecto.", tone: "bad" },
+  NO_GO: { title: "No viable", detail: "Alguna validación bloquea el proyecto: el motor de decisión no recomienda avanzar.", tone: "bad" },
 };

@@ -19,7 +19,7 @@ test("readinessRatio: cuenta solo lo cumplido", () => {
 test("channelCards: estado real de tienda y listado; demo para los canales sin integración", () => {
   const cards = channelCards({ storefront: { launch_status: "READY" }, storeReadiness: 0.8 });
   assert.deepEqual(cards.map((c) => c.key), ["store", "amazon", "google", "tiktok"]);
-  assert.equal(cards[0].status, "Activo");
+  assert.equal(cards[0].status, "Preparada");
   assert.equal(cards[0].readiness, 0.8);
   assert.equal(cards[1].isDemo, true);
   assert.equal(cards[1].readiness, DEMO_CHANNELS.amazon.readiness);
@@ -54,7 +54,7 @@ test("marketConfig: países de la UE con el precio aprobado y mercados reales a�
   ]);
   assert.equal(rows.length, DEMO_EU_MARKETS.length + 1);
   assert.equal(rows[0].price, 29.9);
-  assert.equal(rows[0].status, "Activo");
+  assert.equal(rows[0].status, "Preparada");
   assert.equal(rows[1].price, 30.9);
   const us = rows.find((r) => r.key === "us")!;
   assert.equal(us.price, 35);

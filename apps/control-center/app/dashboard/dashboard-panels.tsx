@@ -124,7 +124,7 @@ export function ActivityCard({ view, now }: { view: ActivityView; now: number })
         )}
         {view.kind === "rows" ? (
           <p className="text-[11px] text-muted-foreground">
-            El agente, su estado y sus ejecuciones son reales; la tarea en curso es de demostración.
+            El agente, su estado y sus ejecuciones salen del registro del backend; la tarea en curso es de demostración.
             {view.usingDemoRuns ? " El log de ejecuciones está vacío: se usan las mismas de demostración que en Agentes." : ""}
           </p>
         ) : null}
@@ -291,8 +291,8 @@ export function OpportunitiesCard({ view }: { view: OpportunitiesView }) {
           </div>
         )}
         <p className="text-[11px] text-muted-foreground">
-          Productos reales del catálogo, ordenados por el mismo score de Investigación, con el margen del mismo modelo económico que
-          Economía. La fase sale de hasta dónde ha llegado su pipeline de verdad; si no se pudo leer, se dice. Las señales de mercado
+          Productos del catálogo, ordenados por el mismo score de Investigación, con el margen del mismo modelo económico que
+          Economía. La fase sale de hasta dónde consta en el backend que ha llegado su pipeline; si no se pudo leer, se dice. Las señales de mercado
           son de demostración mientras no se lance un análisis.
         </p>
       </CardContent>

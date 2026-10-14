@@ -123,8 +123,8 @@ function buildInitialState(params: URLSearchParams) {
 }
 
 const DECISION_STATUS_LABEL: Record<string, string> = {
-  GO: "Aprobado (GO)",
-  NO_GO: "Rechazado (NO_GO)",
+  GO: "Favorable (GO)",
+  NO_GO: "No viable (NO_GO)",
   REVIEW: "Requiere revisión",
   HUMAN_APPROVAL: "Esperando aprobación humana",
 };

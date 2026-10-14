@@ -154,12 +154,12 @@ export function NexusDetails({
 
       <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-white/10 pt-2.5">
         <DataProvenanceBadge
-          status={node.isDemo ? "demo" : "verified"}
+          status={node.isDemo ? "demo" : "recorded"}
           compact
           tooltip={
             node.isDemo
               ? "Nodo de demostración: el backend no lo proporciona todavía."
-              : "Agente del registro real; la tarea en curso y el progreso son de demostración."
+              : "Agente del registro de agentes; la tarea en curso y el progreso son de demostración."
           }
         />
         {link ? (

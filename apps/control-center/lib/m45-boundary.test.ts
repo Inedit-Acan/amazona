@@ -193,13 +193,13 @@ test("5e · un proyecto con una lectura fallida lo dice y conserva lo que ya est
 
   const healthy = projectCard({ project, tasks, decision, audit });
   assert.deepEqual(healthy.unread, []);
-  assert.equal(healthy.decisionLabel, "Aprobada");
+  assert.equal(healthy.decisionLabel, "Favorable");
 
   // La auditoría falla mientras tareas y decisión ya estaban cargadas: se conservan. La fecha de inicio ya no sale de la
   // auditoría (es `project.created_at`), así que ese fallo no la oculta ni la sustituye.
   const partial = projectCard({ project, tasks, decision, audit, unread: ["audit"] });
   assert.deepEqual(partial.unread, ["audit"]);
-  assert.equal(partial.decisionLabel, "Aprobada", "lo ya cargado se conserva");
+  assert.equal(partial.decisionLabel, "Favorable", "lo ya cargado se conserva");
   assert.deepEqual(partial.progress, { done: 1, total: 1, ratio: 1 });
   assert.equal(partial.startedAt, Date.parse("2026-09-12T10:00:00Z"));
   assert.notEqual(UNREAD, NO_DATA);

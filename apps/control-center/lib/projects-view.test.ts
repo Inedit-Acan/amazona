@@ -112,7 +112,7 @@ test("projectCard: cada campo sale del backend, con el estado que el backend gua
   assert.equal(card.stages[0].recommendation, "GO", "la recomendación es la de la evidencia, no una nuestra");
   assert.deepEqual(card.progress, { done: 2, total: 4, ratio: 0.5 });
   assert.equal(card.decisionStatus, "GO");
-  assert.equal(card.decisionLabel, "Aprobada");
+  assert.equal(card.decisionLabel, "Favorable");
   assert.equal(card.confidence, 0.85);
   assert.equal(card.opportunityScore, 78);
 });
@@ -278,7 +278,7 @@ test("nextStep: la primera etapa que el backend no tiene completada", () => {
   assert.equal(step.stage?.task, "finance_validation");
   assert.equal(step.title, "Validar la economía");
   assert.equal(step.href, "/economics");
-  assert.equal(step.decision, "Aprobada");
+  assert.equal(step.decision, "Favorable");
 
   const done = nextStep(
     projectCard(

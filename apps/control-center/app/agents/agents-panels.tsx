@@ -31,7 +31,7 @@ export function RealtimeActivityCard({ entries, now, isDemo }: { entries: Activi
   return (
     <Card className="min-w-0">
       <CardHeader>
-        <CardTitle>Actividad en tiempo real</CardTitle>
+        <CardTitle>Actividad reciente</CardTitle>
         <CardAction>
           {isDemo ? (
             <DataProvenanceBadge status="demo" compact tooltip="El log de ejecuciones del backend está vacío: la actividad es de demostración." />
@@ -149,7 +149,7 @@ export function UsageCard({ points, isDemo }: { points: UsagePoint[]; isDemo: bo
           {formatInteger(totalRuns)} ejecuciones · coste estimado {formatEuro(totalCost)}
         </CardDescription>
         <CardAction>
-          <DataProvenanceBadge status={isDemo ? "demo" : "estimated"} compact tooltip={isDemo ? "Ejecuciones y coste de demostración: el log del backend está vacío." : "Las ejecuciones son reales; el coste es el de demostración por equipo (el backend registra 0)."} />
+          <DataProvenanceBadge status={isDemo ? "demo" : "estimated"} compact tooltip={isDemo ? "Ejecuciones y coste de demostración: el log del backend está vacío." : "Las ejecuciones son las del log del backend; el coste es el de demostración por equipo (el backend registra 0)."} />
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -186,7 +186,7 @@ export function DistributionCard({ rows, isDemo }: { rows: { team: string; runs:
       <CardHeader>
         <CardTitle>Distribución de ejecuciones</CardTitle>
         <CardAction>
-          <DataProvenanceBadge status={isDemo ? "demo" : "verified"} compact tooltip={isDemo ? "Ejecuciones de demostración por equipo: el log del backend está vacío." : "Ejecuciones registradas por equipo del agente."} />
+          <DataProvenanceBadge status={isDemo ? "demo" : "recorded"} compact tooltip={isDemo ? "Ejecuciones de demostración por equipo: el log del backend está vacío." : "Ejecuciones registradas por equipo del agente."} />
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-4">
@@ -264,7 +264,7 @@ export function ActivityTable({ entries, now, isDemo }: { entries: ActivityEntry
       <CardHeader>
         <CardTitle>Ejecuciones {isDemo ? "de demostración" : "registradas"}</CardTitle>
         <CardAction>
-          <DataProvenanceBadge status={isDemo ? "demo" : "verified"} compact tooltip={isDemo ? "El log del backend está vacío: estas ejecuciones son de demostración." : "Log de ejecuciones del CEO (AgentExecutionLog)."} />
+          <DataProvenanceBadge status={isDemo ? "demo" : "recorded"} compact tooltip={isDemo ? "El log del backend está vacío: estas ejecuciones son de demostración." : "Log de ejecuciones del CEO (AgentExecutionLog)."} />
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -310,7 +310,7 @@ export function PerformanceTable({ cards, isDemo }: { cards: AgentCardView[]; is
       <CardHeader>
         <CardTitle>Rendimiento por agente</CardTitle>
         <CardAction>
-          <DataProvenanceBadge status={isDemo ? "demo" : "estimated"} compact tooltip={isDemo ? "Sin log real: ejecuciones, éxito, latencia y coste son de demostración." : "Ejecuciones, éxito y latencia son reales; el coste es de demostración."} />
+          <DataProvenanceBadge status={isDemo ? "demo" : "estimated"} compact tooltip={isDemo ? "Sin log del backend: ejecuciones, éxito, latencia y coste son de demostración." : "Ejecuciones, éxito y latencia salen del log del backend; el coste es de demostración."} />
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -364,7 +364,7 @@ export function VersionsTable({ cards }: { cards: AgentCardView[] }) {
       <CardHeader>
         <CardTitle>Versiones</CardTitle>
         <CardAction>
-          <DataProvenanceBadge status="estimated" compact tooltip="La versión en uso es real; las anteriores y sus notas son de demostración." />
+          <DataProvenanceBadge status="estimated" compact tooltip="La versión en uso es la del registro de agentes; las anteriores y sus notas son de demostración." />
         </CardAction>
       </CardHeader>
       <CardContent>

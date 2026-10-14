@@ -31,6 +31,7 @@ import {
   type Recommendation,
   type SeriesMetric,
 } from "@/lib/marketing-view";
+import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { DonutChart } from "@/components/donut-chart";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
 import { LineChart } from "@/components/line-chart";
@@ -40,7 +41,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
 const STATUS_CHIP: Record<CreativeStatus, { tone: LevelTone; icon: LucideIcon }> = {
-  Aprobado: { tone: "ok", icon: CircleCheck },
+  "Puntuación alta": { tone: "ok", icon: CircleCheck },
   "En revisión": { tone: "warn", icon: FlaskConical },
   Ajustar: { tone: "bad", icon: Wrench },
 };
@@ -266,7 +267,8 @@ export function FunnelCard({ performance }: { performance: BucketPerformance[] }
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle>Funnel de conversión</CardTitle>
-        <CardAction>
+        <CardAction className="flex items-center gap-1.5">
+          <DataProvenanceBadge status="demo" compact tooltip="Cifras de demostración: no hay integración con Meta / Google / TikTok Ads, así que ninguna campaña ha gastado ni vendido nada." />
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as BucketKey | "all")}
@@ -325,6 +327,9 @@ export function PerformanceCard({ performance }: { performance: BucketPerformanc
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle>Rendimiento por canal</CardTitle>
+        <CardAction>
+          <DataProvenanceBadge status="demo" compact tooltip="Cifras de demostración: no hay integración con Meta / Google / TikTok Ads, así que ninguna campaña ha gastado ni vendido nada." />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-2">
         <SegmentTabs value={metric} onChange={setMetric} items={METRICS} label="Métrica del gráfico" />
@@ -353,6 +358,9 @@ export function AttributionCard({ performance, total }: { performance: BucketPer
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle>Atribución de ingresos</CardTitle>
+        <CardAction>
+          <DataProvenanceBadge status="demo" compact tooltip="Cifras de demostración: no hay integración con Meta / Google / TikTok Ads, así que ninguna campaña ha gastado ni vendido nada." />
+        </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
         <SegmentTabs value={model} onChange={setModel} items={ATTRIBUTION_MODELS} label="Modelo de atribución" />

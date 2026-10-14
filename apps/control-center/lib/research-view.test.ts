@@ -130,7 +130,7 @@ test("la procedencia del backend se respeta tal cual", () => {
 test("signalsMode dice «real» solo cuando todo lo es", () => {
   const rows = buildRows([PRODUCT], [candidateFor("p-1", { provenance: "real", demand_signal: 0.7 })]);
 
-  assert.deepEqual(signalsMode(rows), { label: "Real (señales medidas)", status: "verified" });
+  assert.deepEqual(signalsMode(rows), { label: "Señales medidas (proxy de interés)", status: "third_party" });
 });
 
 test("basta una señal de relleno para que la cabecera no pueda decir «real»", () => {

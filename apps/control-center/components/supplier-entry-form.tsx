@@ -97,7 +97,7 @@ export function SupplierEntryForm({ productId }: { productId: string }) {
     return (
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
         <Plus className="size-3.5" />
-        Añadir proveedor real
+        Añadir proveedor
       </Button>
     );
   }
@@ -105,7 +105,7 @@ export function SupplierEntryForm({ productId }: { productId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">Añadir un proveedor real</CardTitle>
+        <CardTitle className="text-sm">Añadir un proveedor</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">

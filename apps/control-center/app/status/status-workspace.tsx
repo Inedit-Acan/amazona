@@ -48,7 +48,7 @@ import {
 } from "./status-panels";
 
 const DEMO_TOOLTIP =
-  "Incluye datos de demostración: el backend solo responde una comprobación de salud (base de datos, migración y configuración de Supabase), el registro de agentes, su log de ejecuciones y los incidentes registrados a mano. Son de demostración el uptime y la latencia p95 de los 18 servicios, el estado de los doce sin telemetría, las series de las últimas 24 horas, las colas, las tareas programadas, las integraciones externas, las métricas del motor de base de datos, los despliegues y el coste de infraestructura. Real: que el frontend se ha renderizado, que la API responde y cuánto tarda, si la base de datos se puede consultar, la migración aplicada, si Supabase está configurado, los agentes registrados, sus ejecuciones fallidas de hoy y los incidentes.";
+  "Incluye datos de demostración: el backend solo responde una comprobación de salud (base de datos, migración y configuración de Supabase), el registro de agentes, su log de ejecuciones y los incidentes registrados a mano. Son de demostración el uptime y la latencia p95 de los 18 servicios, el estado de los doce sin telemetría, las series de las últimas 24 horas, las colas, las tareas programadas, las integraciones externas, las métricas del motor de base de datos, los despliegues y el coste de infraestructura. Comprobado o registrado: que el frontend se ha renderizado, que la API responde y cuánto tarda, si la base de datos se puede consultar, la migración aplicada, si Supabase está configurado, los agentes registrados, sus ejecuciones fallidas de hoy y los incidentes.";
 
 export function StatusWorkspace({
   signal,
@@ -127,7 +127,7 @@ export function StatusWorkspace({
           label="Latencia API p95"
           value={formatDuration(kpis.p95Ms)}
           icon={Gauge}
-          caption={`${formatPercent(kpis.p95Delta, 0)} · medida real ahora: ${signal.latencyMs === null ? "—" : formatDuration(signal.latencyMs)}`}
+          caption={`${formatPercent(kpis.p95Delta, 0)} · medida en esta carga: ${signal.latencyMs === null ? "—" : formatDuration(signal.latencyMs)}`}
           provenance="demo"
           provenanceCompact
           provenanceTooltip="El p95 es de demostración. Lo único medido es el tiempo de la comprobación de salud de esta carga, que se enseña al lado."
@@ -145,10 +145,10 @@ export function StatusWorkspace({
           label="Servicios operativos"
           value={`${kpis.servicesOperational} / ${kpis.servicesTotal}`}
           icon={Boxes}
-          caption={`${summary.withRealSignal} con estado medido de verdad`}
+          caption={`${summary.withRealSignal} con estado medido`}
           provenance="demo"
           provenanceCompact
-          provenanceTooltip="Seis servicios tienen estado real (frontend, API, Postgres, Auth, Storage y workers); los otros doce no tienen telemetría y su estado es de demostración."
+          provenanceTooltip="Seis servicios tienen estado medido (frontend, API, Postgres, Auth, Storage y workers); los otros doce no tienen telemetría y su estado es de demostración."
         />
         <KpiCard
           label="Incidentes activos"
@@ -160,7 +160,7 @@ export function StatusWorkspace({
               ? "No se pudieron cargar"
               : `Últimos 30 días: ${kpis.incidents30d}${incidentsData.usingDemo ? " · lista de demostración" : ""}`
           }
-          provenance={kpis.openIncidents === null ? "pending" : "verified"}
+          provenance={kpis.openIncidents === null ? "pending" : "recorded"}
           provenanceCompact
           provenanceTooltip="Incidentes registrados a mano en el backend; el sistema no los abre solo."
         />
@@ -240,7 +240,7 @@ export function StatusWorkspace({
         Esta pantalla mezcla una comprobación puntual hecha al cargarla con datos de demostración: no hay monitorización continua.
         {usingDemoRuns
           ? " El log de ejecuciones de agentes está vacío, así que los workers y el coste de inferencia usan las mismas ejecuciones de demostración que la pantalla de Agentes."
-          : " Los workers y el coste de inferencia salen del log real de ejecuciones, igual que en la pantalla de Agentes."}
+          : " Los workers y el coste de inferencia salen del log de ejecuciones del backend, igual que en la pantalla de Agentes."}
       </p>
     </div>
   );
