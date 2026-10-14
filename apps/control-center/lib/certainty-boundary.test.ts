@@ -32,6 +32,21 @@ const GOVERNED = [
   "app/audit/audit-panels.tsx",
   "app/audit/audit-workspace.tsx",
   "app/ceo/page.tsx",
+  "components/ceo/agent-network-card.tsx",
+  "components/ceo/assistant-drawer.tsx",
+  "components/ceo/block-card.tsx",
+  "components/ceo/bottom-row.tsx",
+  "components/ceo/ceo-assistant-panel.tsx",
+  "components/ceo/ceo-context.tsx",
+  "components/ceo/ceo-header.tsx",
+  "components/ceo/ceo-layout.tsx",
+  "components/ceo/decision-triptych.tsx",
+  "components/ceo/fullscreen-button.tsx",
+  "components/ceo/kpi-row.tsx",
+  "components/ceo/mission-drawer.tsx",
+  "components/ceo/mission-form.tsx",
+  "lib/ceo-blocks.ts",
+  "lib/ceo-mission-view.ts",
   "app/dashboard/dashboard-panels.tsx",
   "app/dashboard/dashboard-workspace.tsx",
   "app/ecommerce/amazon-panels.tsx",
@@ -89,9 +104,10 @@ test("la prueba ve los ficheros que tiene que vigilar", () => {
 
 /** Los únicos usos legítimos de «real» en lo que se lee en pantalla de estos ficheros: un fragmento, en un fichero, con su porqué. */
 const REAL_ALLOWED: { file: string; fragment: string; why: string }[] = [
-  { file: "app/ceo/page.tsx", fragment: "sin dinero, pedidos ni proveedores reales", why: "negación: dice lo que NO hay" },
-  { file: "app/ceo/page.tsx", fragment: "Sin gasto, pedidos ni proveedores reales", why: "negación: dice lo que NO hay" },
-  { file: "app/ceo/page.tsx", fragment: "Proveedores y costes reales: pendiente de integrar", why: "marca lo pendiente" },
+  { file: "components/ceo/mission-drawer.tsx", fragment: "sin dinero, pedidos ni proveedores reales", why: "negación: dice lo que NO hay" },
+  { file: "components/ceo/mission-form.tsx", fragment: "sin dinero, pedidos ni proveedores reales", why: "negación: dice lo que NO hay" },
+  { file: "components/ceo/mission-form.tsx", fragment: "Sin gasto, pedidos ni proveedores reales", why: "negación: dice lo que NO hay" },
+  { file: "components/ceo/mission-form.tsx", fragment: "Proveedores y costes reales: pendiente de integrar", why: "marca lo pendiente" },
   { file: "app/dashboard/dashboard-panels.tsx", fragment: "todavía no tiene costes ni ventas reales", why: "negación: dice lo que NO hay" },
   { file: "app/economics/economics-workspace.tsx", fragment: "en tiempo real", why: "el simulador recalcula al escribir (inmediatez de la interfaz)" },
   { file: "app/status/status-panels.tsx", fragment: "No hay telemetría de tráfico real todavía", why: "negación: dice lo que NO hay" },
@@ -210,7 +226,7 @@ test("una decisión GO/NO_GO del motor es una recomendación: no se llama aproba
   for (const status of ["GO", "NO_GO"] as const) assert.doesNotMatch(DECISION_VERDICT[status].title, /aprob|rechaz/i);
   // La aprobación humana sigue siendo humana.
   assert.match(DECISION_VERDICT.HUMAN_APPROVAL.title, /aprobación humana/);
-  const ceo = read("app/ceo/page.tsx");
+  const ceo = read("components/ceo/mission-form.tsx");
   assert.match(ceo, /GO: "Favorable \(GO\)"/);
   assert.match(ceo, /NO_GO: "No viable \(NO_GO\)"/);
 });

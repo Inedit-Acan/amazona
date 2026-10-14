@@ -57,7 +57,7 @@ test("toda operación de M44 con efecto está en el catálogo (pedido, cobro, re
 test("el cliente lanza hoy desde la interfaz las operaciones que el catálogo dice, y las usa con una clave de intención", async () => {
   const sources = await Promise.all(
     [
-      "../app/ceo/page.tsx",
+      "../components/ceo/mission-form.tsx",
       "../app/legal/legal-workspace.tsx",
       "../app/research/research-workspace.tsx",
       "../components/regulatory-panel.tsx",

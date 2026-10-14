@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import dynamic from "next/dynamic";
 import { AlertTriangle, Network, RefreshCw } from "lucide-react";
 import { api, type Decision } from "@/lib/api";
@@ -23,6 +23,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useMediaQuery } from "@/components/use-media-query";
+import { CEO_NARROW_QUERY } from "@/lib/ceo-layout";
 import { cn } from "@/lib/utils";
 
 // three.js se queda fuera del bundle principal. Sin `ssr: false`: esa opción deja
@@ -32,6 +34,12 @@ import { cn } from "@/lib/utils";
 const NexusScene = dynamic(() => import("./scene/nexus-scene").then((mod) => mod.NexusScene), {
   loading: () => <Skeleton className="size-full rounded-none" />,
 });
+
+/** Lo que el Director ejecutivo puede pedirle al grafo desde fuera (M47, Commit 2): la pantalla completa. Es la ÚNICA vía:
+ * la cabecera y la tarjeta del Decision Engine llaman a lo mismo, y el botón del propio grafo también. */
+export interface NexusGraphHandle {
+  toggleFullscreen(): Promise<void>;
+}
 
 const EMPTY_COUNTS: Record<NodeStatus, number> = {
   running: 0,
@@ -59,7 +67,19 @@ const EMPTY_COUNTS: Record<NodeStatus, number> = {
  * registro vacío tampoco se rellena con agentes de demostración. Si solo falla el
  * log de ejecuciones, el grafo se dibuja con los agentes reales y lo que depende
  * de las ejecuciones dice «No disponible». */
-export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
+export function NeuralNexusGraph({
+  decision,
+  decisionUnavailable = false,
+  ref,
+  onDrawnChange,
+}: {
+  decision: Decision | null;
+  /** La misión se ejecutó pero su decisión no se pudo leer: el HUD dice «No disponible», no «Sin decisión». */
+  decisionUnavailable?: boolean;
+  ref?: Ref<NexusGraphHandle>;
+  /** Avisa de si el grafo está dibujado (hay registro leído): sin él no hay nada que ver a pantalla completa. */
+  onDrawnChange?: (drawn: boolean) => void;
+}) {
   // `null` = leyendo. Después, el `ReadState` de cada lectura.
   const [reads, setReads] = useState<NexusReads | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -75,7 +95,9 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
   const container = useRef<HTMLDivElement>(null);
 
   const autoFallback = useGraphFallback();
-  const view = autoFallback || manualView === "2d" ? "2d" : "3d";
+  // En pantallas estrechas el grafo se abre en 2D (se puede pasar a 3D a mano): no hay sitio para orbitar con un dedo.
+  const narrow = useMediaQuery(CEO_NARROW_QUERY);
+  const view = autoFallback || manualView === "2d" || (manualView === null && narrow) ? "2d" : "3d";
   // Con "reducir movimiento" la escena se queda quieta pero sigue informando.
   const animate = view === "3d" && !autoFallback;
 
@@ -100,6 +122,10 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
     [reads],
   );
   const drawGraph = lists !== null && lists.agents !== null && lists.agents.length > 0;
+
+  useEffect(() => {
+    onDrawnChange?.(drawGraph);
+  }, [drawGraph, onDrawnChange]);
 
   // El <Canvas> de R3F mide su contenedor al montar y aquí esa primera medida
   // vuelve 0: el lienzo se queda en los 300 × 150 por defecto (contenedor real:
@@ -129,6 +155,8 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
       // La API de pantalla completa puede estar bloqueada; no es crítico.
     }
   }, []);
+
+  useImperativeHandle(ref, () => ({ toggleFullscreen }), [toggleFullscreen]);
 
   const { nodes, edges } = useMemo(
     () =>
@@ -231,13 +259,16 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
         </Alert>
       ) : null}
 
+      {/* Desde `xl` el HUD, la leyenda y el detalle se superponen al lienzo (como el mockup); por debajo FLUYEN bajo él, para no
+          taparlo en un ancho en el que no hay sitio (y a pantalla completa vuelven a superponerse). */}
       <div
         ref={container}
         className={cn(
           "relative overflow-hidden rounded-xl border bg-[#030606]",
-          fullscreen ? "h-screen w-screen" : "h-[34rem] w-full",
+          fullscreen ? "h-screen w-screen" : "w-full xl:h-[24rem]",
         )}
       >
+        <div className={cn(fullscreen ? "absolute inset-0" : "h-[20rem] md:h-[22rem] xl:absolute xl:inset-0 xl:h-auto")}>
         {view === "3d" ? (
           <NexusScene
             nodes={nodes}
@@ -262,11 +293,19 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
             onHover={setHoveredId}
           />
         )}
+        </div>
 
         {/* Capa HUD: no intercepta el ratón salvo en el panel de detalle. */}
-        <div className="pointer-events-none absolute inset-0 flex items-start justify-between p-3">
-          <NexusHud metrics={metrics} />
-          <div className="flex flex-col items-end gap-2">
+        <div
+          className={cn(
+            "flex flex-wrap items-start gap-2 p-3",
+            fullscreen
+              ? "pointer-events-none absolute inset-0 justify-between"
+              : "xl:pointer-events-none xl:absolute xl:inset-0 xl:justify-between",
+          )}
+        >
+          <NexusHud metrics={metrics} decisionUnavailable={decisionUnavailable} />
+          <div className="flex flex-col items-start gap-2 xl:items-end">
             <NexusLegend counts={counts} />
             {selected ? (
               <NexusDetails node={selected} nodes={nodes} edges={edges} now={now} onClose={() => setSelectedId(null)} />

@@ -57,11 +57,16 @@ test("V2 · el estado de un agente no se traduce con OFFLINE/ERROR ni cae en «d
 test("V3 · la cabecera no dice «Sistema operativo» ni tiene un punto verde fijo", () => {
   const raw = read("components/top-header.tsx");
   assert.doesNotMatch(raw, /Sistema operativo/i);
-  const header = code("components/top-header.tsx");
-  assert.match(header, /HealthMonitor/, "la cabecera debe usar el monitor de salud");
-  assert.match(header, /getReadiness/, "la cabecera debe consultar /health/ready");
+  assert.match(code("components/top-header.tsx"), /<BackendStatus\b/, "la cabecera debe enseñar el estado real del backend");
+  // El indicador y su monitor (M47 · Commit 2: uno solo por pestaña, compartido con la cabecera del Director ejecutivo).
+  const status = code("components/backend-status.tsx");
+  assert.match(status, /useBackendHealth\(/, "el indicador debe leer el estado del monitor");
+  assert.doesNotMatch(raw + read("components/backend-status.tsx"), /Sistema operativo/i);
+  const hook = code("components/use-backend-health.ts");
+  assert.match(hook, /HealthMonitor/, "el monitor de salud");
+  assert.match(hook, /getReadiness/, "debe consultar /health/ready");
   // El único `bg-success` está dentro del estilo del veredicto `ready`, no suelto en el JSX.
-  const loose = header.split("\n").filter((line) => line.includes("bg-success") && !/ready:\s*\{/.test(line));
+  const loose = status.split("\n").filter((line) => line.includes("bg-success") && !/ready:\s*\{/.test(line));
   assert.deepEqual(loose, [], "hay un bg-success fuera del estilo del veredicto `ready`");
 });
 

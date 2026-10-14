@@ -18,6 +18,7 @@ export function KpiCard({
   footer,
   leading,
   trailing,
+  compact = false,
 }: {
   label: string;
   value: string | number;
@@ -39,6 +40,8 @@ export function KpiCard({
   leading?: ReactNode;
   /** Gráfico o chevron a la derecha del valor (KPIs del Panel). Necesita `leading`. */
   trailing?: ReactNode;
+  /** Valor en un cuerpo menor (`text-xl`): para los estados «Sin leer» / «No disponible», que son una frase y no una cifra. */
+  compact?: boolean;
 }) {
   return (
     <Card
@@ -57,7 +60,7 @@ export function KpiCard({
         <div className={leading ? "min-w-0 space-y-0.5" : "contents"}>
           <p
             className={cn(
-              leading ? "text-lg leading-tight font-semibold" : "text-2xl leading-tight font-semibold",
+              leading ? "text-lg leading-tight font-semibold" : compact ? "text-xl leading-tight font-semibold" : "text-2xl leading-tight font-semibold",
               (tone === "success" || accent) && "text-primary",
               tone === "warning" && "text-amber-500",
               tone === "danger" && "text-red-500",

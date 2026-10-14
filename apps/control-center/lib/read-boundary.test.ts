@@ -188,7 +188,6 @@ const REMAINING_SILENT_READS: Record<string, number> = {
   "app/agents/page.tsx": 1,
   "app/approvals/page.tsx": 8,
   "app/audit/page.tsx": 2,
-  "app/ceo/page.tsx": 3,
   "app/economics/page.tsx": 3,
   "app/legal/page.tsx": 3,
   "app/operations/page.tsx": 1,
@@ -208,6 +207,6 @@ test("10 · trinquete: las lecturas que aún tragan su error fuera del Panel no 
     assert.ok(count >= allowed, `${file}: ahora hay ${count}: baja REMAINING_SILENT_READS a ${count} para que el trinquete no retroceda`);
   }
   const total = Object.values(REMAINING_SILENT_READS).reduce((sum, count) => sum + count, 0);
-  assert.equal(total, 33, "30 lecturas de otras pantallas + 3 de otra naturaleza (el grafo salió en M47 · Commit 1)");
+  assert.equal(total, 30, "27 lecturas de otras pantallas + 3 de otra naturaleza (el grafo salió en M47 · Commit 1 y /ceo en el Commit 2)");
   for (const file of GOVERNED) assert.equal(REMAINING_SILENT_READS[file] ?? 0, 0, `${file} está gobernado: cero`);
 });

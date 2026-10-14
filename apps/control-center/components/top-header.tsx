@@ -2,19 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CircleCheck, CircleX, LoaderCircle, Search, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Bell, Search } from "lucide-react";
+import { BackendStatus } from "@/components/backend-status";
 import { NAV_ITEMS } from "@/components/nav-items";
 import { SessionBadge } from "@/components/session-badge";
-import { api } from "@/lib/api";
-import {
-  checkBackend,
-  HEALTH_SCOPE_NOTE,
-  healthLabel,
-  HealthMonitor,
-  INITIAL_HEALTH,
-  type BackendHealthState,
-  type HealthVerdict,
-} from "@/lib/backend-health";
 import { cn } from "@/lib/utils";
 
 /** Live clock — actualiza cada minuto, suficiente para la cabecera
@@ -35,67 +26,6 @@ function useNow() {
     };
   }, []);
   return now;
-}
-
-/** La salud del backend (M47). Una sola petición activa; se comprueba al montar, al volver a la pestaña, al recuperar el
- * foco y cada 60 s SOLO mientras la pestaña es visible (`lib/backend-health.ts`). El estado inicial es «comprobando»,
- * nunca «operativo». */
-function useBackendHealth(): BackendHealthState {
-  const [state, setState] = useState<BackendHealthState>(INITIAL_HEALTH);
-  useEffect(() => {
-    const monitor = new HealthMonitor({
-      check: () => checkBackend((signal) => api.getReadiness(signal)),
-      now: () => Date.now(),
-      onChange: setState,
-    });
-    const onVisibility = () => monitor.setVisible(document.visibilityState === "visible");
-    const onFocus = () => monitor.focus();
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", onFocus);
-    monitor.start(document.visibilityState === "visible");
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", onFocus);
-      monitor.dispose();
-    };
-  }, []);
-  return state;
-}
-
-/** Icono, color y punto de cada veredicto. El color nunca va solo: lleva icono y texto (visible desde `lg`, y para
- * lectores de pantalla siempre). */
-const VERDICT_STYLE: Record<HealthVerdict, { icon: LucideIcon; text: string; dot: string }> = {
-  ready: { icon: CircleCheck, text: "text-success", dot: "bg-success shadow-[0_0_6px_var(--success)]" },
-  degraded: { icon: TriangleAlert, text: "text-warning", dot: "bg-warning" },
-  unavailable: { icon: CircleX, text: "text-destructive", dot: "bg-destructive" },
-};
-
-function BackendStatus() {
-  const state = useBackendHealth();
-  const label = healthLabel(state);
-  const refreshing = state.kind === "known" && state.refreshing;
-  const style = state.kind === "known" ? VERDICT_STYLE[state.verdict] : null;
-  const Icon = state.kind === "checking" ? LoaderCircle : refreshing ? LoaderCircle : style!.icon;
-  const checkedAt =
-    state.kind === "known"
-      ? `Última comprobación: ${new Intl.DateTimeFormat("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(state.checkedAt)}${refreshing ? " (actualizando…)" : ""}. `
-      : "Todavía sin comprobar. ";
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      aria-busy={state.kind === "checking" || refreshing}
-      title={`${checkedAt}${HEALTH_SCOPE_NOTE}`}
-      className="flex items-center gap-1.5"
-    >
-      <Icon
-        aria-hidden
-        className={cn("size-3.5 shrink-0", style ? style.text : "text-muted-foreground", (state.kind === "checking" || refreshing) && "animate-spin")}
-      />
-      <span className={cn("size-2 rounded-full", style ? style.dot : "bg-muted-foreground/50")} aria-hidden />
-      <span className={cn("font-medium sr-only lg:not-sr-only", style ? "text-foreground" : "text-muted-foreground")}>{label}</span>
-    </div>
-  );
 }
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" });

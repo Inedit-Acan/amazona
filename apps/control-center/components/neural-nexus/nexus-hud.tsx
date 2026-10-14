@@ -18,7 +18,9 @@ function Row({ label, value, missing }: { label: string; value: string; missing?
 
 /** Panel de métricas del Decision Engine (especificación §22). Cada cifra es un dato
  * del backend o dice «Sin dato»: no hay valores de demostración (M47 · Commit 1). */
-export function NexusHud({ metrics }: { metrics: HudMetrics }) {
+export function NexusHud({ metrics, decisionUnavailable = false }: { metrics: HudMetrics; decisionUnavailable?: boolean }) {
+  // Sin decisión y decisión que no se pudo leer NO son lo mismo: lo segundo es un error de lectura, no una ausencia.
+  const withoutDecision = decisionUnavailable ? "No disponible" : "Sin decisión";
   const color = STATUS_COLOR[metrics.coreStatus];
   return (
     <div className="pointer-events-none w-56 rounded-xl border border-white/10 bg-[#071713]/85 p-3 backdrop-blur-sm">
@@ -30,7 +32,7 @@ export function NexusHud({ metrics }: { metrics: HudMetrics }) {
       <div className="space-y-1.5">
         <Row
           label="Eventos activos"
-          value={metrics.activeEvents === null ? NO_DATA : String(metrics.activeEvents)}
+          value={metrics.activeEvents === null ? (decisionUnavailable ? "No disponible" : NO_DATA) : String(metrics.activeEvents)}
           missing={metrics.activeEvents === null}
         />
         <Row label="Agentes activos" value={`${metrics.activeAgents} / ${metrics.totalAgents}`} />
@@ -39,13 +41,13 @@ export function NexusHud({ metrics }: { metrics: HudMetrics }) {
           value={metrics.latencyMs === null ? NO_DATA : formatDuration(metrics.latencyMs)}
           missing={metrics.latencyMs === null}
         />
-        <Row label="Proyecto" value={metrics.projectName ?? "Sin decisión"} missing={metrics.projectName === null} />
+        <Row label="Proyecto" value={metrics.projectName ?? withoutDecision} missing={metrics.projectName === null} />
       </div>
       <div className="mt-2.5 space-y-1">
         <div className="flex items-baseline justify-between gap-2 text-xs">
           <span className="text-muted-foreground">Progreso</span>
           <span className={metrics.progress === null ? "text-muted-foreground" : "tabular-nums"}>
-            {metrics.progress === null ? "Sin decisión" : formatPercent(metrics.progress, 0)}
+            {metrics.progress === null ? withoutDecision : formatPercent(metrics.progress, 0)}
           </span>
         </div>
         {metrics.progress === null ? null : (
