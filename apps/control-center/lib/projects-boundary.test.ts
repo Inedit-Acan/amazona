@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { AuditEntry, Decision, Project, Task } from "./api.ts";
+import { projectedFinance } from "./projects.ts";
 import { portfolioCounts, projectCard, projectCodeFor, type ProjectSource } from "./projects-view.ts";
 
 // Las fronteras de Proyectos (M45, Commit 11), al estilo de las del Panel y de Finanzas.
@@ -51,7 +52,13 @@ const task = (name: string, status: Task["status"]): Task => ({
   error: null,
 });
 
-const PROJECT: Project = { id: "p-1", objective_id: "o-1", name: "Proyecto del Director ejecutivo", status: "VALIDATING" };
+const PROJECT: Project = {
+  id: "p-1",
+  objective_id: "o-1",
+  name: "Proyecto del Director ejecutivo",
+  status: "VALIDATING",
+  created_at: "2026-09-20T08:00:00Z",
+};
 
 const DECISION: Decision = {
   id: "d-1",
@@ -77,7 +84,7 @@ const AUDIT: AuditEntry[] = [
     before: null,
     after: null,
     correlation_id: "c-1",
-    created_at: "2026-09-20T08:00:00Z",
+    created_at: "2026-09-20T08:00:09Z", // distinta de `project.created_at`: la fecha del proyecto no sale de aquí
   },
 ];
 
@@ -224,15 +231,21 @@ test("8 · la proyección no lleva moneda, porque la evidencia financiera no dec
     const code = stripComments(read(file));
     assert.ok(!/\bformatEuro\b/.test(code), `${file} formatea un importe en euros sin que nadie haya declarado la moneda`);
     assert.ok(!code.includes("€"), `${file} escribe el símbolo del euro`);
+    assert.ok(!/currency|["'`]EUR["'`]|EUR/.test(code), `${file} nombra una moneda: ni por defecto ni deducida de la configuración`);
   }
 });
 
 // --- 9 · Ninguna fecha calculada ------------------------------------------------------------------------------------
 
+test("8b · `projectedFinance` devuelve solo beneficio y margen: ninguna moneda, ni por defecto ni deducida", () => {
+  const finance = projectedFinance(DECISION);
+  assert.deepEqual(Object.keys(finance ?? {}).sort(), ["margin", "monthlyProfit"]);
+});
+
 test("9 · una fecha que no está registrada no se sustituye por una calculada", () => {
   const card = projectCard({ ...SOURCE, audit: [] });
-  assert.equal(card.startedAt, null);
-  assert.ok(card.milestones.every((milestone) => milestone.at === null));
+  assert.equal(card.startedAt, Date.parse("2026-09-20T08:00:00Z"), "el inicio es el created_at del proyecto, con o sin auditoría");
+  assert.ok(card.milestones.every((milestone) => milestone.at === null), "un hito sin `task.completed` sigue sin fecha");
 
   for (const file of [...PROJECT_MODULES, ...projectFiles()]) {
     const code = stripComments(read(file));
@@ -240,6 +253,30 @@ test("9 · una fecha que no está registrada no se sustituye por una calculada",
     assert.ok(!/86_?400_?000|DAY_MS|daysAgo/.test(code), `${file} desplaza una fecha un número de días`);
     assert.ok(!/startOfDay/.test(code), `${file} sigue dependiendo del día del servidor para fabricar fechas`);
   }
+});
+
+test("9b · la fecha de inicio sale SOLO de `project.created_at`: ni auditoría, ni reloj, ni posición, ni código", () => {
+  const view = stripComments(read("lib/projects-view.ts"));
+  assert.ok(/startedAt:\s*startedAtOf\(project\)/.test(view), "`startedAt` ya no sale de `startedAtOf(project)`");
+  const startedAtOf = view.slice(view.indexOf("export function startedAtOf"), view.indexOf("function firstAuditAt"));
+  assert.ok(/project\.created_at|\bcreated_at\b/.test(startedAtOf), "`startedAtOf` no lee `created_at`");
+  assert.ok(!/updated_at|audit|new Date\(\)|Date\.now/.test(startedAtOf), "`startedAtOf` lee otra fuente");
+  assert.ok(!/firstAuditAt\(audit,\s*"project\.created"/.test(view), "`startedAt` vuelve a salir de la auditoría `project.created`");
+
+  for (const file of [...PROJECT_MODULES, ...projectFiles()]) {
+    const code = stripComments(read(file));
+    assert.ok(!/new Date\(\s*\)/.test(code), `${file} usa la fecha de hoy (new Date())`);
+    assert.ok(!/-\s*\d+\s*\*\s*(24|60|1000|86_?400)/.test(code), `${file} resta días u horas a una fecha ("hoy − N")`);
+    assert.ok(!/["'`]CEO-\d+["'`]|CEO-\$\{/.test(code), `${file} fabrica un código CEO-0001`);
+    assert.ok(!/(index|idx|position|rank)\s*\*\s*(24|60|1000|86_?400|DAY)/i.test(code), `${file} deriva una fecha de la posición en la lista`);
+    assert.ok(!/hace \d+ d[ií]as/i.test(code), `${file} escribe una antigüedad fija`);
+  }
+  for (const file of ["app/projects/projects-workspace.tsx", "app/projects/projects-panels.tsx"]) {
+    const code = stripComments(read(file));
+    assert.ok(!/unread\.includes\("audit"\)[^;\n]*startedAt/.test(code), `${file} condiciona la fecha de inicio a la lectura de auditoría`);
+  }
+  // La API de proyectos no se infiere desde ningún otro campo: `created_at` viene en el tipo del contrato.
+  assert.ok(/created_at:\s*string/.test(read("lib/api.ts").slice(read("lib/api.ts").indexOf("export interface Project {"), read("lib/api.ts").indexOf("export interface Task {"))));
 });
 
 // --- 10 · Los proyectos del Director ejecutivo conservan lo suyo ---------------------------------------------------

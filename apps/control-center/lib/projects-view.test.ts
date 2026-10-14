@@ -15,6 +15,7 @@ import {
   portfolioCounts,
   projectCard,
   projectCodeFor,
+  startedAtOf,
   statusDistribution,
   type ProjectSource,
 } from "./projects-view.ts";
@@ -26,6 +27,7 @@ const project = (over: Partial<Project> = {}): Project => ({
   objective_id: "o-1",
   name: "Organizador de cocina de silicona",
   status: "VALIDATING",
+  created_at: "2026-09-12T10:00:00Z",
   ...over,
 });
 
@@ -83,7 +85,8 @@ function source(over: Partial<ProjectSource> = {}): ProjectSource {
     ],
     decision: decision(),
     audit: [
-      audit("project.created", "project:p-1", "2026-09-12T10:00:00Z"),
+      // Unos segundos distinta de `project.created_at`: así se ve de cuál de las dos fuentes sale `startedAt`.
+      audit("project.created", "project:p-1", "2026-09-12T10:00:03Z"),
       audit("tasks.created", "project:p-1", "2026-09-12T10:00:05Z"),
       audit("task.completed", "task:t-product_validation", "2026-09-12T10:01:00Z"),
       audit("decision.made", "decision:d-1", "2026-09-12T10:05:00Z"),
@@ -114,16 +117,43 @@ test("projectCard: cada campo sale del backend, con el estado que el backend gua
   assert.equal(card.opportunityScore, 78);
 });
 
-test("projectCard: el inicio es la entrada `project.created` de la auditoría, nunca una fecha calculada", () => {
+test("projectCard: el inicio es el `created_at` persistido del proyecto, nunca la auditoría ni una fecha calculada", () => {
   const card = projectCard(source());
-  assert.equal(card.startedAt, Date.parse("2026-09-12T10:00:00Z"));
+  assert.equal(card.startedAt, Date.parse("2026-09-12T10:00:00Z"), "es created_at, no la entrada de auditoría (10:00:03)");
 
-  const withoutAudit = projectCard(source({ audit: [] }));
-  assert.equal(withoutAudit.startedAt, null, "sin auditoría no hay fecha: se dice «Sin datos»");
+  // La fecha no depende de la auditoría: ni de que no haya entradas, ni de que esté mal, ni de que no se haya podido leer.
+  assert.equal(projectCard(source({ audit: [] })).startedAt, Date.parse("2026-09-12T10:00:00Z"));
+  assert.equal(
+    projectCard(source({ audit: [audit("project.created", "project:p-1", "2026-01-01T00:00:00Z")] })).startedAt,
+    Date.parse("2026-09-12T10:00:00Z"),
+    "una entrada de auditoría distinta no cambia la fecha",
+  );
+  assert.equal(projectCard(source({ audit: [], unread: ["audit"] })).startedAt, Date.parse("2026-09-12T10:00:00Z"));
 
-  // Una entrada de OTRO proyecto no sirve para fechar éste.
-  const other = projectCard(source({ audit: [audit("project.created", "project:p-2", "2026-01-01T00:00:00Z")] }));
-  assert.equal(other.startedAt, null);
+  // Un proyecto sin decisión (la auditoría ni siquiera se pide) también tiene fecha.
+  assert.equal(projectCard(source({ decision: null, audit: [] })).startedAt, Date.parse("2026-09-12T10:00:00Z"));
+
+  // Si el valor del proyecto no es una fecha, NO se recurre a la auditoría: es «Sin datos».
+  assert.equal(projectCard(source({ project: project({ created_at: "" }) })).startedAt, null);
+});
+
+test("projectCard: varios proyectos conservan cada uno su fecha, sea cual sea el orden", () => {
+  const a = project({ id: "p-a", created_at: "2026-09-01T09:00:00Z" });
+  const b = project({ id: "p-b", created_at: "2026-09-20T18:30:00Z" });
+  const c = project({ id: "p-c", created_at: "2026-09-10T00:00:01Z" });
+  const dates = (order: Project[]) =>
+    Object.fromEntries(order.map((p) => [p.id, projectCard(source({ project: p, audit: [] })).startedAt]));
+
+  const expected = { "p-a": Date.parse("2026-09-01T09:00:00Z"), "p-b": Date.parse("2026-09-20T18:30:00Z"), "p-c": Date.parse("2026-09-10T00:00:01Z") };
+  assert.deepEqual(dates([a, b, c]), expected);
+  assert.deepEqual(dates([c, b, a]), expected, "otro orden de la lista no mueve las fechas");
+});
+
+test("startedAtOf: si `created_at` no es una fecha, es `null` («Sin datos»), no una fecha inventada", () => {
+  assert.equal(startedAtOf({ created_at: "2026-09-12T10:00:00+00:00" }), Date.parse("2026-09-12T10:00:00Z"));
+  assert.equal(startedAtOf({ created_at: "" }), null);
+  assert.equal(startedAtOf({ created_at: "no es una fecha" }), null);
+  assert.equal(startedAtOf({ created_at: undefined as unknown as string }), null);
 });
 
 test("projectCard: un hito se fecha con `task.completed` de SU tarea, o no se fecha", () => {
@@ -312,11 +342,12 @@ test("una decisión que no se pudo leer no es un proyecto sin decisión", () => 
   assert.equal(absent.planAbsence, "no_decision", "sin fallo de lectura, sin decisión es sin decisión");
 });
 
-test("unas tareas o una auditoría que no se pudieron leer se dicen, no se convierten en «sin tareas» ni en «sin fecha»", () => {
+test("unas tareas o una auditoría que no se pudieron leer se dicen, no se convierten en «sin tareas» ni en «sin fecha de hito»", () => {
   const card = projectCard({ ...source(), tasks: [], audit: [], unread: ["tasks", "audit"] });
   assert.deepEqual([...card.unread].sort(), ["audit", "tasks"]);
   assert.equal(card.progress.total, 0);
-  assert.equal(card.startedAt, null);
+  assert.equal(card.startedAt, Date.parse("2026-09-12T10:00:00Z"), "la fecha de inicio es del proyecto: no depende de esas lecturas");
+  assert.ok(card.milestones.every((milestone) => milestone.at === null), "los hitos sí dependen de la auditoría");
   assert.ok(card.unread.includes("tasks") && card.unread.includes("audit"));
   assert.deepEqual(projectCard(source()).unread, [], "con las lecturas bien, nada queda sin leer");
 });

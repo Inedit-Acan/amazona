@@ -175,7 +175,7 @@ test("5d · `settle` convierte un fallo en un fallo con su motivo, nunca en dato
 });
 
 test("5e · un proyecto con una lectura fallida lo dice y conserva lo que ya estaba cargado", () => {
-  const project: Project = { id: "p-1", objective_id: "o-1", name: "Proyecto", status: "VALIDATING" };
+  const project: Project = { id: "p-1", objective_id: "o-1", name: "Proyecto", status: "VALIDATING", created_at: "2026-09-12T10:00:00Z" };
   const tasks: Task[] = [
     { id: "t1", project_id: "p-1", name: "product_validation", capability: "x", status: "COMPLETED", input: null, output: null, error: null },
   ];
@@ -195,12 +195,13 @@ test("5e · un proyecto con una lectura fallida lo dice y conserva lo que ya est
   assert.deepEqual(healthy.unread, []);
   assert.equal(healthy.decisionLabel, "Aprobada");
 
-  // La auditoría falla mientras tareas y decisión ya estaban cargadas: se conservan, y la fecha dice que no se pudo leer.
+  // La auditoría falla mientras tareas y decisión ya estaban cargadas: se conservan. La fecha de inicio ya no sale de la
+  // auditoría (es `project.created_at`), así que ese fallo no la oculta ni la sustituye.
   const partial = projectCard({ project, tasks, decision, audit, unread: ["audit"] });
   assert.deepEqual(partial.unread, ["audit"]);
   assert.equal(partial.decisionLabel, "Aprobada", "lo ya cargado se conserva");
   assert.deepEqual(partial.progress, { done: 1, total: 1, ratio: 1 });
-  assert.equal(partial.startedAt, null);
+  assert.equal(partial.startedAt, Date.parse("2026-09-12T10:00:00Z"));
   assert.notEqual(UNREAD, NO_DATA);
 });
 

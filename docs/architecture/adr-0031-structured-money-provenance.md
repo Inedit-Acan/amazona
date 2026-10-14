@@ -297,7 +297,7 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 | 5b | `POST /api/economics/runs`: precio > 0 y costes fijos ≥ 0; `POST /api/exchange-rates`: `provenance` como enum canónico (**implementado**, §26) | no |
 | 5c | Entradas numéricas: `NaN`/`±Infinity`, `bool`, desbordes y paridad economics/pipeline/tipos de cambio (**implementado**, §27) | no |
 | 6 | Las 9 lecturas silenciosas del Panel → estados de lectura `loaded` / `empty` / `unread` / `error` (**implementado**, §28) | no |
-| 7 | `ProjectOut.created_at` (y moneda de `finance_validation` solo si existe) | no |
+| 7 | `ProjectOut.created_at` (y moneda de `finance_validation` solo si existe) (**implementado**, §29: `created_at` sí; la moneda no existe en la fuente y no se añade) | no |
 | 8 | Textos que afirman más de lo que el sistema sabe | no |
 | 9 | docs: milestone 46 y `system-overview` | no |
 
@@ -534,6 +534,20 @@ Este apartado documenta **exactamente** el Commit 6 (solo Control Center: sin ca
 **Pruebas.** Matriz por cada una de las 9 lecturas (datos, vacío válido, 401/403/404/422/500/503, red caída, conexión rechazada, cuerpo no JSON, carga útil inválida, recuperación, aislamiento, una petición por intento); las vistas sobre los cuatro estados; un barrido de las 256 combinaciones de agentes × ejecuciones × aprobaciones × revisiones; y `lib/read-boundary.test.ts`, una guarda arquitectónica acotada a las capas de lectura del Panel (ninguna forma de convertir un error en un vacío, todas las lecturas por `readList`/`settle`, la fuente solo declara lecturas, el reintento es manual, nada técnico llega al usuario) con un **trinquete** para las demás pantallas. Verificado además en el navegador con datos, vacío, fallos parciales, recuperación y backend caído.
 
 **Deuda restante (no se corrige aquí).** El mismo patrón sigue en otras pantallas: **32 lecturas** de negocio (`approvals` 8, `status` 6, `ceo` 3, `economics` 3, `legal` 3, `audit` 2, `research` 2, el grafo `neural-nexus` 2, `agents`, `operations` y `sourcing` 1 cada una) y 3 de otra naturaleza (`auth-server` ×2, `kill-switch-control`). El trinquete (`REMAINING_SILENT_READS`) fija el número exacto por fichero y solo permite que mengüe; la infraestructura de este commit (`readList`, `ReadState`, `ReadErrorNotice`, `RetryButton`) está lista para reutilizarse. Otros textos técnicos de error fuera del Panel (por ejemplo, `ApiErrorAlert`) tampoco se tocan.
+
+### 29. Addendum del Commit 7 (2026-10-14): la fecha de inicio es la del proyecto; la moneda no existe y no se inventa
+
+Solo `ProjectOut` y la pantalla de Proyectos. Sin migración (la columna ya existe), sin cambio del modelo monetario.
+
+**`created_at`.** `projects.created_at` existe desde la migración inicial (`DateTime(timezone=True)`, `NOT NULL`, fijado al insertar el proyecto por `TimestampMixin`) y `GET /api/projects` ya ordenaba por él, pero `ProjectOut` solo devolvía `id`, `objective_id`, `name` y `status`. Por eso la pantalla deducía la fecha de inicio de la entrada de auditoría `project.created`, que solo se lee cuando el proyecto tiene decisión: un proyecto sin decisión, o con la lectura de auditoría fallida, decía «Sin datos» o «No se pudo leer» aunque la fecha estuviera en la base. Ahora `ProjectOut.created_at` (obligatorio, sin valor por defecto) sale directamente de la fila y `startedAt = Date.parse(project.created_at)`, o `null` («Sin datos») solo si el valor no es una fecha. **No hay respaldo**: ni la auditoría, ni `updated_at` (cambia con cada estado), ni «ahora», ni la posición en la lista. La auditoría se conserva solo para fechar los hitos (`task.completed`).
+
+**Zona horaria.** SQLite descarta la zona al leer; PostgreSQL (`timestamptz`) no. `ProjectOut` normaliza a UTC un valor sin zona (precedente: `_as_aware_utc` de `api/approvals.py`; todo lo que se guarda aquí es UTC), de modo que el cliente nunca lee `2026-09-12T10:00:05` como hora local. Un valor con zona conserva su instante.
+
+**Moneda de `finance_validation`: no existe, no se añade.** `FinanceAgent` lee `unit_cost`, `sale_price`, `monthly_unit_sales` y `monthly_fixed_costs` de un `dict` libre (`objective.context["finance_validation"]`) y devuelve `margin`, `monthly_profit` y `finance_veto`: ni la entrada ni la salida ni ninguna columna llevan moneda, y nada valida ese `dict`. No existe una moneda global de configuración (el `currency = "EUR"` de `config.py` es `SpendLimitSettings`, el tope de gasto de un proveedor, y no tiene que ver con la proyección). Por eso la proyección sigue enseñándose **sin símbolo monetario** y sin sumarse con ninguna otra cifra, y no se crea columna, ni migración, ni se modifica el contrato. Si algún día el agente declara una moneda real, esta decisión se revisa a propósito: un test fija hoy que la evidencia no trae `currency`.
+
+**Pruebas y guardas.** Backend: `tests/integration/test_project_created_at.py` (contrato exacto de claves, la fecha persistida, varios proyectos con orden distinto, no es `updated_at` ni «ahora», lista = detalle, zona UTC explícita, instante conservado, y la moneda ausente). Frontend: la fecha de inicio solo sale de `created_at` y no depende de la auditoría, `startedAtOf` devuelve `null` ante un valor no fechable sin recurrir a otra fuente, y una guarda acotada a las capas de Proyectos prohíbe `new Date()`, restas «hoy − N», fechas derivadas de la posición, códigos `CEO-0001` y cualquier moneda (`currency`, `EUR`, `€`, `formatEuro`).
+
+**Deuda restante de M46:** Commit 8 (textos que afirman más de lo que el sistema sabe), 9 (docs: milestone 46 y `system-overview`) y la Fase B de Supabase.
 
 ## Contrastado contra el código el 2026-10-12
 

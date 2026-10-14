@@ -147,6 +147,8 @@ export interface Project {
   objective_id: string;
   name: string;
   status: ProjectStatus;
+  /** Cuándo se insertó el proyecto (`projects.created_at`, NOT NULL, ISO 8601 con zona). Es la fecha de inicio: no hay otra. */
+  created_at: string;
 }
 
 export interface Task {

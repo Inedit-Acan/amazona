@@ -258,7 +258,7 @@ export function ProjectsWorkspace({
                               : NO_DATA
                             : formatPlanAmount(project.plannedMonthlyProfit.value)}
                         </td>
-                        <td className="py-1.5 text-right whitespace-nowrap text-muted-foreground">{project.unread.includes("audit") ? UNREAD : formatDayOrNoData(project.startedAt)}</td>
+                        <td className="py-1.5 text-right whitespace-nowrap text-muted-foreground">{formatDayOrNoData(project.startedAt)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -344,7 +344,7 @@ export function ProjectsWorkspace({
                   { label: "Estado del backend", value: selected.statusLabel },
                   {
                     label: "Inicio registrado",
-                    value: selected.unread.includes("audit") ? UNREAD : formatDayOrNoData(selected.startedAt),
+                    value: formatDayOrNoData(selected.startedAt),
                   },
                   {
                     label: "Decisión",

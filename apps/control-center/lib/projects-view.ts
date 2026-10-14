@@ -29,7 +29,7 @@ import {
 //   `taskProgress`                tareas completadas sobre las del grafo
 //   la decisión                   veredicto, confianza y riesgos que dejaron los especialistas
 //   la proyección (PLAN)          `finance_validation.monthly_profit`, y `null` cuando el agente no la pudo calcular
-//   la fecha de inicio            la entrada de auditoría `project.created`, y `null` cuando no está registrada
+//   la fecha de inicio            `project.created_at`, la fecha persistida del proyecto (M46, Commit 7); `null` si no es una fecha
 //
 // Lo que no tiene fuente no se estima, no se rellena con una constante y no se sustituye por cero: se dice
 // «Sin datos» y se explica por qué (`NOT_CALCULATED`).
@@ -147,11 +147,6 @@ export const NOT_CALCULATED: { label: string; reason: string }[] = [
     reason: "Un proyecto del backend no declara mercado ni categoría. Antes se escribían «eu» y «—» en el código.",
   },
   {
-    label: "Fecha de inicio sin auditoría",
-    reason:
-      "La API de proyectos no expone `created_at`. Si la auditoría no registró el alta, la fecha es «Sin datos», nunca una fecha calculada.",
-  },
-  {
     label: "Documentos del proyecto",
     reason: "No hay gestor documental. La lista que había antes era de demostración.",
   },
@@ -191,7 +186,7 @@ export interface ProjectCard {
   planAbsence: PlanAbsence | null;
   /** Las lecturas de este proyecto que fallaron. Vacío = todas bien. */
   unread: ReadName[];
-  /** Momento del `project.created` de la auditoría; `null` = no registrado. */
+  /** `project.created_at` en ms (UTC); `null` solo si el valor no es una fecha. Es independiente de la auditoría. */
   startedAt: number | null;
   milestones: ProjectMilestone[];
   /** Riesgos que los especialistas dejaron en la evidencia de la decisión. Sin nivel: nadie lo gradúa. */
@@ -206,6 +201,13 @@ export interface ProjectSource {
   audit: AuditEntry[];
   /** Lo que no se pudo leer: `tasks`, `decision` o `audit` están vacíos **porque falló la lectura**, no porque no existan. */
   unread?: ReadName[];
+}
+
+/** La fecha de inicio de un proyecto: **su** `created_at`, tal como la persiste el backend. Nunca la auditoría, nunca «ahora»,
+ * nunca `updated_at` ni una fecha deducida de la posición en la lista. Si el valor no es una fecha, `null` («Sin datos»). */
+export function startedAtOf(project: Pick<Project, "created_at">): number | null {
+  const time = Date.parse(project.created_at);
+  return Number.isFinite(time) ? time : null;
 }
 
 /** La primera vez que la auditoría registró una acción con esta forma exacta. `null` si no hay ninguna. */
@@ -261,7 +263,7 @@ export function projectCard({ project, tasks, decision, audit, unread = [] }: Pr
     plannedMargin: finance === null || finance.margin === null ? null : planned(finance.margin),
     planAbsence,
     unread: [...unread],
-    startedAt: firstAuditAt(audit, "project.created", `project:${project.id}`),
+    startedAt: startedAtOf(project),
     milestones,
     risks: risksFromDecision(decision),
   };
