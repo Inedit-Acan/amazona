@@ -61,7 +61,8 @@ npm run dev
 
 Para recorrer **toda la cadena a mano** (investigación → decisión → pedido → cobro simulado y verificado → registro de ingresos →
 fulfillment → reconciliación → Panel → Finanzas → Proyectos), con qué debe verse en cada pantalla y qué es PASS o FAIL, sobre una
-base PostgreSQL local desechable (**nunca Supabase**): [`docs/milestones/milestone-45-integral-test.md`](docs/milestones/milestone-45-integral-test.md).
+base PostgreSQL local desechable (**nunca Supabase**): [`docs/milestones/milestone-45-integral-test.md`](docs/milestones/milestone-45-integral-test.md)
+(con la nota de vigencia de M46: ver [`milestone-46-demo.md`](docs/milestones/milestone-46-demo.md)).
 
 `GET http://localhost:8000/health` debe responder `{"status": "ok", "service": "amazona-backend"}`.
 El Control Center queda disponible en http://localhost:3000.
@@ -163,6 +164,19 @@ cd apps/control-center && npm run lint && npx next typegen && npx tsc --noEmit &
   anclada en el BOE, con el texto consolidado siempre marcado como informativo
   ([ADR 0021](docs/architecture/adr-0021-national-transposition-boe.md))
   — ver abajo.
+- **Milestone 44:** pedidos, cobros, reembolsos y fulfillment, completamente simulados
+  ([ADR 0028](docs/architecture/adr-0028-orders-payments-fulfilment-core.md)) —
+  [`system-overview` §25](docs/architecture/system-overview.md#25-pedidos-cobros-reembolsos-y-fulfillment-simulados-milestone-44).
+- **Milestone 45:** reconciliación programada, registro de ingresos verificados y un Panel, Finanzas y Proyectos
+  sin dinero inventado
+  ([ADR 0029](docs/architecture/adr-0029-scheduled-reconciliation-and-unknown-outcome-authority.md),
+  [ADR 0030](docs/architecture/adr-0030-verified-revenue-ledger.md)) —
+  [`milestone-45-demo.md`](docs/milestones/milestone-45-demo.md).
+- **Milestone 46 (cerrado):** procedencia estructurada del dinero (el origen `mock`/`sandbox`/`real` se guarda y nunca se suma
+  entre orígenes), fronteras numéricas de entrada, estados de lectura y una interfaz que no dice más de lo que sabe
+  ([ADR 0031](docs/architecture/adr-0031-structured-money-provenance.md)) —
+  [`milestone-46-demo.md`](docs/milestones/milestone-46-demo.md). **Supabase sigue sin las migraciones de M44 a M46 (faltan 7
+  revisiones): la primera prueba sobre infraestructura real espera a la Fase B.**
 
 ## Qué es real y qué está simulado
 
@@ -199,7 +213,7 @@ llegan en los Milestones 34-35; hasta entonces pedir `real` hace **fallar el
 arranque** con un mensaje claro, en vez de caer en silencio al mock.
 `GET /health/detailed` publica cuál está activo en cada dominio.
 
-**Deuda conocida:** 41 módulos del Control Center todavía importan `lib/demo`.
+**Deuda conocida:** 32 módulos del Control Center todavía importan `lib/demo` (33 al cierre de M45).
 Está medido y congelado por `lib/demo-boundary.test.ts`, que impide que la lista
 crezca; quitarlos panel a panel es el Milestone 30.1.
 
@@ -650,6 +664,16 @@ traspone esa directiva (`426 TRANSPONE`)? Lo que hay que saber:
   fuente nunca es una conclusión negativa: sale como revisión, con su motivo.
 - Confianza de lo que descansa en el BOE: techo 0,7 (regla interna no calibrada).
 - Requiere `NATIONAL_LAW_PROVIDER=real`; con `mock` (por defecto) no se llama a nadie.
+
+## Reglas de trabajo
+
+- **Los hashes de Git se obtienen con `git rev-parse HEAD` y `git rev-parse origin/main`; no se transcriben a mano desde mensajes.**
+  Un hash tecleado salió con un carácter de más en los Commits 7 y 8 de M46.
+- **Antes de publicar**, la suite de backend **completa** contra una PostgreSQL local desechable (sin ella se omiten las pruebas que
+  la necesitan) y `tests/unit/test_no_control_bytes_in_sources.py`.
+- **`iniciar-amazona.bat` arranca el backend con `backend/.env`**: si ese fichero apunta a Supabase, el backend que arranca lee y
+  escribe en Supabase. Para probar, usa la base local desechable de la guía de prueba integral.
+- El detalle está en [`milestone-46-demo.md`](docs/milestones/milestone-46-demo.md), «Reglas de proceso».
 
 ## Notas
 

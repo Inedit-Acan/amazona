@@ -15,6 +15,13 @@
 (una guarda de `tests/conftest.py` lo hace cumplir). **Las migraciones de M44 y de este milestone no están aplicadas en
 Supabase** (§«Estado de Supabase», que corrige la línea base anterior).
 
+> **Nota posterior (cierre de M46, 14-10-2026).** Este documento es la fotografía de M45 y su texto no se reescribe. El
+> [Milestone 46](milestone-46-demo.md) cerró P1-2 (la procedencia estructurada: el origen del dinero se persiste), P2-5 (las 9
+> lecturas silenciosas del Panel), P2-10 (un canal desconocido es un 422), P2-11 (`ProjectOut.created_at`) y P3-3 (los textos que
+> decían más de lo que sabían). Las cifras de Supabase de abajo («43 revisiones, faltan 6») eran las de entonces: hoy el
+> repositorio tiene **44 revisiones** y a Supabase le **faltan 7** (con la de M46). Las cifras de pruebas de abajo (4229 y 642) son
+> las del cierre de M45; las del cierre de M46 son 5114 y 996.
+
 ## La regla
 
 **Una cifra de dinero sale de un hecho que el backend registró, o dice que no hay dato. Nunca de un generador, nunca de una

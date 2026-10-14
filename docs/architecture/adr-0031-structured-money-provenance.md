@@ -299,7 +299,7 @@ Ningún adaptador `sandbox` ni `real`; ninguna regla de liquidación, contracarg
 | 6 | Las 9 lecturas silenciosas del Panel → estados de lectura `loaded` / `empty` / `unread` / `error` (**implementado**, §28) | no |
 | 7 | `ProjectOut.created_at` (y moneda de `finance_validation` solo si existe) (**implementado**, §29: `created_at` sí; la moneda no existe en la fuente y no se añade) | no |
 | 8 | Textos que afirman más de lo que el sistema sabe (**implementado**, §30) | no |
-| 9 | docs: milestone 46 y `system-overview` | no |
+| 9 | docs: milestone 46 y `system-overview` (**implementado**, §31) | no |
 
 **Alcance previsto del Commit 2** (dividido por decisión del propietario en 2A, ya implementado, y 2B; el addendum §21 recoge lo que 2A hizo de verdad y en qué se aparta de esta lista):
 
@@ -571,6 +571,25 @@ Solo texto, etiquetas e insignias del Control Center (sin cambio de backend, de 
 **Guarda.** `lib/certainty-boundary.test.ts` no es una lista negra de palabras: cada aparición de «real» en lo que se lee en pantalla se juzga **en su contexto** (un fragmento concreto de un fichero concreto, con su porqué) y solo en una lista cerrada de ficheros gobernados; lo que no está en la lista falla, y una entrada permitida que ya no existe también. Además fija, por contexto, que la insignia `verified` no se pinta sobre un registro, que una recomendación no se llama aprobación, que el resultado inferido pasa por `resultLabel`, que el DEMO no se pierde y que PLAN, declarado y registro siguen siendo tres cosas. Probada contra el código anterior (15 de sus 21 primeras comprobaciones fallaban) y con 44 mutaciones muertas.
 
 **Deuda restante (no se corrige aquí).** Las derivaciones del frontend de la auditoría (`resultOf`, `criticalityOf`) son inferencias: se corrigió cómo se llaman, no la derivación. `Project.status = APPROVED` es un estado que el orquestador asigna solo. El contenido de ejemplo de la tienda (distintivos «Pago seguro», «Envío gratis») y los textos de `lib/demo/**` no se barrieron. `components/cash-flow-chart.tsx` («Saldo real») no se usa en ningún sitio. Las 35 lecturas silenciosas fuera del Panel, la Fase B y el Commit 9 siguen pendientes.
+
+### 31. Addendum del Commit 9 y cierre de M46 (2026-10-14): documentación de cierre
+
+Solo documentación: sin código, sin pruebas, sin migraciones. **M46 queda CERRADO.**
+
+- **Qué se escribió.** `docs/milestones/milestone-46-demo.md` (la convención del repositorio es `milestone-N-demo.md`); en
+  `system-overview.md`, el §28 de M46 y las correcciones del §4, §9, §21, §25.6 y §27; notas de vigencia en
+  `milestone-45-demo.md` y `milestone-45-integral-test.md`; y el README (estado, deuda y reglas de trabajo).
+- **Estado verificado al cierre** (solo con lecturas): Alembic con **44 revisiones** y un único *head*, `b7e4a1c9d052`;
+  `alembic_version` de Supabase = `e1b8d4a62f37`, así que **faltan 7 revisiones** y 8 tablas funcionales (`orders`, `order_items`,
+  `payments`, `payment_events`, `refunds`, `fulfillments`, `fulfillment_items`, `revenue_ledger_entries`); **M46 no migró Supabase**.
+  CI de `41d3f9e`: backend 5114 pasadas / 7 omitidas / 1 warning, Control Center 996/996 y build de 20 páginas.
+- **Las tres pruebas:** la primera prueba integral **local** está superada (M45; automatizada en `test_m45_end_to_end.py`); la
+  primera sobre **infraestructura real** exige la Fase B (7 revisiones); una prueba **comercial** real exige además adaptadores,
+  credenciales y presupuesto que hoy no existen.
+- **Regla de proceso añadida:** los hashes de Git se obtienen con `git rev-parse HEAD` y `git rev-parse origin/main`, no se
+  transcriben a mano (un carácter de más apareció en los Commits 7 y 8).
+- **Lo que sigue, en este orden:** el milestone del Director ejecutivo / CEO IA (cuyas dos referencias de diseño todavía no están en
+  el repositorio), después la Fase B de Supabase y después la primera prueba integral sobre infraestructura real.
 
 ## Contrastado contra el código el 2026-10-12
 

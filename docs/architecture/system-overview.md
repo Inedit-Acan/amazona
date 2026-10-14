@@ -4,7 +4,7 @@ Este documento es el punto de entrada para entender AMAZONA sin leer los
 14 `docs/milestones/milestone-N-demo.md` uno a uno. Explica qué existe,
 cómo encajan las piezas, y dónde profundizar (cada sección enlaza a la
 ADR y al milestone que la construyó). Escrito al cierre de Fase 4
-(Milestone 15, IVA-34).
+(Milestone 15, IVA-34) y **actualizado al cierre del Milestone 46** (§28).
 
 ## 1. Qué es AMAZONA
 
@@ -150,8 +150,11 @@ aborda, debe pasar por un software certificado Verifactu externo.
   `pipeline_kill_switch`.
 - **Pedidos, cobros y fulfillment (Milestone 44):** `orders`, `order_items`,
   `payments`, `payment_events`, `refunds`, `fulfillments`,
-  `fulfillment_items` (§25). Las migraciones de M44 no están aplicadas en
-  Supabase.
+  `fulfillment_items` (§25).
+- **Registro de ingresos verificados (Milestone 45):** `revenue_ledger_entries` (§26), una proyección inmutable de los hechos de pago.
+- **Origen del dinero (Milestone 46):** `provider_kind` (`mock` / `sandbox` / `real`) en `payments`, `payment_events` y
+  `revenue_ledger_entries` (migración `b7e4a1c9d052`; §28). No hay tablas nuevas.
+- **Las migraciones de M44, M45 y M46 no están aplicadas en Supabase** (§25.6): faltan 7 revisiones y 8 tablas.
 - **Transversal:** `audit_log` (append-only, toda transición relevante
   del sistema pasa por aquí), `agent_execution_log`, `users`/`roles`
   (auth opcional), `memory_records`, `events`, `incidents`,
@@ -306,6 +309,7 @@ Las frases que tienen que seguir siendo ciertas tras el hardening pre-M44 y la p
 | [43](../milestones/milestone-43-demo.md) | Transposición nacional de directivas anclada en el BOE: declarada por una persona, verificada, corroborada de forma determinista y siempre marcada como informativa (§24) |
 | [44](../milestones/milestone-44-demo.md) | Pedidos, cobros, reembolsos y fulfillment, simulados y desde el backend: el dinero lo confirma un evento verificado, la evidencia financiera nunca se descarta, una unidad comprada no vuelve al pool y Operaciones lee pedidos reales (§25) |
 | [45](../milestones/milestone-45-demo.md) | Reconciliación programada, registro de ingresos verificados y pantallas sin dinero inventado: Panel, Finanzas y Proyectos leen el registro o dicen «Sin datos», y un error de lectura no es un dato; con una [prueba integral local paso a paso](../milestones/milestone-45-integral-test.md) (§26, §27) |
+| [46](../milestones/milestone-46-demo.md) | **Cerrado.** Procedencia estructurada del dinero —el origen `mock`/`sandbox`/`real` se persiste y nunca se suma entre orígenes—, fronteras numéricas de entrada (un 422, no un 500), estados de lectura (`loaded`/`empty`/`unread`/`error`: un error no es un dato), `ProjectOut.created_at` y una interfaz que no dice más de lo que sabe (§28) |
 
 ## 10. Cómo verlo funcionar
 
@@ -1042,11 +1046,15 @@ en el milestone donde se descubrieron.
 | **~~Libro económico de ingresos~~** *(cerrada en el Milestone 45, Commits 6–8: [ADR 0030](adr-0030-verified-revenue-ledger.md), §26)* | El dinero cobrado y reembolsado vivía solo como columnas mutables de `payments`. **Queda:** el gasto sigue sin moneda ni lectura (`financial_events`, `ExternalAction.amount`), así que no hay beneficio, EBITDA ni caja posibles | Un libro de gasto con moneda y una ruta de lectura; después, un P&L declarado |
 | **Cierre de un cobro `OPEN` sin evento del proveedor** | No existe `payment.cancel` ni caducidad: un intento abierto que el proveedor nunca cierra bloquea nuevos intentos de ese pedido | Antes de una pasarela real |
 | **~~Corregir P2-1 y P2-2 (M44)~~** *(cerrada en el Milestone 45, Commits 1 y 3)* | `ExternalActionStateError` sin tratamiento HTTP en cobros y reembolsos (ahora un 409 de dominio) y Operaciones leyendo como máximo 500 pedidos sin avisar (ahora pagina por cursor y dice cuándo trunca) | — |
-| **Procedencia estructurada SIMULATED / REAL** (M45) | Un hecho de pago verificado no es una transacción real: puede pertenecer a un pedido simulado. `Order.is_simulated` existe, pero el registro de ingresos no lo guarda, y por eso ninguna pantalla puede decir «real». Hay que poder distinguir `VERIFIED_SIMULATED`, `VERIFIED_NON_SIMULATED`, `DECLARED`, `PLAN` y `DEMO` | **Antes de conectar una pasarela real.** Propagar la procedencia al `PaymentEvent` y al registro |
+| **~~Procedencia estructurada SIMULATED / REAL~~** *(cerrada en el Milestone 46, [ADR 0031](adr-0031-structured-money-provenance.md), §28)* | Un hecho de pago verificado no decía de dónde vino el dinero. Ahora el origen (`mock` / `sandbox` / `real`) se persiste en el cobro, el evento y el registro, y la API y las pantallas lo enseñan por origen, sin sumarlo. **Queda:** «Proveedor real» describe al *proveedor*, no la liquidación del dinero, y todavía no existe ningún adaptador real | — |
 | **Relación producto ↔ proyecto y reparto del ingreso** (M45) | Un proyecto del Director ejecutivo no está enlazado a un producto ni a un pedido, y un pedido puede llevar varios productos. Sin ese modelo **y sin una regla aprobada de reparto**, Proyectos no puede mostrar ingresos (repartir por precio, coste o unidades sería inventarlo) | Un modelo de relación explícito y la regla del propietario; después, el ingreso por proyecto |
-| **`finance_validation` sin moneda** (M45) | La proyección de Proyectos va sin símbolo y sin total porque la evidencia financiera del Director ejecutivo no declara moneda | Que el especialista de finanzas declare la moneda; entonces puede denominarse y sumarse |
+| **`finance_validation` sin moneda** (M45; comprobado en M46) | La proyección de Proyectos va sin símbolo y sin total porque la evidencia financiera del Director ejecutivo **no declara moneda**: el agente lee un diccionario libre y devuelve margen, beneficio mensual y veto, sin moneda, y no existe ninguna moneda global de configuración. M46 lo fijó con una prueba y **no inventó ninguna** | Que el especialista de finanzas declare la moneda; entonces puede denominarse y sumarse |
 | **Agregados de backend para el CFO** (M45) | El CFO calcula el margen cargando como mucho 300 pedidos y 1 000 entradas del registro, y lo dice; un pedido antiguo cobrado hoy puede quedar fuera (su coste es entonces «desconocido», no cero) | Un agregado de backend por periodo, si el volumen real o una medición lo justifican |
-| **Lecturas silenciosas del Panel operativo** (M45) | 9 lecturas del Panel (agentes, ejecuciones, aprobaciones, revisiones y las del catálogo por producto) convierten un error en una lista vacía: «0 aprobaciones pendientes» cuando la lectura falló es engañoso. No son dinero | Anotarlas como no leídas (`UNREAD`), como ya hacen Finanzas y Proyectos; un trinquete (`m45-boundary.test.ts`) fija el número y solo puede bajar |
+| **~~Lecturas silenciosas del Panel operativo~~** *(cerrada para el Panel en el Milestone 46, Commit 6; §28)* | Las 9 lecturas del Panel distinguen ya `loaded`, `empty`, `unread` y `error`: un error no es un dato. **Quedan 35 en otras pantallas** (32 de negocio y 3 de otra naturaleza), fijadas por un trinquete (`REMAINING_SILENT_READS`) que solo puede bajar | Reutilizar `readList`, `ReadState`, `ReadErrorNotice` y `RetryButton` pantalla a pantalla |
+| **Límites técnicos de `Numeric` y `Money`, y deuda multidivisa** (M46) | Con precisión 28 y 4 decimales y columnas `Numeric(12, 4)`, un precio ≥ ~1e8 se rechaza con un 422 (antes, un 500 en PostgreSQL): es una **limitación del esquema**, no una política. `VND` sigue sin resolverse | Una migración de columnas o una política de límites por moneda (decisión aparte) |
+| **Política comercial de máximos** (M46) | Hoy el techo de un precio, un coste, un presupuesto o un volumen es el técnico; no hay un máximo de negocio | La define el propietario |
+| **El worker ante un fallo de base de datos a mitad de un paso** (M46) | Su manejo de `PendingRollbackError` no es robusto; solo se impide que una entrada inválida lo alcance | Revisar el manejo de errores del worker |
+| **Derivaciones de Auditoría** (M46) | `resultOf` y `criticalityOf` infieren el resultado y la criticidad del nombre de la acción (el backend no los guarda): la pantalla dice «Sin error registrado», pero la derivación sigue ahí | Que el backend guarde el resultado, o retirar la columna |
 
 ## 22. Requisitos legales declarados y anclados en una fuente (Milestone 41)
 
@@ -1304,7 +1312,7 @@ como parámetro obligatorio.
 | Dominio (pedidos, cobros, reembolsos, fulfillment), reglas, base de datos, API, permisos, auditoría, idempotencia | **Real**, probado sobre PostgreSQL |
 | Pasarela de pago, proveedor de abastecimiento y transportista | **Simulados** (`simulated-payments`, `simulated-fulfilment`); no existe ningún adaptador real |
 | Clientes, carrito, checkout, IVA/OSS, facturas, contabilidad, devoluciones físicas, seguimiento de envíos | **No existen** |
-| Migraciones de M44 y de M45 en Supabase | **No aplicadas.** Línea base verificada el 2026-10-12: `alembic_version` de Supabase = `e1b8d4a62f37`; el repositorio tiene 43 revisiones hasta `e5a1d7c93b04`, así que **faltan 6**: `f6a1c8d3e925`, `a9d2e7b4c136`, `b3c8f1a5d742` (M44) y `d7e2a9c4f1b8`, `c4e8b1d9a273`, `e5a1d7c93b04` (M45). Requiere autorización y procedimiento aparte. Quién llevó la base hasta `e1b8d4a62f37`: **UNKNOWN**; cuándo se ejecutó su DDL: 2026-10-02, 10:23:07–10:23:08 UTC, según los registros de Postgres de Supabase (no necesariamente el `UPDATE` de `alembic_version`; ver [`milestone-45-demo.md`](../milestones/milestone-45-demo.md), «Estado de Supabase»). *Corrección: este documento decía «12 migraciones, revisión `ebc8b88725e2`, faltan 24»; estaba desactualizado. Los «12» son las de la lista `supabase_migrations`, que no recoge las revisiones aplicadas con Alembic.* |
+| Migraciones de M44, M45 y M46 en Supabase | **No aplicadas.** Verificado solo con lecturas el 2026-10-14: `alembic_version` de Supabase = `e1b8d4a62f37`; el repositorio tiene **44 revisiones**, con un único *head*, `b7e4a1c9d052`, así que **faltan 7**: `f6a1c8d3e925`, `a9d2e7b4c136`, `b3c8f1a5d742` (M44), `d7e2a9c4f1b8`, `c4e8b1d9a273`, `e5a1d7c93b04` (M45) y `b7e4a1c9d052` (M46). En la base real no existen `orders`, `order_items`, `payments`, `payment_events`, `refunds`, `fulfillments`, `fulfillment_items` ni `revenue_ledger_entries` (54 tablas en `public`; los modelos declaran 61). Requiere autorización y procedimiento aparte (la Fase B). Quién llevó la base hasta `e1b8d4a62f37`: **UNKNOWN**; cuándo se ejecutó su DDL: 2026-10-02, 10:23:07–10:23:08 UTC, según los registros de Postgres de Supabase (no necesariamente el `UPDATE` de `alembic_version`; ver [`milestone-45-demo.md`](../milestones/milestone-45-demo.md), «Estado de Supabase»). *Corrección histórica: este documento decía «12 migraciones, revisión `ebc8b88725e2`, faltan 24», y luego «faltan 6»; ambas cifras estaban desactualizadas. Los «12» son las de la lista `supabase_migrations`, que no recoge las revisiones aplicadas con Alembic.* |
 
 `staging` y `production` **no arrancan** hasta que existan adaptadores no simulados de pago y fulfillment (§12.2): es
 intencionado.
@@ -1349,7 +1357,8 @@ distintas **no compila**):
 
 | Etiqueta | Qué promete |
 |---|---|
-| **Registro verificado** | El backend tiene el hecho de pago verificado y registrado. **No** dice si la operación fue simulada: el registro todavía no guarda esa procedencia, así que ninguna pantalla afirma «real» |
+| **Registro verificado** | El backend tiene el hecho de pago verificado y registrado. **No** dice por sí solo de dónde vino el dinero: desde M46 cada cifra lleva además su **origen** («Simulado», «Entorno de pruebas», «Proveedor real»), persistido y nunca sumado entre orígenes (§28); y ninguna pantalla afirma que el dinero esté liquidado |
+| **Registro del backend** | Desde M46: un dato que el backend guarda tal cual (un agente, una entrada de auditoría, un estado). No está contrastado con una fuente externa, y **no** es «verificado» |
 | **Declarado** | Lo declaró una cotización o una persona y el backend guarda su fuente (el coste de una línea de pedido). No es un pago comprobado |
 | **Proyección (PLAN)** | Lo que el modelo espera si sus supuestos se cumplen. No ha ocurrido |
 | **Demo** | Un dato de demostración, siempre etiquetado |
@@ -1365,8 +1374,7 @@ distintas **no compila**):
   cuentas…). Una tarjeta dice una vez qué no puede calcular.
 - **Proyectos (Commit 11).** Solo **proyectos reales del backend**: su estado, las cuatro etapas del grafo del Director ejecutivo, las
   tareas, la decisión y su confianza, y la proyección PLAN que dejó el especialista de finanzas (sin moneda y sin total). Un producto
-  **no** es un proyecto; no hay «Beneficio real»; el identificador es el id real; la fecha de inicio sale de la auditoría o es
-  «Sin datos». Sin proyectos, un estado vacío honesto.
+  **no** es un proyecto; no hay «Beneficio real»; el identificador es el id real; la fecha de inicio es el `created_at` del proyecto (desde M46; antes salía de la entrada `project.created` de la auditoría). Sin proyectos, un estado vacío honesto.
 - **Lo que no hace nadie (a propósito):** imputar ingreso a un proyecto, calcular beneficio neto, EBITDA, caja, impuestos o IVA/OSS,
   convertir divisas, ni decir que el dinero es real. Cada pantalla lo dice.
 
@@ -1385,5 +1393,41 @@ distintas **no compila**):
   «real», PLAN nunca se viste de verificado, ninguna ausencia se vuelve cero, y un trinquete cuenta las lecturas silenciosas que
   quedan en el Panel operativo.
 
-**Prueba integral a mano:** [`milestone-45-integral-test.md`](../milestones/milestone-45-integral-test.md). **Estado:** el CI del último
+**Prueba integral a mano:** [`milestone-45-integral-test.md`](../milestones/milestone-45-integral-test.md). **Estado al cierre de M45** (el de M46 está en el §28): el CI del último
 commit de código (`815b094`) dio 4229 pruebas de backend y 642 de frontend en verde; Supabase no tiene nada de M44 ni de M45 (§25.6).
+
+## 28. Procedencia del dinero por origen, fronteras de entrada, estados de lectura y vocabulario de certeza (Milestone 46, ADR 0031)
+
+M45 dejó una limitación declarada: «Registro verificado» no era «real», porque el registro no guardaba de qué adaptador salió el
+cobro. M46 la resuelve y endurece lo que la rodea. **Estado: cerrado** (ver [`milestone-46-demo.md`](../milestones/milestone-46-demo.md)).
+
+- **Dos ejes, ortogonales** ([ADR 0031](adr-0031-structured-money-provenance.md)). La **procedencia de la cifra** (`verified` / `declared` /
+  `planned` / `demo`) dice qué clase de información es; el **origen del dinero** (`mock` / `sandbox` / `real`) dice de qué adaptador
+  salió el hecho de pago. «Proveedor real» describe al *proveedor*: no afirma que el dinero esté liquidado ni contabilizado.
+- **El origen se persiste, no se deduce.** La migración `b7e4a1c9d052` (la 44.ª, la única de M46) añade `provider_kind` a `payments`,
+  `payment_events` y `revenue_ledger_entries`, con `CHECK`, `UNIQUE (id, provider_kind)`, claves ajenas compuestas y disparadores.
+  `PaymentProvider.kind` es un atributo obligatorio del puerto; entra por **una sola puerta** (`PaymentIngress`) y se copia, sin
+  recalcularse, del cobro al evento y del evento a la entrada. Nada lo deduce de `Order.is_simulated`, de la configuración ni de un
+  nombre; una prueba arquitectónica lo impide. `check_ledger` ganó C5 y C6 (entrada ↔ origen).
+- **Nada suma orígenes.** La API devuelve los agregados **por origen** (`?provider_kind=`, vocabulario cerrado; sin filtro, todos
+  separados) y no existe un modo «todo sumado». En el Control Center, `Verified<T, O>` lleva el origen en el tipo y `addVerified` no
+  compila con orígenes distintos; el margen es por origen.
+- **Una entrada inválida es un 422, no un 500.** Canal desconocido, precio ≤ 0, costes fijos < 0, procedencia de un tipo de cambio
+  fuera del enum, `NaN`/`Infinity`, `bool` y desbordes de `Money` o de las columnas: la misma respuesta en economics, pipeline y
+  tipos de cambio. El techo técnico se documenta; no es una política comercial.
+- **Estados de lectura** (`lib/read-state.ts`): `loaded`, `empty`, `unread`, `error`. Un error o una lectura sin hacer nunca
+  producen un cero, una lista vacía ni «Sin datos»; la demostración solo aparece con un log válido y vacío; el reintento es manual.
+  Aplicado a las 9 lecturas del Panel; quedan 35 en otras pantallas (§21).
+- **`created_at`:** la fecha de inicio de un proyecto es su `projects.created_at` persistido, sin respaldo de la auditoría.
+  `finance_validation` **no declara moneda** y no se inventó ninguna.
+- **Vocabulario de certeza.** «real» deja de significar «no es demo»; la insignia `recorded` («Registro del backend») sustituye a
+  «Verificado» donde el backend solo guardaba un registro (`verified` queda para un tercero que consta en la fuente); un GO/NO_GO del
+  motor es «Favorable»/«No viable», no una aprobación; una tienda `READY` es «Preparada»; «Sin error registrado» sustituye al
+  «Éxito» inferido de la auditoría; y lo demostrativo lleva su etiqueta DEMO. Una guarda por contexto
+  (`lib/certainty-boundary.test.ts`) lo vigila.
+
+**Estado al cierre de M46 (14-10-2026).** CI del último commit de código (`41d3f9e`): backend **5114 pruebas pasadas, 7 omitidas,
+1 warning**; Control Center **996/996** y build de 20 páginas. Alembic: **44 revisiones**, un único *head* (`b7e4a1c9d052`).
+Supabase: `alembic_version = e1b8d4a62f37`, **faltan 7 revisiones** y 8 tablas funcionales (§25.6): **M46 no migró Supabase** y la
+Fase B sigue pendiente. La primera prueba integral **local** está superada; la primera sobre **infraestructura real** requiere la
+Fase B; y una prueba **comercial** real requiere además adaptadores, credenciales y presupuesto que hoy no existen.

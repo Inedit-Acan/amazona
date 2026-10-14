@@ -8,6 +8,11 @@ Una persona puede ejecutar esto **a mano, de principio a fin, en unos 30–40 mi
 y dice, en cada paso, **qué debe observarse y qué resultado es PASS o FAIL**. Se ensayó entera el **04-10-2026** sobre PostgreSQL 17
 local desechable (borrada al terminar), con el backend real y el Control Center real; las cifras de abajo son las que salieron.
 
+> **Nota de vigencia (cierre de M46, 14-10-2026).** Esta guía se ensayó entera en M45. M46 ([`milestone-46-demo.md`](milestone-46-demo.md))
+> cambió algunos textos de pantalla y el estado de Supabase; los pasos de abajo llevan la corrección marcada con *(M46)*. **El
+> recorrido manual completo no se ha repetido tras M46**; la misma cadena, con sus cifras, se ejecuta automatizada en
+> `backend/tests/integration/test_m45_end_to_end.py`, que pasa en el CI de cada commit.
+
 > **⚠ Nunca contra Supabase.** Todo lo de aquí escribe datos de prueba. La base es una **PostgreSQL local, vacía y desechable**.
 > `backend/.env` apunta a Supabase: **por eso el backend se arranca desde una carpeta sin `.env` y con las variables de entorno
 > puestas**, y por eso cada bloque empieza comprobando que `DATABASE_URL` contiene `127.0.0.1`. **Coste: 0 €. Ninguna cuenta ni
@@ -16,9 +21,9 @@ local desechable (borrada al terminar), con el backend real y el Control Center 
 ## Qué NO prueba
 
 No prueba una pasarela, un proveedor ni un transportista reales (no existen), ni IVA, facturas, clientes o checkout. El «cobro» lo
-**simula la consola** emitiendo un evento firmado que entra por la misma puerta que un webhook real. No prueba Supabase (le faltan 6
-revisiones de Alembic, las de M44 y M45: ver [`milestone-45-demo.md`](milestone-45-demo.md); este texto decía 24, cifra
-desactualizada).
+**simula la consola** emitiendo un evento firmado que entra por la misma puerta que un webhook real. No prueba Supabase (le faltan 7
+revisiones de Alembic, las de M44, M45 y M46, verificado el 14-10-2026: ver [`milestone-46-demo.md`](milestone-46-demo.md); este texto
+decía 24 y luego 6, cifras desactualizadas).
 
 ## Requisitos
 
@@ -274,7 +279,8 @@ $eco = Post "/api/economics/runs" $null @{ product_id = $ProductId; supplier_quo
 | **Ingresos verificados · últimos 30 días** | **100,00 €** · «Reembolsos 8,00 € · Neto 92,00 €. Hay entradas en USD: se enseñan aparte, no se suman ni se convierten» |
 | **En revisión** | **42,50 €** · «Duplicados y discrepancias pendientes de resolver. No suman a lo verificado» |
 | **Evidencia pendiente** | **0** · «Ningún evento de pago sin asentar» |
-| Lo demás (agentes, decisiones de ejemplo, oportunidades) | Lo que es de ejemplo está **etiquetado «Demo»** |
+| **Origen del dinero** *(M46)* | Junto a «Registro verificado», cada cifra de ingresos lleva su **origen**: los cobros de esta guía los hace el simulador, así que debe leerse **«Simulado»**; nunca una cifra que mezcle orígenes |
+| Lo demás (agentes, decisiones de ejemplo, oportunidades) | Lo que es de ejemplo está **etiquetado «Demo»**; lo que el backend guarda sin más (agentes, aprobaciones) lleva **«Backend»** *(M46)* |
 
 **PASS:** las cifras y etiquetas coinciden. **FAIL:** una cifra de dinero **sin** etiqueta de procedencia; el USD sumado al euro; o
 algún importe que no salga del registro. Prueba también el selector de periodo (7 / 14 / 30 días): las etiquetas **no desaparecen**.
@@ -297,9 +303,9 @@ qué** (no un cero), y el margen solo existe pedido a pedido donde el coste est�
 
 | Qué mirar | Debe verse |
 |---|---|
-| Cartera | **1 proyecto** — «Validar Silicone kitchen organizer» con su **id real** como identificador (no un `AMZ-…` ni un `CEO-…`); estado **Aprobado**; tareas **5/5**; inicio **la fecha de hoy** (sale de la entrada `project.created` de la auditoría, no se calcula) |
-| Proyección (PLAN) | **4000,00** (sin símbolo de moneda) y margen **75 %**: `(20 − 5) × 300 − 500 = 4000` sobre los supuestos del objetivo; con las etiquetas **Verificado** y **PLAN** |
-| Detalle | Decisión **Aprobada**, confianza **85 %**; etapas Investigación / Proveedores / Economía / Legal en **GO**; «Todas las etapas del grafo están completadas» |
+| Cartera | **1 proyecto** — «Validar Silicone kitchen organizer» con su **id real** como identificador (no un `AMZ-…` ni un `CEO-…`); estado **Aprobado**; tareas **5/5**; inicio **la fecha de hoy** (desde M46 sale del `created_at` del proyecto; antes, de la entrada `project.created` de la auditoría; no se calcula) |
+| Proyección (PLAN) | **4000,00** (sin símbolo de moneda) y margen **75 %**: `(20 − 5) × 300 − 500 = 4000` sobre los supuestos del objetivo; con las etiquetas **Backend** *(M46; antes «Verificado»)* y **PLAN** |
+| Detalle | Decisión **Favorable** *(M46; antes «Aprobada»: es una recomendación del motor, no una aprobación humana)*, confianza **85 %**; etapas Investigación / Proveedores / Economía / Legal en **GO**; «Todas las etapas del grafo están completadas» |
 | **Lo que no calcula** | «Beneficio, ingresos y ventas por proyecto» (y por qué: un pedido puede llevar varios productos y no hay regla de reparto), capital expuesto, mercado y categoría, documentos |
 | Pie | «1 proyectos del backend. Esta pantalla no convierte productos, oportunidades ni señales en proyectos, y no contiene ningún dato de demostración» |
 
@@ -308,20 +314,21 @@ etiquetada. **FAIL:** aparece un «Beneficio real», un proyecto que no creaste,
 
 ## Paso 16 — Operaciones (<http://localhost:3000/operations>), para contrastar
 
-Debe decir «Datos reales · eventos simulados» y «5 pedidos · son todos los que existen»: **Pagados 3**, **Completados 1**,
+Debe decir «5 pedidos · son todos los que existen» *(M46: ya no dice «Datos reales · eventos simulados»; la tabla tiene la columna «Origen del dinero» y cada cobro y reembolso lleva su insignia de origen, «Simulado»)*: **Pagados 3**, **Completados 1**,
 **Pendientes de cobro 1**, **Requieren atención 2** (el de importe distinto y el del segundo cobro confirmado),
 **Cobrado 142,50 € · 30,00 US$**, **Reembolsado 8,00 €**.
 
 > **No es una contradicción con el Panel:** Operaciones cuenta **todo el dinero cobrado** (100 + 30 duplicado + 12,50 = 142,50);
 > el Panel y Finanzas cuentan el **ingreso verificado** (100) y enseñan el duplicado y la discrepancia **aparte**, como dinero en
-> revisión. (Su texto «realmente cobrado» es deuda de redacción: P3-3 del milestone.)
+> revisión. (Ese texto «realmente cobrado» ya no existe: la deuda P3-3 del milestone la cerró M46.)
 
 ## Paso 17 — Cuando el backend falla
 
 Detén el backend (terminal A, `Ctrl+C`) y recarga **Panel, Finanzas y Proyectos**.
 
-**PASS:** las **tres** muestran el aviso «Could not reach the AMAZONA backend» y **ninguna cifra de dinero**, ni cero, ni datos de
-ejemplo. **FAIL:** cualquiera enseña un importe, un cero o una lista vacía como si fuera un dato. Vuelve a arrancarlo (Paso 2) para
+**PASS:** las **tres** muestran un aviso de error de lectura y **ninguna cifra de dinero**, ni cero, ni datos de
+ejemplo. *(M46: el Panel ya no sustituye la página por un aviso técnico; muestra avisos neutros «No se pudieron cargar los datos» con
+«Reintentar», sin ningún estado HTTP.)* **FAIL:** cualquiera enseña un importe, un cero o una lista vacía como si fuera un dato. Vuelve a arrancarlo (Paso 2) para
 seguir.
 
 ## Paso 18 — Limpieza
@@ -334,8 +341,8 @@ $env:PGPASSWORD = "<CLAVE>"
 Remove-Item -Recurse -Force "$env:TEMP\amazona-run"
 ```
 
-Comprueba, solo con lecturas, que **Supabase no cambió** respecto de su línea base verificada el 2026-10-12: `alembic_version` =
-`e1b8d4a62f37` y **12 migraciones** en la lista de Supabase, la última `20260917114106`. (Antes se comprobaba solo la lista de 12,
+Comprueba, solo con lecturas, que **Supabase no cambió** respecto de su línea base (verificada el 2026-10-12 y de nuevo el 2026-10-14):
+`alembic_version` = `e1b8d4a62f37` y **12 migraciones** en la lista de Supabase, la última `20260917114106`. (Antes se comprobaba solo la lista de 12,
 que no recoge lo aplicado con Alembic.)
 
 ## Resultado global
