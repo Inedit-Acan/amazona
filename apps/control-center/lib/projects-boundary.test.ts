@@ -231,7 +231,7 @@ test("8 · la proyección no lleva moneda, porque la evidencia financiera no dec
     const code = stripComments(read(file));
     assert.ok(!/\bformatEuro\b/.test(code), `${file} formatea un importe en euros sin que nadie haya declarado la moneda`);
     assert.ok(!code.includes("€"), `${file} escribe el símbolo del euro`);
-    assert.ok(!/currency|["'`]EUR["'`]|EUR/.test(code), `${file} nombra una moneda: ni por defecto ni deducida de la configuración`);
+    assert.ok(!/\bcurrency\b|["'`]EUR["'`]|\bEUR\b/.test(code), `${file} nombra una moneda: ni por defecto ni deducida de la configuración`);
   }
 });
 

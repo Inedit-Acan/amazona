@@ -701,7 +701,9 @@ def test_projects_carry_no_money_because_nothing_links_a_project_to_an_order(jou
     j = journey
     projects = j.reads["projects"]
     assert [p["id"] for p in projects] == [j.project_id]
-    assert set(projects[0]) == {"id", "objective_id", "name", "status"}, "a project exposes no revenue, cost or profit"
+    assert set(projects[0]) == {"id", "objective_id", "name", "status", "created_at"}, (
+        "a project exposes no revenue, cost or profit"
+    )
     assert not re.search(r"revenue|profit|margin|cost|capital|amount", json.dumps(projects), re.IGNORECASE)
     decision = j.client.get(f"/api/decisions/{j.decision['id']}").json()
     finance = next(e for e in decision["evidence"] if e["source"] == "finance_validation")
