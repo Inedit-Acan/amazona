@@ -101,7 +101,7 @@ export function fakeSource(
   const calls: Record<string, number> = {};
   const defaults: Record<keyof DashboardSource, (...args: never[]) => Promise<unknown>> = {
     listProducts: async () => data.products ?? [product("p1"), product("p2")],
-    listAgents: async () => [agent("a1"), agent("a2", "OFFLINE")],
+    listAgents: async () => [agent("a1"), agent("a2", "FAILED")],
     listAgentExecutions: async () => [execution("e1", "a1")],
     listApprovals: async () => [approval("ap1")],
     listPipelineReviews: async () => [review("rv1")],

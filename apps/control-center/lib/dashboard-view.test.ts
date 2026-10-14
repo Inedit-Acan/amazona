@@ -53,6 +53,7 @@ const card = (over: Partial<AgentCardView> = {}): AgentCardView =>
     team: "Investigación",
     description: "",
     activity: "available",
+    registry: { kind: "known", status: "AVAILABLE" },
     capabilities: [],
     version: "1.0.0",
     successRate: 0.98,
@@ -84,21 +85,24 @@ const depth = (over: Partial<ProductDepth> = {}): ProductDepth => ({
 
 test("dashboardKpis: solo cuenta agentes y decisiones; ya no lleva ventas ni beneficio modelados", () => {
   const kpis = dashboardKpis({
-    agents: [agent("a1", "AVAILABLE"), agent("a2", "BUSY"), agent("a3", "OFFLINE")],
+    agents: [agent("a1", "AVAILABLE"), agent("a2", "BUSY"), agent("a3", "DISABLED")],
     requests: [request(), request({ id: "r2", isDemo: false }), request({ id: "r3", status: "APPROVED" })],
   });
-  assert.equal(kpis.agentsOnline, 2);
+  assert.equal(kpis.agentsOperational, 2);
+  assert.equal(kpis.agentsNotOperational, 1);
+  assert.equal(kpis.agentsUnknown, 0);
   assert.equal(kpis.agentsTotal, 3);
   // Solo las pendientes cuentan, y se distingue cuántas son reales.
   assert.equal(kpis.pendingDecisions, 2);
   assert.equal(kpis.realDecisions, 1);
   // Los ingresos los da el registro (lib/revenue-view.ts): aquí no queda ninguna cifra económica inventada.
-  assert.deepEqual(Object.keys(kpis).sort(), ["agentsOnline", "agentsRatio", "agentsTotal", "pendingDecisions", "realDecisions"]);
+  assert.deepEqual(Object.keys(kpis).sort(), ["agentsNotOperational", "agentsOperational", "agentsTotal", "agentsUnknown", "pendingDecisions", "realDecisions"]);
 });
 
-test("dashboardKpis: sin agentes el cociente es 0, no NaN", () => {
+test("dashboardKpis: sin agentes no hay cociente ni NaN: todo a cero", () => {
   const kpis = dashboardKpis({ agents: [], requests: [] });
-  assert.equal(kpis.agentsRatio, 0);
+  assert.equal(kpis.agentsTotal, 0);
+  assert.equal(kpis.agentsOperational, 0);
   assert.equal(kpis.pendingDecisions, 0);
 });
 

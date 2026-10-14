@@ -74,7 +74,7 @@ export function FleetAlertsCard({ alerts }: { alerts: FleetAlert[] }) {
       <CardHeader>
         <CardTitle>Alertas</CardTitle>
         <CardAction>
-          <DataProvenanceBadge status="estimated" compact tooltip="Se derivan del log de ejecuciones (errores y latencia) y del coste de demostración." />
+          <DataProvenanceBadge status="estimated" compact tooltip="Se derivan del estado del registro (Fallido y Bloqueado = Alta, Degradado = Media; Deshabilitado no es una alerta), del log de ejecuciones (errores y latencia) y del coste de demostración." />
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-2">

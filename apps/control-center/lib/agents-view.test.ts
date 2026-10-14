@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Agent, AgentExecution } from "./api.ts";
 import { COST_PER_RUN, ROLE_DESCRIPTIONS } from "./demo/agents.ts";
+import { AGENT_STATUSES, presentActivity } from "./agent-status.ts";
 import {
-  ACTIVITY_LABEL,
   activityFeed,
   agentCards,
   costByAgent,
@@ -23,7 +23,7 @@ const AGENTS: Agent[] = [
   { id: "a-product", name: "Product Hunter", role: "product", capabilities: ["market_validation"], status: "BUSY", reliability_score: 1, version: "1.8.3", cost_profile: { simulated_cost_per_task: 0 } },
   { id: "a-supplier", name: "Supplier Finder", role: "supplier", capabilities: ["supplier_sourcing"], status: "AVAILABLE", reliability_score: 0.9, version: "1.9.1", cost_profile: {} },
   { id: "a-legal", name: "Product Compliance", role: "legal", capabilities: ["legal_validation"], status: "AVAILABLE", reliability_score: 0.95, version: "1.7.2", cost_profile: {} },
-  { id: "a-unknown", name: "Sandbox Agent", role: "sandbox", capabilities: [], status: "OFFLINE", reliability_score: 0.5, version: "0.1.0", cost_profile: {} },
+  { id: "a-unknown", name: "Sandbox Agent", role: "sandbox", capabilities: [], status: "DISABLED", reliability_score: 0.5, version: "0.1.0", cost_profile: {} },
 ];
 
 const execution = (id: string, agent: string, success: boolean, duration: number, at: number): AgentExecution => ({
@@ -57,7 +57,7 @@ test("agentCards: lo medible sale de las ejecuciones y el resto de la demostraci
   assert.equal(product.avgLatencyMs, (6200 + 5800 + 15_000) / 3);
   assert.equal(product.version, "1.8.3");
   assert.equal(product.activity, "running");
-  assert.equal(ACTIVITY_LABEL[product.activity], "Ejecutando");
+  assert.equal(presentActivity(product.activity).label, "Ejecutando");
   assert.ok(product.currentTask && product.taskProgress! > 0);
   // Las tres ejecuciones son de hoy: coste = ejecuciones × coste del equipo.
   assert.equal(product.runsToday, 3);
@@ -151,4 +151,93 @@ test("filterCards, sortCards y groupCards: filtros, orden y equipos", () => {
   const groups = groupCards(CARDS);
   assert.deepEqual(groups.map((g) => g.team), ["Investigación", "Abastecimiento", "Legal", "Otros"]);
   assert.equal(groups.reduce((sum, g) => sum + g.agents.length, 0), CARDS.length);
+});
+
+// --- M47 · Commit 1b: el estado del registro, tal cual -----------------------------------------------------------------
+
+const withStatus = (status: string): Agent => ({
+  id: `a-${status}`,
+  name: `Agente ${status}`,
+  role: "product",
+  capabilities: [],
+  status,
+  reliability_score: 1,
+  version: "1.0.0",
+  cost_profile: {},
+});
+
+test("agentCards: cada estado del backend se ve como lo que es, y solo AVAILABLE es «Disponible»", () => {
+  const expected: Record<string, [string, string]> = {
+    AVAILABLE: ["available", "Disponible"],
+    BUSY: ["running", "Ejecutando"],
+    WAITING: ["waiting", "En espera"],
+    BLOCKED: ["blocked", "Bloqueado"],
+    DEGRADED: ["degraded", "Degradado"],
+    DISABLED: ["disabled", "Deshabilitado"],
+    FAILED: ["failed", "Fallido"],
+  };
+  assert.deepEqual(Object.keys(expected).sort(), [...AGENT_STATUSES].sort(), "la prueba cubre los siete estados del backend");
+  for (const [status, [activity, label]] of Object.entries(expected)) {
+    const card = agentCards([withStatus(status)], [], NOW)[0];
+    assert.equal(card.activity, activity, status);
+    assert.equal(presentActivity(card.activity).label, label, status);
+    assert.equal(card.activity === "available", status === "AVAILABLE", `${status} no puede aparecer como «Disponible»`);
+  }
+});
+
+test("agentCards: un estado que el backend no envía es «Desconocido», jamás «Disponible»", () => {
+  for (const raw of ["OFFLINE", "ERROR", "ONLINE", "available", ""]) {
+    const card = agentCards([withStatus(raw)], [], NOW)[0];
+    assert.equal(card.activity, "unknown", raw);
+    assert.equal(presentActivity(card.activity).label, "Desconocido");
+    assert.equal(card.registry.kind, "unknown");
+  }
+});
+
+test("fleetKpis: «Disponibles» solo cuenta AVAILABLE; «Ejecutando» solo BUSY", () => {
+  const cards = agentCards(["AVAILABLE", "BUSY", "WAITING", "BLOCKED", "DEGRADED", "DISABLED", "FAILED", "OFFLINE"].map(withStatus), [], NOW);
+  const kpis = fleetKpis(cards, fleetAlerts(cards));
+  assert.equal(kpis.registered, 8);
+  assert.equal(kpis.available, 1);
+  assert.equal(kpis.running, 1);
+});
+
+test("fleetAlerts: FAILED y BLOCKED = Alta, DEGRADED = Media; DISABLED, AVAILABLE, BUSY, WAITING y desconocido, ninguna", () => {
+  const level = (status: string) => fleetAlerts(agentCards([withStatus(status)], [], NOW)).map((alert) => alert.level);
+  assert.deepEqual(level("FAILED"), ["Alta"]);
+  assert.deepEqual(level("BLOCKED"), ["Alta"]);
+  assert.deepEqual(level("DEGRADED"), ["Media"]);
+  for (const quiet of ["DISABLED", "AVAILABLE", "BUSY", "WAITING", "OFFLINE", "ERROR"]) assert.deepEqual(level(quiet), [], quiet);
+  const [failed] = fleetAlerts(agentCards([withStatus("FAILED")], [], NOW));
+  assert.equal(failed.message, "Estado del registro: Fallido");
+  assert.equal(failed.agent, "Agente FAILED");
+});
+
+test("fleetAlerts: con los siete estados salen exactamente tres alertas y las Altas van primero", () => {
+  const cards = agentCards(AGENT_STATUSES.map(withStatus), [], NOW);
+  const alerts = fleetAlerts(cards);
+  assert.deepEqual(alerts.map((alert) => `${alert.level}:${alert.message}`), [
+    "Alta:Estado del registro: Bloqueado",
+    "Alta:Estado del registro: Fallido",
+    "Media:Estado del registro: Degradado",
+  ]);
+  assert.equal(fleetKpis(cards, alerts).criticalAlerts, 2);
+});
+
+test("fleetAlerts: la alerta del estado convive con las de ejecuciones y no las sustituye", () => {
+  const agents = [{ ...withStatus("DEGRADED"), id: "a-deg" }];
+  const runs = [execution("x1", "a-deg", false, 1000, NOW - 3600_000), execution("x2", "a-deg", false, 1000, NOW - 7200_000)];
+  const alerts = fleetAlerts(agentCards(agents, runs, NOW));
+  assert.ok(alerts.some((alert) => alert.message === "Estado del registro: Degradado"));
+  assert.ok(alerts.some((alert) => alert.message.startsWith("Tasa de error")));
+});
+
+test("fleetAlerts: las alertas del estado del registro van antes que las de ejecuciones dentro de su nivel (no quedan ocultas tras el tope de la tarjeta)", () => {
+  // Siete agentes sanos con una latencia alta (alertas Media de ejecuciones, que por nombre irían antes) y uno DEGRADED.
+  const healthy = Array.from({ length: 7 }, (_, index) => ({ ...withStatus("AVAILABLE"), id: `h${index}`, name: `A${index} Sano` }));
+  const slow = healthy.map((agent) => execution(`s-${agent.id}`, agent.id, true, 60_000, NOW - 3600_000));
+  const degraded = { ...withStatus("DEGRADED"), id: "z-deg", name: "Zeta Degradado" };
+  const alerts = fleetAlerts(agentCards([...healthy, degraded], slow, NOW));
+  assert.ok(alerts.filter((alert) => alert.message.startsWith("Latencia")).length >= 5, "hay al menos cinco alertas de latencia");
+  assert.equal(alerts[0].message, "Estado del registro: Degradado", "la del estado va primera dentro de Media");
 });

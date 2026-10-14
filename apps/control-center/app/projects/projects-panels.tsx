@@ -30,6 +30,8 @@ import {
   type ProjectMilestone,
 } from "@/lib/projects-view";
 import type { PipelineStep } from "@/lib/projects";
+import { activityOfStatus } from "@/lib/agent-status";
+import { AgentStatusChip } from "@/components/agent-status-chip";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
 import { Button } from "@/components/ui/button";
@@ -316,12 +318,6 @@ export function NotCalculatedCard() {
 
 // --- Agentes, riesgos, hitos y actividad ------------------------------------------------------------------------
 
-const AGENT_STATUS: Record<string, { label: string; tone: LevelTone }> = {
-  AVAILABLE: { label: "Disponible", tone: "ok" },
-  BUSY: { label: "Ejecutando", tone: "warn" },
-  OFFLINE: { label: "Fuera de servicio", tone: "bad" },
-};
-
 export function AgentsCard({ agents, unread }: { agents: Agent[]; unread: boolean }) {
   return (
     <Card className="min-w-0">
@@ -342,14 +338,14 @@ export function AgentsCard({ agents, unread }: { agents: Agent[]; unread: boolea
         ) : (
           <ul className="space-y-2">
             {agents.slice(0, 5).map((agent) => {
-              const status = AGENT_STATUS[agent.status] ?? { label: agent.status, tone: "neutral" as LevelTone };
+              const activity = activityOfStatus(agent.status);
               return (
                 <li key={agent.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
                   <span className="flex size-7 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
                     <Bot className="size-3.5" />
                   </span>
                   <span className="min-w-0 text-[13px] leading-tight">{agent.name}</span>
-                  <LevelChip tone={status.tone}>{status.label}</LevelChip>
+                  <AgentStatusChip activity={activity} raw={agent.status} />
                 </li>
               );
             })}

@@ -26,7 +26,7 @@ const empty = { kind: "empty" } as const;
 const failed = (message = "No se pudieron cargar los datos de prueba."): ReadState<never> => ({ kind: "error", message });
 const unread = (reason = "no se leyó"): ReadState<never> => ({ kind: "unread", reason });
 
-const agents = [agent("a1"), agent("a2", "OFFLINE")];
+const agents = [agent("a1"), agent("a2", "FAILED")];
 const entry = (id: string, over: Partial<CatalogEntry> = {}): CatalogEntry => ({
   product: product(id),
   projectCode: `AMZ-00${id.replace(/\D/g, "")}`,
@@ -48,7 +48,8 @@ test("agentes `loaded`: el cociente sale de la lectura; `empty`: «Sin agentes»
 
   assert.equal(value.kind, "value");
   assert.equal(value.value, "1 / 2");
-  assert.match(value.caption, /50\s?% operativos/);
+  assert.match(value.caption, /^1 de 2 operativos · 1 no operativos/);
+  assert.doesNotMatch(value.caption, /%|en línea/i);
   assert.equal(none.kind, "empty");
   assert.equal(none.value, "Sin agentes");
   assert.doesNotMatch(none.value + none.caption, /0 \/ 0|%/);

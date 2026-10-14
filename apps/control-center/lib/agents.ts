@@ -1,5 +1,6 @@
 import type { Agent, AgentExecution } from "./api.ts";
 import { parseUtc } from "./dates.ts";
+import { summarizeAgentStatuses } from "./agent-status.ts";
 
 // Los agentes y sus ejecuciones salen del registro y del log de ejecuciones del
 // CEO (AgentExecutionLog). No hay evaluaciones, costes medidos, tokens, versiones
@@ -99,12 +100,13 @@ export interface FleetSummary {
 
 export function fleetSummary(agents: Pick<Agent, "id" | "status">[], executions: Pick<AgentExecution, "agent_id" | "success" | "duration_ms" | "created_at">[]): FleetSummary {
   const overall = agentStats(executions);
+  const { byStatus } = summarizeAgentStatuses(agents.map((agent) => agent.status));
   const failedAgents = new Set(executions.filter((e) => !e.success).map((e) => e.agent_id));
   return {
     registered: agents.length,
-    available: agents.filter((a) => a.status === "AVAILABLE").length,
-    busy: agents.filter((a) => a.status === "BUSY").length,
-    other: agents.filter((a) => a.status !== "AVAILABLE" && a.status !== "BUSY").length,
+    available: byStatus.AVAILABLE,
+    busy: byStatus.BUSY,
+    other: agents.length - byStatus.AVAILABLE - byStatus.BUSY,
     runs: overall.runs,
     successRate: overall.successRate,
     avgLatencyMs: overall.avgLatencyMs,

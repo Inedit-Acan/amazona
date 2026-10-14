@@ -160,7 +160,7 @@ test("healthScores: la base de datos caída puntúa 0", () => {
 // --- Agent Runtime ------------------------------------------------------------------
 
 test("runtimeView: workers reales, colas de demostración y fallos de hoy reales", () => {
-  const agents = [agent("a1", "research", "BUSY"), agent("a2", "legal", "AVAILABLE"), agent("a3", "cfo", "OFFLINE")];
+  const agents = [agent("a1", "research", "BUSY"), agent("a2", "legal", "AVAILABLE"), agent("a3", "cfo", "DISABLED")];
   const runs = [
     execution("e1", "a1", NOW - HOUR_MS, false),
     execution("e2", "a1", NOW - 2 * HOUR_MS),
@@ -313,4 +313,19 @@ test("incidentsView: si el backend no respondió no hay filas ni ceros", () => {
   assert.equal(view.open, null);
   assert.equal(view.total30d, null);
   assert.equal(view.rows.length, 0);
+});
+
+test("runtimeView: «Workers activos» no cuenta FAILED, BLOCKED, DEGRADED, DISABLED ni un estado desconocido (M47 · 1b)", () => {
+  const states = ["AVAILABLE", "BUSY", "WAITING", "BLOCKED", "DEGRADED", "DISABLED", "FAILED", "OFFLINE"];
+  const agents = states.map((status, index) => agent(`a${index}`, "research", status));
+  const view = runtimeView(agents, [], NOW);
+  assert.equal(view.workersActive, 3, "solo AVAILABLE, BUSY y WAITING");
+  assert.equal(view.workersBusy, 1);
+  assert.equal(view.busyRatio, 1 / 3);
+  // Todos sanos: todos activos.
+  assert.equal(runtimeView(["AVAILABLE", "BUSY", "WAITING"].map((status, index) => agent(`h${index}`, "legal", status)), [], NOW).workersActive, 3);
+  // Ninguno operativo: cero activos y sin división por cero.
+  const none = runtimeView(["FAILED", "BLOCKED"].map((status, index) => agent(`n${index}`, "legal", status)), [], NOW);
+  assert.equal(none.workersActive, 0);
+  assert.equal(none.busyRatio, 0);
 });

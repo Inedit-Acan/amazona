@@ -1,5 +1,6 @@
 import type { Agent, AgentExecution, Approval, PipelineReview, Product } from "./api.ts";
 import { teamOf } from "./agents.ts";
+import { summarizeAgentStatuses } from "./agent-status.ts";
 import { agentCards, type AgentCardView } from "./agents-view.ts";
 import { requestFromApproval, requestFromReview, type ApprovalRequest, type ProductContext } from "./approvals-view.ts";
 import type { CatalogEntry, DashboardReads } from "./dashboard-reads.ts";
@@ -8,7 +9,7 @@ import type { RequestKind, Severity } from "./demo/approvals.ts";
 import { dedupeQuotesBySupplier } from "./economics.ts";
 import { buildBaseline } from "./economics-baseline.ts";
 import { evaluate } from "./economics-model.ts";
-import { formatInteger, formatPercent } from "./format.ts";
+import { formatInteger } from "./format.ts";
 import {
   listOf,
   READ_ERROR_TEXT,
@@ -37,10 +38,13 @@ import type { Settled } from "./revenue-view.ts";
 // --- KPIs de cabecera ---------------------------------------------------------------
 
 export interface DashboardKpis {
-  /** Agentes registrados y cuántos no están fuera de servicio (real). */
-  agentsOnline: number;
+  /** Agentes registrados y su clasificación de interfaz (lib/agent-status.ts): operativos = AVAILABLE, BUSY y WAITING;
+   * no operativos = BLOCKED, DEGRADED, DISABLED y FAILED; desconocidos = un estado que no reconoce. No es «en línea»:
+   * el backend no mide conectividad. `operational + notOperational + unknown === total`. */
+  agentsOperational: number;
+  agentsNotOperational: number;
+  agentsUnknown: number;
   agentsTotal: number;
-  agentsRatio: number;
   /** Decisiones pendientes y cuántas vienen de una solicitud real del backend. */
   pendingDecisions: number;
   realDecisions: number;
@@ -48,12 +52,13 @@ export interface DashboardKpis {
 
 export function dashboardKpis(input: { agents: Pick<Agent, "status">[]; requests: ApprovalRequest[] }): DashboardKpis {
   const { agents, requests } = input;
-  const online = agents.filter((agent) => agent.status !== "OFFLINE").length;
+  const summary = summarizeAgentStatuses(agents.map((agent) => agent.status));
   const pending = requests.filter((request) => request.status === "PENDING");
   return {
-    agentsOnline: online,
-    agentsTotal: agents.length,
-    agentsRatio: agents.length > 0 ? online / agents.length : 0,
+    agentsOperational: summary.operational,
+    agentsNotOperational: summary.notOperational,
+    agentsUnknown: summary.unknown,
+    agentsTotal: summary.total,
     pendingDecisions: pending.length,
     realDecisions: pending.filter((request) => !request.isDemo).length,
   };
@@ -201,17 +206,20 @@ const unavailableKpi = (state: Extract<ReadState<unknown>, { kind: "error" | "un
     ? { kind: "error", value: READ_UNAVAILABLE_VALUE, caption: state.message }
     : { kind: "unread", value: READ_UNREAD_TEXT, caption: state.reason };
 
-/** «Agentes en línea». Sin agentes leídos no hay «0 / 0» ni «0 %»: hay un error, o «Sin agentes» si el registro dijo que
- * está vacío. */
+/** «Agentes operativos». Sin agentes leídos no hay «0 / 0» ni «0 %»: hay un error, o «Sin agentes» si el registro dijo que
+ * está vacío. Nunca un porcentaje ni «en línea»: «N de M operativos», y lo que no lo es se dice (K no operativos, U de estado
+ * desconocido), de modo que no puede leerse «todo bien» con un agente bloqueado, degradado, deshabilitado o fallido. */
 export function agentsKpiView(agents: ReadState<Agent[]>, executions: ReadState<AgentExecution[]>): KpiView {
   if (agents.kind === "error" || agents.kind === "unread") return unavailableKpi(agents);
   if (agents.kind === "empty") return { kind: "empty", value: "Sin agentes", caption: "El registro no tiene ningún agente." };
-  const { agentsOnline, agentsTotal, agentsRatio } = dashboardKpis({ agents: agents.data, requests: [] });
+  const { agentsOperational, agentsNotOperational, agentsUnknown, agentsTotal } = dashboardKpis({ agents: agents.data, requests: [] });
+  const notOperational = agentsNotOperational > 0 ? ` · ${formatInteger(agentsNotOperational)} no operativos` : "";
+  const unknown = agentsUnknown > 0 ? ` · ${formatInteger(agentsUnknown)} de estado desconocido` : "";
   const note = executions.kind === "error" || executions.kind === "unread" ? " · ejecuciones no disponibles" : "";
   return {
     kind: "value",
-    value: `${agentsOnline} / ${agentsTotal}`,
-    caption: `${formatPercent(agentsRatio, 0)} operativos${note}`,
+    value: `${agentsOperational} / ${agentsTotal}`,
+    caption: `${agentsOperational} de ${agentsTotal} operativos${notOperational}${unknown}${note}`,
   };
 }
 

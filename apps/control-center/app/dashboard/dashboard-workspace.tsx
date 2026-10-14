@@ -198,7 +198,7 @@ export function DashboardWorkspace({
         />
         {agentsKpi.kind === "error" || agentsKpi.kind === "unread" ? (
           <KpiCard
-            label="Agentes en línea"
+            label="Agentes operativos"
             value={agentsKpi.value}
             leading={iconBox(<Bot className="size-5 text-primary" />)}
             caption={agentsKpi.caption}
@@ -206,14 +206,14 @@ export function DashboardWorkspace({
           />
         ) : (
           <KpiCard
-            label="Agentes en línea"
+            label="Agentes operativos"
             value={agentsKpi.value}
             leading={iconBox(<Bot className="size-5 text-primary" />)}
             trailing={activity.kind === "rows" ? <RunBars values={activity.runsPerDay} /> : undefined}
             caption={agentsKpi.caption}
             provenance="recorded"
             provenanceCompact
-            provenanceTooltip="Agentes del registro que no están fuera de servicio. Las barras son sus ejecuciones de los últimos siete días."
+            provenanceTooltip="Agentes del registro cuyo estado es Disponible, Ejecutando o En espera. «Operativo» es una clasificación de esta interfaz, no un estado del backend, y no mide conectividad: un agente Bloqueado, Degradado, Deshabilitado o Fallido no cuenta. Las barras son sus ejecuciones de los últimos siete días."
           />
         )}
         {decisionsKpi.kind === "error" || decisionsKpi.kind === "unread" ? (

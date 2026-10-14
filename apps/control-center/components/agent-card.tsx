@@ -3,18 +3,11 @@
 import { ArrowRight, type LucideIcon } from "lucide-react";
 import { relativeTime } from "@/lib/dates";
 import { formatDuration, formatEuro, formatPercent } from "@/lib/format";
-import { ACTIVITY_LABEL, type AgentCardView } from "@/lib/agents-view";
-import { LevelChip, type LevelTone } from "@/components/level-chip";
+import type { AgentCardView } from "@/lib/agents-view";
+import { AgentStatusChip } from "@/components/agent-status-chip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-
-const ACTIVITY_TONE: Record<AgentCardView["activity"], LevelTone> = {
-  running: "ok",
-  available: "neutral",
-  waiting: "warn",
-  offline: "bad",
-};
 
 /** Tarjeta de un agente de la flota (mockup docs/design/agentes.png): estado,
  * lo que mide el log de ejecuciones (éxito, latencia), lo que aporta la
@@ -50,7 +43,7 @@ export function AgentCard({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-between gap-1.5">
               <p className="text-[15px] leading-tight font-semibold">{agent.name}</p>
-              <LevelChip tone={ACTIVITY_TONE[agent.activity]}>{ACTIVITY_LABEL[agent.activity]}</LevelChip>
+              <AgentStatusChip activity={agent.activity} raw={agent.registry.kind === "unknown" ? agent.registry.raw : undefined} />
             </div>
             <p className="mt-1 text-xs leading-tight text-muted-foreground">{agent.description}</p>
           </div>

@@ -1,6 +1,7 @@
 import type { Agent, AgentExecution, Incident } from "./api.ts";
 import { teamOf } from "./agents.ts";
 import { parseUtc } from "./dates.ts";
+import { summarizeAgentStatuses } from "./agent-status.ts";
 import { COST_PER_RUN } from "./demo/agents.ts";
 import {
   DEMO_COST_LINES,
@@ -214,8 +215,10 @@ export function runtimeView(agents: Agent[], executions: AgentExecution[], now: 
   const dayStart = now - (now % DAY_MS);
   const queues = DEMO_QUEUES.map((queue) => ({ id: queue.id, depth: demoQueueDepth(queue.id, hourKey) }));
   const slots = Math.max(DEMO_WORKER_SLOTS, agents.length);
-  const active = agents.filter((agent) => agent.status !== "OFFLINE").length;
-  const busy = agents.filter((agent) => agent.status === "BUSY").length;
+  // «Activos» = operativos según la clasificación de la interfaz (lib/agent-status.ts): un agente BLOCKED, DEGRADED, DISABLED
+  // o FAILED —o con un estado desconocido— no cuenta como activo. «Ocupados» = los que el registro da por BUSY.
+  const { operational: active, byStatus } = summarizeAgentStatuses(agents.map((agent) => agent.status));
+  const busy = byStatus.BUSY;
   return {
     workersActive: active,
     workersTotal: slots,

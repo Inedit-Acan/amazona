@@ -12,6 +12,11 @@ import {
   demoTaskProgress,
 } from "./demo/agents.ts";
 import { TEAMS, agentStats, executionsByAgent, teamOf, type Team } from "./agents.ts";
+import { presentAgentStatus, readAgentStatus, type AgentActivity, type AgentStatusReading } from "./agent-status.ts";
+
+// El estado de un agente (su categoría, etiqueta, tono y si genera alerta) vive en lib/agent-status.ts: aquí no hay
+// ninguna tabla de estados. `AgentActivity` se reexporta porque las pantallas lo importan de esta vista.
+export type { AgentActivity };
 
 // Vista de la pantalla de Agentes (mockup docs/design/agentes.png). Real: el
 // registro de agentes (nombre, rol, capacidades, estado, fiabilidad, versión) y
@@ -24,15 +29,6 @@ import { TEAMS, agentStats, executionsByAgent, teamOf, type Team } from "./agent
 const DAY_MS = 86_400_000;
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-export type AgentActivity = "running" | "available" | "waiting" | "offline";
-
-export const ACTIVITY_LABEL: Record<AgentActivity, string> = {
-  running: "Ejecutando",
-  available: "Disponible",
-  waiting: "En espera",
-  offline: "Fuera de servicio",
-};
-
 export interface AgentCardView {
   id: string;
   name: string;
@@ -40,6 +36,8 @@ export interface AgentCardView {
   team: Team;
   description: string;
   activity: AgentActivity;
+  /** Lo que dijo el registro, sin traducir: de aquí salen la etiqueta real y la alerta del estado. */
+  registry: AgentStatusReading;
   capabilities: string[];
   version: string;
   /** Fracción; null si el agente no tiene ejecuciones registradas. */
@@ -56,13 +54,6 @@ export interface AgentCardView {
   tools: string[];
 }
 
-const ACTIVITY_BY_STATUS: Record<string, AgentActivity> = {
-  AVAILABLE: "available",
-  BUSY: "running",
-  WAITING: "waiting",
-  OFFLINE: "offline",
-};
-
 /** Una tarjeta por agente: lo medible sale del log de ejecuciones y el resto de
  * la demostración. `now` fija el día para el coste de hoy. */
 export function agentCards(agents: Agent[], executions: AgentExecution[], now: number): AgentCardView[] {
@@ -73,7 +64,8 @@ export function agentCards(agents: Agent[], executions: AgentExecution[], now: n
     const stats = agentStats(own);
     const team = teamOf(agent.role);
     const runsToday = own.filter((e) => parseUtc(e.created_at) >= dayStart).length;
-    const activity = ACTIVITY_BY_STATUS[agent.status] ?? "available";
+    const registry = readAgentStatus(agent.status);
+    const activity = presentAgentStatus(registry).activity;
     const tasks = CURRENT_TASKS[team] ?? CURRENT_TASKS.Otros;
     return {
       id: agent.id,
@@ -82,6 +74,7 @@ export function agentCards(agents: Agent[], executions: AgentExecution[], now: n
       team,
       description: ROLE_DESCRIPTIONS[agent.role] ?? "Agente especialista de AMAZONA.",
       activity,
+      registry,
       capabilities: agent.capabilities,
       version: agent.version,
       successRate: stats.successRate,
@@ -168,9 +161,22 @@ export interface FleetAlert {
   message: string;
 }
 
-/** Alertas de la flota: error, latencia y coste desviado, sobre datos reales. */
+/** Alertas de la flota: el estado del registro (FAILED y BLOCKED = Alta, DEGRADED = Media; DISABLED, AVAILABLE, BUSY y
+ * WAITING no generan alerta por sí mismos, y un estado desconocido tampoco: se enseña como «Desconocido»), más error,
+ * latencia y coste desviado de las ejecuciones. Todo sobre datos reales. */
 export function fleetAlerts(cards: AgentCardView[]): FleetAlert[] {
   const alerts: FleetAlert[] = [];
+  for (const card of cards) {
+    const status = presentAgentStatus(card.registry);
+    if (status.alert) {
+      alerts.push({
+        key: `${card.id}-status`,
+        level: status.alert,
+        agent: card.name,
+        message: `Estado del registro: ${status.label}`,
+      });
+    }
+  }
   const active = cards.filter((card) => card.runs > 0);
   const averageCost = active.length ? active.reduce((sum, card) => sum + card.costToday, 0) / active.length : 0;
 
@@ -201,7 +207,17 @@ export function fleetAlerts(cards: AgentCardView[]): FleetAlert[] {
       });
     }
   }
-  return alerts.sort((a, b) => (a.level === b.level ? a.agent.localeCompare(b.agent, "es") : a.level === "Alta" ? -1 : 1));
+  // Alta antes que Media; dentro de un nivel, primero las del estado del registro (son un hecho, no una inferencia de las
+  // ejecuciones) y después por nombre. La tarjeta enseña solo las primeras: un agente degradado no puede quedar oculto detrás
+  // de varias alertas de latencia.
+  const statusFirst = (alert: FleetAlert) => (alert.key.endsWith("-status") ? 0 : 1);
+  return alerts.sort((a, b) =>
+    a.level !== b.level
+      ? a.level === "Alta"
+        ? -1
+        : 1
+      : statusFirst(a) - statusFirst(b) || a.agent.localeCompare(b.agent, "es"),
+  );
 }
 
 export interface ActivityEntry {

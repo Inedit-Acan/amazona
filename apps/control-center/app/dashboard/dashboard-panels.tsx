@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { ArrowRight, Bot, ChevronRight, Landmark, Megaphone, Package, Rocket, Scale, ShoppingCart, Truck } from "lucide-react";
-import type { ActivityRow, ActivityView, Cell, DecisionRow, DecisionsView, OpportunitiesView } from "@/lib/dashboard-view";
+import type { ActivityView, Cell, DecisionRow, DecisionsView, OpportunitiesView } from "@/lib/dashboard-view";
 import { READ_ERROR_TEXT, READ_UNAVAILABLE_VALUE, READ_UNREAD_TEXT } from "@/lib/read-state";
 import type { RequestKind, Severity } from "@/lib/demo/approvals";
 import { relativeTime } from "@/lib/dates";
 import { formatInteger, formatPercent } from "@/lib/format";
 import type { Level, Risk } from "@/lib/research-view";
+import { AgentStatusChip } from "@/components/agent-status-chip";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
 import { LevelChip, type LevelTone } from "@/components/level-chip";
@@ -17,20 +18,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-
-const ACTIVITY_TONE: Record<ActivityRow["state"], LevelTone> = {
-  running: "ok",
-  available: "neutral",
-  waiting: "warn",
-  offline: "bad",
-};
-
-const ACTIVITY_LABEL: Record<ActivityRow["state"], string> = {
-  running: "Ejecutando",
-  available: "Disponible",
-  waiting: "En espera",
-  offline: "Fuera de servicio",
-};
 
 const SEVERITY_TONE: Record<Severity, LevelTone> = { "Crítica": "bad", Alta: "warn", Media: "neutral", Baja: "neutral" };
 
@@ -114,7 +101,7 @@ export function ActivityCard({ view, now }: { view: ActivityView; now: number })
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      <LevelChip tone={ACTIVITY_TONE[row.state]}>{ACTIVITY_LABEL[row.state]}</LevelChip>
+                      <AgentStatusChip activity={row.state} />
                     </TableCell>
                   </TableRow>
                 ))}
