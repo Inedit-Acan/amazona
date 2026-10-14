@@ -14,7 +14,8 @@ import { FULLSCREEN_LABEL } from "@/lib/ceo-fullscreen";
  *  · «CEO IA» solo existe bajo 1440 px, donde el panel es un drawer.
  *  · El estado del backend lo enseña el shell desde `md`; bajo `md` el shell no lo enseña y lo enseña esta cabecera (mismo
  *    monitor, una sola petición por disparo).
- *  · El selector temporal 7/14/30 días NO está aquí todavía: aparecerá cuando cambie datos de verdad (Commit 3). */
+ *  · El selector temporal 7/14/30 días NO está aquí: vive dentro de la tarjeta de Ingresos (Commit 3A), porque solo gobierna Ingresos;
+ *    en la cabecera parecería el periodo de todo el panel. */
 export function CeoHeader() {
   const { openMission, openAssistant } = useCeo();
   return (

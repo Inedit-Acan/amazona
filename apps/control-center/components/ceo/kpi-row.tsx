@@ -1,48 +1,26 @@
-import { Ban, CircleDashed } from "lucide-react";
+import Link from "next/link";
+import { Suspense } from "react";
+import { Ban } from "lucide-react";
+import { RevenueKpi, RevenueKpiSkeleton } from "@/components/ceo/revenue-kpi";
 import { KpiCard } from "@/components/kpi-card";
-import { blockNotice, NOT_CONNECTED_YET, unavailableState, type BlockState } from "@/lib/ceo-blocks";
+import { blockNotice } from "@/lib/ceo-blocks";
+import { UNAVAILABLE_KPIS } from "@/lib/ceo-kpis";
+import type { RevenueWindow } from "@/lib/revenue-query";
 
-/** Las cuatro posiciones de la fila de KPI del mockup (M47, Commit 2). Aquí solo hay estructura y estados de lectura: NO hay
- * lógica financiera ni cifras (Commit 3).
+/** Las cuatro posiciones de la fila de KPI del mockup (M47, Commit 3A).
  *
- *  · Ingresos: existe una fuente (el registro de ingresos verificados) y este bloque aún no la ha leído → `unread`.
- *  · Beneficio, Margen neto y Cash disponible: hoy NO existe una fuente que los respalde → «No disponible» (D1). El backend
- *    no registra el coste de ventas, los envíos, las comisiones ni los impuestos, ni tiene cuentas ni conciliación de caja.
- * El icono de la esquina distingue los dos estados sin depender del color: círculo discontinuo = sin leer; prohibido = no disponible. */
-interface Kpi {
-  key: string;
-  label: string;
-  state: BlockState<unknown>;
-  /** La frase corta que sale en la tarjeta; el motivo completo (`state`) es lo que queda documentado en el estado. */
-  caption: string;
-}
-
-const KPIS: Kpi[] = [
-  { key: "ingresos", label: "Ingresos", state: NOT_CONNECTED_YET, caption: "Este bloque aún no ha leído su fuente." },
-  {
-    key: "beneficio",
-    label: "Beneficio",
-    state: unavailableState("Falta una fuente de costes completa: el backend no registra coste de ventas, envíos, comisiones ni impuestos."),
-    caption: "Falta una fuente de costes completa.",
-  },
-  {
-    key: "margen",
-    label: "Margen neto",
-    state: unavailableState("Depende del beneficio, que hoy no puede calcularse."),
-    caption: "Depende del beneficio.",
-  },
-  {
-    key: "cash",
-    label: "Cash disponible",
-    state: unavailableState("No hay fuente de caja: el backend no tiene cuentas ni conciliación."),
-    caption: "No hay fuente de caja.",
-  },
-];
-
-export function KpiRow() {
+ *  · Ingresos: se lee del registro de ingresos verificados (`GET /api/revenue/summary`), por origen × moneda, con el selector
+ *    7 / 14 / 30 días dentro de la propia tarjeta. Es el ÚNICO bloque que depende del periodo.
+ *  · Beneficio, Margen neto y Cash disponible: hoy NO existe una fuente que los respalde → «No disponible», sin cifra y sin derivarlos
+ *    de Ingresos (`lib/ceo-kpis.ts` guarda el motivo de cada uno). El enlace de Beneficio a Finanzas no dice que la cifra exista.
+ * El icono de la esquina de las tarjetas «no disponible» es un círculo prohibido; la de Ingresos pinta el suyo según su estado. */
+export function KpiRow({ window, days }: { window: RevenueWindow; days: number }) {
   return (
-    <section aria-label="Indicadores financieros" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {KPIS.map(({ key, label, state, caption }) => {
+    <section aria-label="Indicadores financieros" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 items-start">
+      <Suspense fallback={<RevenueKpiSkeleton />}>
+        <RevenueKpi window={window} days={days} />
+      </Suspense>
+      {UNAVAILABLE_KPIS.map(({ key, label, state, caption, link }) => {
         const notice = blockNotice(state)!;
         return (
           <div key={key} data-block-state={notice.kind} data-kpi={key} className="contents">
@@ -50,8 +28,18 @@ export function KpiRow() {
               label={label}
               value={notice.label}
               caption={caption}
-              icon={notice.kind === "unread" ? CircleDashed : Ban}
+              icon={Ban}
               compact
+              footer={
+                link ? (
+                  <Link
+                    href={link.href}
+                    className="inline-block rounded-sm text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    {link.label}
+                  </Link>
+                ) : undefined
+              }
             />
           </div>
         );

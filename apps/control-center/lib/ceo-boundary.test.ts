@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { INGRESOS_CARD_MAX_PX, INGRESOS_LINES_MAX_REM } from "./ceo-kpis.ts";
 
 // Frontera del Director ejecutivo (M47, Commit 2). Fija POR CÓDIGO FUENTE lo que este commit se compromete a no hacer:
 // inventar datos, simular un CEO IA que no existe, tragarse un error de lectura o duplicar la acción de «Vista completa».
@@ -14,12 +15,16 @@ const read = (file: string) => readFileSync(join(ROOT, file), "utf8").replace(/\
 const code = (file: string) => read(file).replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
 const CEO_DIR = readdirSync(join(ROOT, "components/ceo")).filter((name) => /\.tsx?$/.test(name)).map((name) => `components/ceo/${name}`);
-const CEO_FILES = ["app/ceo/page.tsx", ...CEO_DIR, "lib/ceo-handoff.ts", "lib/ceo-blocks.ts", "lib/ceo-mission-view.ts", "lib/ceo-fullscreen.ts", "lib/ceo-layout.ts"];
+const CEO_FILES = ["app/ceo/page.tsx", ...CEO_DIR, "lib/ceo-handoff.ts", "lib/ceo-blocks.ts", "lib/ceo-mission-view.ts", "lib/ceo-fullscreen.ts", "lib/ceo-layout.ts", "lib/ceo-kpis.ts"];
 
-test("la página es un Server Component que solo compone: sin «use client», sin lecturas y sin datos", () => {
+test("la página es un Server Component que solo compone: sin «use client», sin lecturas propias y sin datos; solo lee el periodo de la URL", () => {
   const page = code("app/ceo/page.tsx");
   assert.doesNotMatch(read("app/ceo/page.tsx"), /["']use client["']/);
-  assert.doesNotMatch(page, /\.catch\s*\(|await |fetch\(|api\./);
+  assert.doesNotMatch(page, /\.catch\s*\(|fetch\(|api\./);
+  // El único `await` de la página es el de `searchParams` (el periodo); la lectura de ingresos la hace la tarjeta de Ingresos.
+  assert.deepEqual([...page.matchAll(/await \w+/g)].map((m) => m[0]), ["await searchParams"]);
+  assert.match(page, /parseRevenueDays\(\(await searchParams\)\.dias\)/);
+  assert.match(page, /<KpiRow window=\{window\} days=\{days\} \/>/);
   for (const part of ["CeoProvider", "CeoHeader", "CeoLayout", "KpiRow", "DecisionTriptych", "AgentNetworkCard", "BottomRow", "MissionDrawer", "AssistantDrawer"]) {
     assert.match(page, new RegExp(`<${part}\\b`), `${part} falta en la página`);
   }
@@ -66,13 +71,18 @@ test("no hay ningún dato de ejemplo como si fuera de la empresa: ni título ni 
   assert.doesNotMatch(code("components/ceo/mission-form.tsx"), /useState\(["']owner/);
 });
 
-test("los KPI sin fuente no muestran 0, ni importes, ni porcentajes, ni tendencias", () => {
+test("los KPI sin fuente no muestran 0, ni importes, ni porcentajes, ni tendencias; Ingresos es el único que lee", () => {
   const row = code("components/ceo/kpi-row.tsx");
   assert.doesNotMatch(row, /value=["'{]\s*[\d€$]|["'][\d.,]+\s?(%|€)|toFixed|formatEuro|formatPercent|Sparkline|sparkline/);
-  // Ingresos tiene una fuente potencial aún sin leer (`unread`); los otros tres no tienen fuente (`unavailable`).
-  assert.match(row, /key: "ingresos", label: "Ingresos", state: NOT_CONNECTED_YET/);
+  // Los tres sin fuente salen de `lib/ceo-kpis.ts` como `unavailable`, y el de Ingresos es la tarjeta que lee.
+  assert.match(row, /UNAVAILABLE_KPIS\.map\(/);
+  assert.match(row, /<RevenueKpi window=\{window\} days=\{days\} \/>/);
+  const lib = code("lib/ceo-kpis.ts");
   for (const label of ["Beneficio", "Margen neto", "Cash disponible"]) {
-    assert.match(row, new RegExp(`label: "${label}",?\\s*(?:\\n\\s*)?state: unavailableState\\(`), `${label} debe ser «no disponible»`);
+    assert.match(lib, new RegExp(`label: "${label}",\\s*state: unavailableState\\(`), `${label} debe ser «no disponible»`);
+  }
+  for (const file of ["lib/ceo-kpis.ts", "components/ceo/revenue-kpi.tsx"]) {
+    assert.doesNotMatch(code(file), /Sparkline|sparkline|revenueSeries/, `${file}: sin sparkline hasta que se pueda dibujar un día sin actividad`);
   }
 });
 
@@ -188,8 +198,105 @@ test("el estado de un formulario cerrado no se pierde: vive en el drawer, no en 
   assert.match(drawer, /<MissionForm mission=\{mission\} \/>/);
 });
 
-test("el selector temporal 7/14/30 NO está en el Commit 2: no aparenta cambiar datos que no cambia", () => {
-  for (const file of CEO_DIR) assert.doesNotMatch(code(file), /PeriodSelect|7 días|14 días|30 días|dias=/, file);
+// --- Ingresos y el selector 7 / 14 / 30 (M47 · Commit 3A) -------------------------------------------------------------------------
+
+test("el selector 7/14/30 solo existe dentro de la tarjeta de Ingresos y ningún otro bloque depende del periodo", () => {
+  const card = code("components/ceo/revenue-kpi.tsx");
+  assert.match(card, /<PeriodSelect days=\{days\} \/>/);
+  const dependsOnPeriod = /PeriodSelect|revenue-query|revenueWindow|parseRevenueDays|\bdays\b|\bdias\b|dias=/;
+  const allowed = new Set(["components/ceo/revenue-kpi.tsx", "components/ceo/kpi-row.tsx", "app/ceo/page.tsx", "lib/ceo-kpis.ts"]);
+  for (const file of CEO_FILES) {
+    if (allowed.has(file)) continue;
+    assert.doesNotMatch(code(file), dependsOnPeriod, `${file} depende del periodo de Ingresos`);
+  }
+  assert.doesNotMatch(code("components/ceo/ceo-header.tsx"), /PeriodSelect|\bdays\b/, "el selector no va en la cabecera: parecería gobernar todo");
+  assert.equal(
+    [...code("components/ceo/kpi-row.tsx").matchAll(/\bdays\b/g)].length,
+    4,
+    "kpi-row solo reenvía `days` a la tarjeta de Ingresos (su firma y la llamada a la tarjeta)",
+  );
+});
+
+test("Ingresos se lee en el servidor con el token de la petición y sin tragarse el error", () => {
+  const card = code("components/ceo/revenue-kpi.tsx");
+  assert.match(card, /from "@\/lib\/api-server"/);
+  assert.doesNotMatch(card, /from "@\/lib\/api"/);
+  assert.match(card, /readIngresos\(api, window, days\)/);
+  assert.doesNotMatch(read("components/ceo/revenue-kpi.tsx"), /["']use client["']/);
+  const lib = code("lib/ceo-kpis.ts");
+  assert.match(lib, /settle\(\(\) => source\.revenueSummary\(window\)\)/);
+  assert.doesNotMatch(lib, /\.catch\s*\(|\?\?\s*0\b|\|\|\s*0\b|parseFloat|Number\(|toFixed/, "ni un cero por defecto ni un float");
+});
+
+test("la cifra de Ingresos sale de verified[]: nunca de consolidated_eur_by_origin ni de revenueKpis", () => {
+  const lib = code("lib/ceo-kpis.ts");
+  assert.doesNotMatch(lib, /consolidated_eur|revenueKpis|summaryView/);
+  assert.match(lib, /summary\.verified/);
+  for (const file of ["components/ceo/revenue-kpi.tsx", "components/ceo/kpi-row.tsx"]) {
+    assert.doesNotMatch(code(file), /consolidated_eur|revenueKpis|summaryView/, file);
+  }
+});
+
+test("ninguna cifra del mockup aprobado aparece como dato de negocio en el Director ejecutivo", () => {
+  const mockup = /184\.320|46\.280|25,1\s?%|128\.450|\+18\s?%|\+11\s?%|\+3,4\s?%|8,4 meses/;
+  for (const file of CEO_FILES) assert.doesNotMatch(code(file), mockup, `${file} lleva una cifra del mockup`);
+});
+
+test("la tarjeta de Ingresos no elige una línea como principal cuando hay varias, ni suma, ni convierte", () => {
+  const card = code("components/ceo/revenue-kpi.tsx");
+  assert.match(card, /big=\{view\.lines\.length === 1\}/);
+  assert.doesNotMatch(card, /\.reduce\(|\bsum\b|convert|Varios orígenes/i);
+  // La cifra grande solo existe con UNA línea: `lines[0]` aparece una sola vez, dentro de esa rama.
+  assert.equal([...card.matchAll(/lines\[0\]/g)].length, 1);
+  assert.match(card, /view\.lines\.length === 1\) \{\s*return \(\s*<ul>\s*<Line line=\{view\.lines\[0\]\} big \/>/);
+});
+
+// --- Tarjeta compacta (M47 · 3A, ajuste visual): la altura no rompe la fila de KPI y NADA se esconde ------------------------------
+
+test("la tarjeta de Ingresos es compacta: las líneas hacen scroll en un área de alto fijo atado a la constante, y lo de fuera de la cifra es un resumen", () => {
+  const card = code("components/ceo/revenue-kpi.tsx");
+  assert.equal(INGRESOS_LINES_MAX_REM, 6);
+  assert.match(card, new RegExp(`max-h-\\[${INGRESOS_LINES_MAX_REM}rem\\]`));
+  assert.ok(INGRESOS_CARD_MAX_PX <= 300, "el límite de altura de la tarjeta en desktop");
+  // El área con scroll solo envuelve las líneas, y se alcanza y se ve con el teclado.
+  assert.match(card, /tabIndex=\{0\}/);
+  assert.match(card, /aria-label=\{`Ingresos por origen y moneda: \$\{linesCountText\(view\.lines\.length\)\}`\}/);
+  assert.match(card, /focus-visible:ring-2/);
+  // «Fuera de esta cifra» en la tarjeta es solo el resumen de una línea; las listas completas viven en el desglose.
+  assert.match(card, /secondarySummary\(view\.secondary\)/);
+  assert.doesNotMatch(card, /secondary\.underReview|secondary\.pending|secondary\.notes|\.pending\.map|\.underReview\.map/);
+
+});
+
+test("«Ver desglose» enseña TODAS las líneas y TODO lo de fuera de la cifra, se abre con el teclado y no suma", () => {
+  const raw = read("components/ceo/revenue-breakdown.tsx");
+  const breakdown = code("components/ceo/revenue-breakdown.tsx");
+  assert.match(raw, /^"use client";/);
+  // Un botón real (se abre con Intro o Espacio), dentro de un Sheet (foco atrapado, `Esc` cierra y devuelve el foco).
+  assert.match(breakdown, /<SheetTrigger render=\{<Button type="button" variant="outline" size="xs" className="h-5 px-1\.5 text-\[11px\]" \/>\}>\s*Ver desglose\{view\.kind === "loaded" && view\.lines\.length > 1/);
+  // Todas las líneas, con todos sus campos.
+  assert.match(breakdown, /view\.lines\.map\(\(line\) => \(\s*<LineDetail key=\{line\.key\} line=\{line\} \/>/);
+  for (const field of ["line.currency", "line.origin", "line.revenue", "line.refunds", "line.net", "line.captures", "line.refundCount"]) {
+    assert.ok(breakdown.includes(field), `el desglose no enseña ${field}`);
+  }
+  // Y todo lo que queda fuera de la cifra, con sus importes y recuentos.
+  for (const part of ["secondary.underReview.map", "secondary.pending.map", "secondary.notes.map", "secondary.pendingCount", "line.label", "line.amount", "line.count"]) {
+    assert.ok(breakdown.includes(part), `el desglose no enseña ${part}`);
+  }
+  assert.match(breakdown, /<OutsideFigure secondary=\{view\.secondary\} \/>/);
+  assert.doesNotMatch(breakdown, /\.reduce\(|\bsum\b|convert|Number\(|toFixed|parseFloat/i);
+});
+
+test("el modo compacto no deja ningún dato fuera: todo lo que la vista tiene está en la tarjeta o en el desglose", () => {
+  const compact = code("components/ceo/revenue-kpi.tsx") + code("components/ceo/revenue-breakdown.tsx");
+  const view = code("lib/ceo-kpis.ts");
+  // Cada campo de una línea del modelo se pinta en alguna de las dos superficies.
+  for (const field of ["currency", "origin", "revenue", "refunds", "net", "captures", "refundCount"]) {
+    assert.match(view, new RegExp(`\\b${field}[:,]`), `la vista ya no lleva ${field}`);
+    assert.ok(compact.includes(`line.${field}`), `line.${field} no se enseña`);
+  }
+  // El botón existe siempre que haya algo más que la tarjeta: varias líneas o algo fuera de la cifra.
+  assert.match(code("components/ceo/revenue-kpi.tsx"), /showBreakdown = view\.kind !== "error" && \(multi \|\| hasSecondary\(view\.secondary\)\)/);
 });
 
 // --- Bytes de control y finales de fichero (M47 · Commit 2, enmienda) -----------------------------------------------------------
