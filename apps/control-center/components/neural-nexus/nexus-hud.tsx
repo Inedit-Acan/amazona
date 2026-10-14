@@ -1,24 +1,23 @@
 "use client";
 
-import { DEMO_CORE_METRICS } from "@/lib/demo/neural-nexus";
 import { STATUS_LABEL, type HudMetrics } from "@/lib/neural-nexus";
 import { formatDuration, formatPercent } from "@/lib/format";
 import { STATUS_COLOR } from "./nexus-theme";
 
-function Row({ label, value, demo }: { label: string; value: string; demo?: boolean }) {
+/** Lo que enseña una cifra a la que le falta su fuente. No es un cero ni un valor de relleno. */
+const NO_DATA = "Sin dato";
+
+function Row({ label, value, missing }: { label: string; value: string; missing?: boolean }) {
   return (
     <div className="flex items-baseline justify-between gap-3 text-xs">
       <span className="min-w-0 truncate text-muted-foreground">{label}</span>
-      <span className="shrink-0 tabular-nums" title={demo ? "Dato de demostración" : undefined}>
-        {value}
-        {demo ? <span className="ml-1 text-[10px] text-muted-foreground">demo</span> : null}
-      </span>
+      <span className={missing ? "shrink-0 text-muted-foreground" : "shrink-0 tabular-nums"}>{value}</span>
     </div>
   );
 }
 
-/** Panel de métricas del Decision Engine (especificación §22). Cada línea dice
- * si el dato es real o de demostración. */
+/** Panel de métricas del Decision Engine (especificación §22). Cada cifra es un dato
+ * del backend o dice «Sin dato»: no hay valores de demostración (M47 · Commit 1). */
 export function NexusHud({ metrics }: { metrics: HudMetrics }) {
   const color = STATUS_COLOR[metrics.coreStatus];
   return (
@@ -29,26 +28,31 @@ export function NexusHud({ metrics }: { metrics: HudMetrics }) {
         {STATUS_LABEL[metrics.coreStatus]}
       </p>
       <div className="space-y-1.5">
-        <Row label="Eventos activos" value={String(metrics.activeEvents)} demo={metrics.activeEventsAreDemo} />
+        <Row
+          label="Eventos activos"
+          value={metrics.activeEvents === null ? NO_DATA : String(metrics.activeEvents)}
+          missing={metrics.activeEvents === null}
+        />
         <Row label="Agentes activos" value={`${metrics.activeAgents} / ${metrics.totalAgents}`} />
         <Row
           label="Latencia media"
-          value={metrics.latencyMs === null ? formatDuration(DEMO_CORE_METRICS.latencyMs) : formatDuration(metrics.latencyMs)}
-          demo={metrics.latencyMs === null}
+          value={metrics.latencyMs === null ? NO_DATA : formatDuration(metrics.latencyMs)}
+          missing={metrics.latencyMs === null}
         />
-        <Row label="Proyecto" value={metrics.projectName} demo={!metrics.projectIsReal} />
+        <Row label="Proyecto" value={metrics.projectName ?? "Sin decisión"} missing={metrics.projectName === null} />
       </div>
       <div className="mt-2.5 space-y-1">
         <div className="flex items-baseline justify-between gap-2 text-xs">
           <span className="text-muted-foreground">Progreso</span>
-          <span className="tabular-nums">
-            {formatPercent(metrics.progress, 0)}
-            {metrics.progressIsReal ? null : <span className="ml-1 text-[10px] text-muted-foreground">demo</span>}
+          <span className={metrics.progress === null ? "text-muted-foreground" : "tabular-nums"}>
+            {metrics.progress === null ? "Sin decisión" : formatPercent(metrics.progress, 0)}
           </span>
         </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full rounded-full bg-primary" style={{ width: `${Math.round(metrics.progress * 100)}%` }} />
-        </div>
+        {metrics.progress === null ? null : (
+          <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.round(metrics.progress * 100)}%` }} />
+          </div>
+        )}
       </div>
     </div>
   );

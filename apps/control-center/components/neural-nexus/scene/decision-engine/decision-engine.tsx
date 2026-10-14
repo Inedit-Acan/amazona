@@ -15,7 +15,7 @@ import { TechnicalRing } from "./technical-ring";
 const SIDES: Hemisphere[] = ["left", "right"];
 /** Estados que encienden la ruta neural de su zona. Un dominio disponible no
  * enciende nada: en reposo la red se ve, pero no pasa nada (§26). */
-const ROUTED: NodeStatus[] = ["running", "waiting", "blocked", "error"];
+const ROUTED: NodeStatus[] = ["running", "waiting", "blocked", "degraded", "error"];
 
 /** Decision Engine: el cerebro operativo del sistema
  * (docs/design/KOVA_Decision_Engine_especificacion_visual_tecnica_final.md).

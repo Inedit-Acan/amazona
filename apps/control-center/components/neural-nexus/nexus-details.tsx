@@ -4,10 +4,13 @@ import Link from "next/link";
 import { ArrowRight, X } from "lucide-react";
 import { relativeTime } from "@/lib/dates";
 import { formatDuration, formatEuro, formatInteger, formatPercent } from "@/lib/format";
+import { agentStatusText } from "@/lib/agent-status";
 import { STATUS_LABEL, type GraphEdge, type GraphNode } from "@/lib/neural-nexus";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { Button } from "@/components/ui/button";
 import { NODE_ICON, STATUS_COLOR } from "./nexus-theme";
+
+const NO_DATA = "No disponible";
 
 function Field({ label, value, title, demo }: { label: string; value: string; title?: string; demo?: boolean }) {
   return (
@@ -85,6 +88,7 @@ export function NexusDetails({
       <p className="mb-2.5 text-[11px] text-muted-foreground">{node.description}</p>
 
       <div className="space-y-1.5 border-t border-white/10 pt-2.5">
+        {node.registry ? <Field label="Estado del registro" value={agentStatusText(node.registry)} /> : null}
         {node.projectName ? <Field label="Proyecto" value={node.projectName} /> : null}
         {node.task ? <Field label="Tarea actual" value={node.task} /> : null}
         {node.progress !== undefined ? (
@@ -102,7 +106,10 @@ export function NexusDetails({
             <Field label="Ejecutando" value={formatInteger(ownAgents.filter((item) => item.status === "running").length)} />
             <Field
               label="Con incidencia"
-              value={formatInteger(ownAgents.filter((item) => item.status === "blocked" || item.status === "error").length)}
+              value={formatInteger(
+                ownAgents.filter((item) => item.status === "blocked" || item.status === "error" || item.status === "degraded" || item.status === "unknown")
+                  .length,
+              )}
             />
           </>
         ) : null}
@@ -110,27 +117,18 @@ export function NexusDetails({
 
       {node.metrics && node.type === "core" ? (
         <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/10 pt-2.5">
-          {node.metrics.activeEvents === undefined ? null : (
-            <Field label="Eventos" value={formatInteger(node.metrics.activeEvents)} demo={node.isDemo} />
-          )}
-          {node.metrics.latencyMs === undefined ? null : (
-            <Field label="Latencia" value={formatDuration(node.metrics.latencyMs)} demo />
-          )}
-          {node.metrics.handoffs === undefined ? null : (
-            <Field label="Handoffs" value={formatInteger(node.metrics.handoffs)} demo />
-          )}
-          {node.metrics.humanGates === undefined ? null : (
-            <Field label="Human gates" value={formatInteger(node.metrics.humanGates)} demo />
-          )}
+          <Field label="Eventos" value={node.metrics.activeEvents === undefined ? NO_DATA : formatInteger(node.metrics.activeEvents)} />
+          <Field label="Latencia media" value={node.metrics.latencyMs === undefined ? NO_DATA : formatDuration(node.metrics.latencyMs)} />
         </div>
       ) : null}
 
       {node.metrics && node.type === "agent" ? (
         <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/10 pt-2.5">
-          <Field label="Ejecuciones" value={formatInteger(node.metrics.runs ?? 0)} />
+          {/* `runs` y `costToday` solo existen si el log de ejecuciones se pudo leer: sin él no hay «0», hay «No disponible». */}
+          <Field label="Ejecuciones" value={node.metrics.runs === undefined ? NO_DATA : formatInteger(node.metrics.runs)} />
           <Field label="Éxito" value={node.metrics.successRate === undefined ? "—" : formatPercent(node.metrics.successRate)} />
           <Field label="Latencia" value={node.metrics.latencyMs === undefined ? "—" : formatDuration(node.metrics.latencyMs)} />
-          <Field label="Coste hoy" value={formatEuro(node.metrics.costToday ?? 0)} />
+          <Field label="Coste hoy" value={node.metrics.costToday === undefined ? NO_DATA : formatEuro(node.metrics.costToday)} />
         </div>
       ) : null}
 

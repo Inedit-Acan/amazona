@@ -40,7 +40,6 @@ const ALLOWED = [
   "app/sourcing/sourcing-workspace.tsx",
   "app/status/status-panels.tsx",
   "app/status/status-workspace.tsx",
-  "components/neural-nexus/nexus-hud.tsx",
   "components/product-summary.tsx",
   "lib/agents-view.ts",
   "lib/approvals-view.ts",

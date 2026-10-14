@@ -195,7 +195,6 @@ const REMAINING_SILENT_READS: Record<string, number> = {
   "app/research/page.tsx": 2,
   "app/sourcing/page.tsx": 1,
   "app/status/page.tsx": 6,
-  "components/neural-nexus/neural-nexus-graph.tsx": 2,
   // No son listas de negocio: `null` = «sin sesión» (auth) y un `undefined` de mejor esfuerzo (interruptor de emergencia).
   "components/kill-switch-control.tsx": 1,
   "lib/auth-server.ts": 2,
@@ -209,6 +208,6 @@ test("10 · trinquete: las lecturas que aún tragan su error fuera del Panel no 
     assert.ok(count >= allowed, `${file}: ahora hay ${count}: baja REMAINING_SILENT_READS a ${count} para que el trinquete no retroceda`);
   }
   const total = Object.values(REMAINING_SILENT_READS).reduce((sum, count) => sum + count, 0);
-  assert.equal(total, 35, "32 lecturas de otras pantallas + 3 de otra naturaleza");
+  assert.equal(total, 33, "30 lecturas de otras pantallas + 3 de otra naturaleza (el grafo salió en M47 · Commit 1)");
   for (const file of GOVERNED) assert.equal(REMAINING_SILENT_READS[file] ?? 0, 0, `${file} está gobernado: cero`);
 });

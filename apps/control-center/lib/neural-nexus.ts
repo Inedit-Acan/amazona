@@ -3,13 +3,11 @@ import { teamOf } from "./agents.ts";
 import { CEO_ANCHOR, zoneAnchor, type Vec3 } from "./decision-engine.ts";
 import { parseUtc } from "./dates.ts";
 import { COST_PER_RUN } from "./demo/agents.ts";
+import { readAgentStatus, type AgentStatusReading } from "./agent-status.ts";
 import {
-  CANONICAL_AGENTS,
-  DEMO_CORE_METRICS,
   DOMAIN_AGENT_ICON_KEYS,
   DOMAIN_ICON_KEY,
   DEMO_HANDOFFS,
-  DEMO_PROJECT,
   DEMO_TASKS,
   DOMAINS,
   DOMAIN_DESCRIPTION,
@@ -21,15 +19,26 @@ import {
 
 // Modelo del grafo de agentes del Director ejecutivo («Neural Nexus»,
 // docs/design/KOVA_Neural_Nexus_especificacion_Claude_Code.md). Cuatro niveles:
-// CEO → Decision Engine → 8 dominios → 13 agentes. El layout es DETERMINISTA y
-// estable entre sesiones: las posiciones se calculan aquí, no las decide un
-// force-graph. Real: los agentes del registro con su estado, el log de
+// CEO → Decision Engine → 8 dominios → los agentes del registro. El layout es
+// DETERMINISTA y estable entre sesiones: las posiciones se calculan aquí, no las
+// decide un force-graph. Real: los agentes del registro con su estado, el log de
 // ejecuciones y la decisión del CEO con sus evidencias. Demo
-// (lib/demo/neural-nexus.ts): la tarea en curso, el progreso, los handoffs
-// entre dominios y las métricas del Decision Engine.
+// (lib/demo/neural-nexus.ts): la tarea en curso de un agente que ejecuta, su
+// progreso y los handoffs entre dominios (se retiran en el Commit 5 de M47).
+//
+// M47 · Commit 1: este módulo ya NO inventa nada para llenar un hueco. Sin
+// registro de agentes no hay agentes (antes salía un roster canónico de 13
+// «Disponible»); sin decisión no hay proyecto ni progreso ni eventos (antes salían
+// «AMZ-2026-003», «68 %» y «3 eventos»); sin ejecuciones leídas no hay métricas de
+// ejecución. Y un estado de registro que el backend no envía no se traduce a uno
+// conocido: es `unknown` (ver lib/agent-status.ts).
 
 export type NodeType = "ceo" | "core" | "domain" | "agent";
-export type NodeStatus = "available" | "running" | "waiting" | "blocked" | "error" | "inactive";
+/** Estado VISUAL de un nodo. No es `AgentStatus` (lo que dice el registro) ni `ReadState` (si se pudo leer): es la
+ * categoría con la que se dibuja, derivada de lo anterior y, en los agentes con evidencia, de la decisión del CEO.
+ * `degraded` = el registro dice `DEGRADED` (funcionamiento parcial; NO es `waiting`, que es esperar legítimamente).
+ * `unknown` = el registro envió un texto que no es ninguno de sus estados. */
+export type NodeStatus = "available" | "running" | "waiting" | "blocked" | "degraded" | "error" | "inactive" | "unknown";
 export type GraphMode = "architecture" | "execution" | "incidents";
 export type EdgeType = "hierarchy" | "flow" | "dependency" | "incident";
 
@@ -41,8 +50,10 @@ export const STATUS_LABEL: Record<NodeStatus, string> = {
   running: "Ejecutando",
   waiting: "Esperando",
   blocked: "Bloqueado",
+  degraded: "Degradado",
   error: "Error",
   inactive: "Inactivo",
+  unknown: "Desconocido",
 };
 
 export const MODE_LABEL: Record<GraphMode, string> = {
@@ -82,6 +93,9 @@ export interface GraphNode {
   metrics?: NodeMetrics;
   /** El estado o la tarea del nodo son de demostración. */
   isDemo: boolean;
+  /** Lo que dice el registro de este agente, sin traducir (solo agentes). El estado visual (`status`) puede diferir
+   * cuando la decisión del CEO lo matiza; este campo es siempre lo que el backend devolvió. */
+  registry?: AgentStatusReading;
 }
 
 export interface GraphEdge {
@@ -149,23 +163,44 @@ export function agentAngle(domainIndex: number, indexInDomain: number, countInDo
 
 // --- Estado de cada nodo --------------------------------------------------------------
 
-const STATUS_FROM_REGISTRY: Record<string, NodeStatus> = {
-  AVAILABLE: "available",
-  BUSY: "running",
-  WAITING: "waiting",
-  OFFLINE: "inactive",
-  ERROR: "error",
-};
+/** Cómo se dibuja cada estado REAL del registro. Los siete de `AgentStatus` y nada más: `OFFLINE` y `ERROR` no existen
+ * en el backend y no se mapean. Un texto desconocido es `unknown`, nunca `available`. */
+export function nodeStatusOfRegistry(reading: AgentStatusReading): NodeStatus {
+  if (reading.kind === "unknown") return "unknown";
+  switch (reading.status) {
+    case "AVAILABLE":
+      return "available";
+    case "BUSY":
+      return "running";
+    case "WAITING":
+      return "waiting";
+    case "BLOCKED":
+      return "blocked";
+    case "DEGRADED":
+      return "degraded";
+    case "DISABLED":
+      return "inactive";
+    case "FAILED":
+      return "error";
+  }
+}
 
-/** Gravedad de cada estado: la del dominio es la peor de sus agentes. */
+/** Gravedad de cada estado: la del dominio es la peor de sus agentes. Lo que no se sabe (`unknown`) pesa más que lo
+ * que va bien: un dominio con un agente cuyo estado no se reconoce no puede enseñarse como sano. */
 const SEVERITY: Record<NodeStatus, number> = {
-  error: 5,
-  blocked: 4,
+  error: 7,
+  blocked: 6,
+  degraded: 5,
+  unknown: 4,
   waiting: 3,
   running: 2,
   available: 1,
   inactive: 0,
 };
+
+/** Estados del registro que la decisión del CEO NO puede suavizar: si el registro dice que el agente no está bien, el
+ * hecho de que aparezca en la evidencia de una decisión no lo convierte en «ejecutando». */
+const REGISTRY_OVERRIDES_DECISION: ReadonlySet<NodeStatus> = new Set<NodeStatus>(["blocked", "degraded", "error", "inactive", "unknown"]);
 
 export function worstStatus(statuses: NodeStatus[]): NodeStatus {
   if (statuses.length === 0) return "inactive";
@@ -191,8 +226,11 @@ export function coreStatus(decision: Decision | null): NodeStatus {
 // --- Construcción del grafo -----------------------------------------------------------
 
 export interface NexusInput {
+  /** Los agentes del registro (lectura válida). Vacío = sin agentes: el grafo no los inventa. */
   agents: Agent[];
-  executions: AgentExecution[];
+  /** El log de ejecuciones. `null` = NO se pudo leer: nada de lo derivado de las ejecuciones se calcula (ni un 0). `[]` =
+   * el backend dijo que no hay ninguna. */
+  executions: AgentExecution[] | null;
   decision: Decision | null;
   now: number;
 }
@@ -201,16 +239,12 @@ interface AgentSlot {
   id: string;
   label: string;
   domain: DomainKey;
-  agent?: Agent;
+  agent: Agent;
 }
 
-/** Los agentes del registro repartidos en sus dominios, en el orden de los
- * dominios. Si el registro está vacío se usa el roster canónico de la
- * especificación, marcado como demostración. */
+/** Los agentes del registro repartidos en sus dominios, en el orden de los dominios. Un registro vacío da cero
+ * agentes: no hay roster de relleno. */
 export function agentSlots(agents: Agent[]): AgentSlot[] {
-  if (agents.length === 0) {
-    return CANONICAL_AGENTS.map((entry) => ({ id: entry.id, label: entry.label, domain: entry.domain }));
-  }
   const byDomain = new Map<DomainKey, AgentSlot[]>();
   for (const agent of agents) {
     const team = teamOf(agent.role);
@@ -220,19 +254,25 @@ export function agentSlots(agents: Agent[]): AgentSlot[] {
   return DOMAINS.flatMap((domain) => byDomain.get(domain) ?? []);
 }
 
-function agentStatusOf(slot: AgentSlot, decision: Decision | null): { status: NodeStatus; isDemo: boolean } {
-  if (!slot.agent) return { status: "available", isDemo: true };
-  const registry = STATUS_FROM_REGISTRY[slot.agent.status] ?? "available";
-  if (!decision) return { status: registry, isDemo: false };
+function agentStatusOf(slot: AgentSlot, decision: Decision | null): { status: NodeStatus; registry: AgentStatusReading } {
+  const registry = readAgentStatus(slot.agent.status);
+  const fromRegistry = nodeStatusOfRegistry(registry);
+  if (!decision || REGISTRY_OVERRIDES_DECISION.has(fromRegistry)) return { status: fromRegistry, registry };
 
   const source = slot.agent.capabilities.map((capability) => EVIDENCE_BY_CAPABILITY[capability]).find(Boolean);
-  if (!source) return { status: registry, isDemo: false };
+  if (!source) return { status: fromRegistry, registry };
   const evidence = decision.evidence.find((item) => item.source === source);
-  if (!evidence) return { status: "waiting", isDemo: false };
+  if (!evidence) return { status: "waiting", registry };
 
   // El veto financiero y el NO_GO legal son bloqueos reales de la decisión.
   const vetoed = Boolean(evidence.data?.finance_veto) || evidence.data?.legal_status === "NO_GO";
-  return { status: vetoed ? "blocked" : "running", isDemo: false };
+  return { status: vetoed ? "blocked" : "running", registry };
+}
+
+/** Latencia media de un log de ejecuciones; `null` si no se pudo leer o está vacío. Nunca un número de relleno. */
+export function meanLatencyMs(executions: AgentExecution[] | null): number | null {
+  if (executions === null || executions.length === 0) return null;
+  return executions.reduce((sum, run) => sum + run.duration_ms, 0) / executions.length;
 }
 
 export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: GraphEdge[] } {
@@ -240,7 +280,7 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
   const slots = agentSlots(agents);
   const dayStart = now - (now % 86_400_000);
   const byAgent = new Map<string, AgentExecution[]>();
-  for (const execution of executions) {
+  for (const execution of executions ?? []) {
     byAgent.set(execution.agent_id, [...(byAgent.get(execution.agent_id) ?? []), execution]);
   }
 
@@ -251,7 +291,7 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     const domainIndex = DOMAINS.indexOf(domain);
     const own = slots.filter((slot) => slot.domain === domain);
     own.forEach((slot, indexInDomain) => {
-      const { status, isDemo } = agentStatusOf(slot, decision);
+      const { status, registry } = agentStatusOf(slot, decision);
       const runs = byAgent.get(slot.id) ?? [];
       const failures = runs.filter((run) => !run.success).length;
       const tasks = DEMO_TASKS[domain];
@@ -265,18 +305,23 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
         status,
         description: DOMAIN_DESCRIPTION[domain],
         icon: DOMAIN_AGENT_ICON_KEYS[domain][indexInDomain] ?? DOMAIN_ICON_KEY[domain],
-        projectName: decision ? decision.project_id : DEMO_PROJECT.code,
+        projectName: decision ? decision.project_id : undefined,
         task: status === "running" ? tasks[demoTaskIndex(slot.id, tasks.length)] : undefined,
         progress: status === "running" ? demoProgress(slot.id) : undefined,
         lastActivityAt: lastAt,
-        metrics: {
-          runs: runs.length,
-          successRate: runs.length > 0 ? (runs.length - failures) / runs.length : undefined,
-          latencyMs: runs.length > 0 ? runs.reduce((sum, run) => sum + run.duration_ms, 0) / runs.length : undefined,
-          costToday: round2(runs.filter((run) => parseUtc(run.created_at) >= dayStart).length * (COST_PER_RUN[domain] ?? COST_PER_RUN.Otros)),
-          evaluationScore: demoEvaluation(slot.id),
-        },
-        isDemo,
+        // Sin el log de ejecuciones leído NO hay métricas de ejecución: ni «0 ejecuciones» ni «0 €» (eso sería ERROR → 0).
+        metrics:
+          executions === null
+            ? { evaluationScore: demoEvaluation(slot.id) }
+            : {
+                runs: runs.length,
+                successRate: runs.length > 0 ? (runs.length - failures) / runs.length : undefined,
+                latencyMs: runs.length > 0 ? runs.reduce((sum, run) => sum + run.duration_ms, 0) / runs.length : undefined,
+                costToday: round2(runs.filter((run) => parseUtc(run.created_at) >= dayStart).length * (COST_PER_RUN[domain] ?? COST_PER_RUN.Otros)),
+                evaluationScore: demoEvaluation(slot.id),
+              },
+        isDemo: false,
+        registry,
       });
       domainStatuses.set(domain, [...(domainStatuses.get(domain) ?? []), status]);
     });
@@ -302,16 +347,14 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     status: coreStatus(decision),
     description: "Núcleo de inteligencia: procesa la información, evalúa opciones y coordina la ejecución.",
     icon: "core",
-    projectName: decision ? decision.project_id : DEMO_PROJECT.code,
-    progress: decision ? undefined : DEMO_PROJECT.progress,
+    projectName: decision ? decision.project_id : undefined,
+    // Solo lo que existe: los eventos son las evidencias de la decisión y la latencia es la media de las ejecuciones
+    // leídas. Los handoffs y las puertas humanas no tienen fuente en el backend: no se enseñan.
     metrics: {
-      latencyMs: DEMO_CORE_METRICS.latencyMs,
-      // Los eventos son reales en cuanto hay decisión: son sus evidencias.
-      activeEvents: decision ? decision.evidence.length : DEMO_CORE_METRICS.activeEvents,
-      handoffs: DEMO_CORE_METRICS.handoffs,
-      humanGates: DEMO_CORE_METRICS.humanGates,
+      latencyMs: meanLatencyMs(executions) ?? undefined,
+      activeEvents: decision ? decision.evidence.length : undefined,
     },
-    isDemo: !decision,
+    isDemo: false,
   };
 
   const ceo: GraphNode = {
@@ -381,7 +424,7 @@ export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
         anchor: anchorOf.get(agent.domain!),
       });
     }
-    if (agent.status === "blocked" || agent.status === "error") {
+    if (agent.status === "blocked" || agent.status === "error" || agent.status === "degraded" || agent.status === "unknown") {
       edges.push({
         id: `incident-${agent.id}`,
         source: agent.id,
@@ -443,7 +486,7 @@ export interface ModeView {
   dimmed: Set<string>;
 }
 
-const INCIDENT_STATUSES: NodeStatus[] = ["blocked", "error", "waiting"];
+const INCIDENT_STATUSES: NodeStatus[] = ["blocked", "error", "degraded", "unknown", "waiting"];
 
 /** Qué se ve en cada modo (§16–18). Arquitectura enseña la estructura y calla el
  * tráfico; Ejecución resalta lo que está pasando; Incidencias, lo que está
@@ -489,36 +532,32 @@ export function relatedIds(edges: GraphEdge[], id: string | null): Set<string> {
 
 // --- HUD ------------------------------------------------------------------------------
 
+/** Cada cifra del HUD es un dato real o `null` («sin dato»): ninguna lleva un valor de relleno ni una etiqueta «demo». */
 export interface HudMetrics {
   coreStatus: NodeStatus;
-  activeEvents: number;
-  activeEventsAreDemo: boolean;
+  /** Las evidencias de la decisión del CEO; `null` si no hay decisión. */
+  activeEvents: number | null;
   activeAgents: number;
   totalAgents: number;
-  /** Latencia media real de las ejecuciones; null si no hay ninguna. */
+  /** Latencia media de las ejecuciones; `null` si el log no se pudo leer o está vacío. */
   latencyMs: number | null;
-  projectName: string;
-  projectIsReal: boolean;
-  progress: number;
-  progressIsReal: boolean;
+  /** El proyecto de la decisión del CEO; `null` si no hay decisión. */
+  projectName: string | null;
+  /** La confianza de la decisión (0–1); `null` si no hay decisión o no trae confianza. */
+  progress: number | null;
 }
 
-export function hudMetrics(nodes: GraphNode[], executions: AgentExecution[], decision: Decision | null): HudMetrics {
+export function hudMetrics(nodes: GraphNode[], executions: AgentExecution[] | null, decision: Decision | null): HudMetrics {
   const agents = nodes.filter((node) => node.type === "agent");
   const running = agents.filter((node) => node.status === "running").length;
   const core = nodes.find((node) => node.id === CORE_ID);
-  const latency = executions.length > 0 ? executions.reduce((sum, run) => sum + run.duration_ms, 0) / executions.length : null;
-  const evidence = decision?.evidence.length ?? 0;
   return {
     coreStatus: core?.status ?? "available",
-    activeEvents: evidence > 0 ? evidence : running > 0 ? running : DEMO_CORE_METRICS.activeEvents,
-    activeEventsAreDemo: evidence === 0 && running === 0,
+    activeEvents: decision ? decision.evidence.length : null,
     activeAgents: running,
     totalAgents: agents.length,
-    latencyMs: latency,
-    projectName: decision ? decision.project_id : DEMO_PROJECT.code,
-    projectIsReal: decision !== null,
-    progress: decision?.confidence ?? DEMO_PROJECT.progress,
-    progressIsReal: decision?.confidence != null,
+    latencyMs: meanLatencyMs(executions),
+    projectName: decision ? decision.project_id : null,
+    progress: decision?.confidence ?? null,
   };
 }

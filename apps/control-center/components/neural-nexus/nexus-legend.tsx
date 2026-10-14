@@ -1,17 +1,21 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Circle, Clock, MinusCircle, type LucideIcon } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, CircleAlert, CircleHelp, Clock, MinusCircle, type LucideIcon } from "lucide-react";
 import { STATUS_LABEL, type NodeStatus } from "@/lib/neural-nexus";
 import { STATUS_COLOR } from "./nexus-theme";
 
 /** Cada estado lleva icono además de color: la leyenda no depende de la vista
- * cromática (especificación §3 y §34). */
-const LEGEND: { status: NodeStatus; icon: LucideIcon; label?: string }[] = [
+ * cromática (especificación §3 y §34). `Degradado` va siempre (es un estado del
+ * registro de agentes); `Desconocido` solo cuando hay algún agente cuyo estado no
+ * se reconoce. */
+const LEGEND: { status: NodeStatus; icon: LucideIcon; label?: string; onlyWhenPresent?: boolean }[] = [
   { status: "running", icon: CheckCircle2 },
   { status: "available", icon: Circle },
   { status: "waiting", icon: Clock },
+  { status: "degraded", icon: CircleAlert },
   { status: "blocked", icon: AlertTriangle, label: "Bloqueado / Error" },
   { status: "inactive", icon: MinusCircle },
+  { status: "unknown", icon: CircleHelp, onlyWhenPresent: true },
 ];
 
 export function NexusLegend({ counts }: { counts: Record<NodeStatus, number> }) {
@@ -19,7 +23,7 @@ export function NexusLegend({ counts }: { counts: Record<NodeStatus, number> }) 
     <div className="pointer-events-none w-44 rounded-xl border border-white/10 bg-[#071713]/85 p-3 backdrop-blur-sm">
       <p className="mb-2 text-[11px] font-semibold tracking-wide text-foreground">Estados de agentes</p>
       <ul className="space-y-1.5">
-        {LEGEND.map(({ status, icon: Icon, label }) => {
+        {LEGEND.filter((row) => !row.onlyWhenPresent || counts[row.status] > 0).map(({ status, icon: Icon, label }) => {
           const total = status === "blocked" ? counts.blocked + counts.error : counts[status];
           return (
             <li key={status} className="flex items-center gap-2 text-xs">

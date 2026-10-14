@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { api, type Agent, type AgentExecution, type Decision } from "@/lib/api";
+import { AlertTriangle, Network, RefreshCw } from "lucide-react";
+import { api, type Decision } from "@/lib/api";
 import {
   applyMode,
   buildGraph,
@@ -10,12 +11,17 @@ import {
   type GraphMode,
   type NodeStatus,
 } from "@/lib/neural-nexus";
+import { readNexus, type NexusReads } from "@/lib/nexus-reads";
+import { listOf } from "@/lib/read-state";
 import { useGraphFallback } from "./use-nexus-fallback";
 import { Nexus2D } from "./nexus-2d";
 import { NexusDetails } from "./nexus-details";
 import { NexusHud } from "./nexus-hud";
 import { NexusLegend } from "./nexus-legend";
 import { NexusToolbar } from "./nexus-toolbar";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -32,24 +38,31 @@ const EMPTY_COUNTS: Record<NodeStatus, number> = {
   available: 0,
   waiting: 0,
   blocked: 0,
+  degraded: 0,
   error: 0,
   inactive: 0,
+  unknown: 0,
 };
 
 /** Grafo de agentes del Director ejecutivo. Cuatro niveles —CEO → Decision
- * Engine → 8 dominios → 13 agentes—, tres modos (Arquitectura, Ejecución e
- * Incidencias) y vista 3D con alternativa 2D sobre el mismo dataset
+ * Engine → 8 dominios → los agentes del registro—, tres modos (Arquitectura,
+ * Ejecución e Incidencias) y vista 3D con alternativa 2D sobre el mismo dataset
  * (docs/design/KOVA_Neural_Nexus_especificacion_Claude_Code.md).
  *
  * Real: los agentes del registro con su estado, su log de ejecuciones y la
- * decisión del CEO con sus evidencias, que es lo que pone a un agente a
- * ejecutar, a esperar o bloqueado. Demo: la tarea en curso, el progreso, los
- * handoffs entre dominios y las métricas del núcleo; el panel de cada nodo lo
- * declara. */
+ * decisión del CEO con sus evidencias, que es lo que pone a un agente a ejecutar,
+ * a esperar o bloqueado. Demo: la tarea en curso de un agente que ejecuta, su
+ * progreso y los handoffs entre dominios; el panel de cada nodo lo declara.
+ *
+ * M47 · Commit 1: las lecturas son `ReadState` (lib/nexus-reads.ts) y NINGUNA se
+ * traga. Sin una lectura válida del registro no hay grafo: hay un aviso. Un
+ * registro vacío tampoco se rellena con agentes de demostración. Si solo falla el
+ * log de ejecuciones, el grafo se dibuja con los agentes reales y lo que depende
+ * de las ejecuciones dice «No disponible». */
 export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [executions, setExecutions] = useState<AgentExecution[]>([]);
-  const [loading, setLoading] = useState(true);
+  // `null` = leyendo. Después, el `ReadState` de cada lectura.
+  const [reads, setReads] = useState<NexusReads | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [mode, setMode] = useState<GraphMode>("architecture");
   const [manualView, setManualView] = useState<"3d" | "2d" | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -68,19 +81,25 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.listAgents().catch((): Agent[] => []), api.listAgentExecutions().catch((): AgentExecution[] => [])])
-      .then(([registry, runs]) => {
-        if (cancelled) return;
-        setAgents(registry);
-        setExecutions(runs);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    readNexus(api).then((result) => {
+      if (!cancelled) setReads(result);
+    });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
+
+  function retry() {
+    setReads(null);
+    setAttempt((count) => count + 1);
+  }
+
+  // Las listas válidas: `null` si esa lectura no existe (error o sin leer), `[]` solo si el backend dijo «vacío».
+  const lists = useMemo(
+    () => (reads ? { agents: listOf(reads.agents), executions: listOf(reads.executions) } : null),
+    [reads],
+  );
+  const drawGraph = lists !== null && lists.agents !== null && lists.agents.length > 0;
 
   // El <Canvas> de R3F mide su contenedor al montar y aquí esa primera medida
   // vuelve 0: el lienzo se queda en los 300 × 150 por defecto (contenedor real:
@@ -88,10 +107,10 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
   // manda uno en cuanto la escena aparece; se repite porque el montaje no siempre
   // ha terminado en el primer frame.
   useEffect(() => {
-    if (loading || view !== "3d") return;
+    if (!drawGraph || view !== "3d") return;
     const timers = [50, 250, 800].map((delay) => window.setTimeout(() => window.dispatchEvent(new Event("resize")), delay));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [loading, view]);
+  }, [drawGraph, view]);
 
   useEffect(() => {
     function onChange() {
@@ -112,17 +131,73 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
   }, []);
 
   const { nodes, edges } = useMemo(
-    () => buildGraph({ agents, executions, decision, now }),
-    [agents, executions, decision, now],
+    () =>
+      drawGraph && lists?.agents
+        ? buildGraph({ agents: lists.agents, executions: lists.executions, decision, now })
+        : { nodes: [], edges: [] },
+    [drawGraph, lists, decision, now],
   );
   const view3d = useMemo(() => applyMode(nodes, edges, mode), [nodes, edges, mode]);
-  const metrics = useMemo(() => hudMetrics(nodes, executions, decision), [nodes, executions, decision]);
+  const metrics = useMemo(() => hudMetrics(nodes, lists?.executions ?? null, decision), [nodes, lists, decision]);
   const counts = useMemo(() => {
     const totals = { ...EMPTY_COUNTS };
     for (const node of nodes) if (node.type === "agent") totals[node.status] += 1;
     return totals;
   }, [nodes]);
   const selected = nodes.find((node) => node.id === selectedId) ?? null;
+
+  // --- Estados que no son un grafo ---------------------------------------------------------------------------------
+
+  if (reads === null) {
+    return (
+      <div className="space-y-3">
+        <div
+          role="status"
+          aria-label="Leyendo el registro de agentes"
+          className="relative h-[34rem] w-full overflow-hidden rounded-xl border bg-[#030606]"
+        >
+          <Skeleton className="size-full rounded-none" />
+        </div>
+      </div>
+    );
+  }
+
+  if (reads.agents.kind === "error" || reads.agents.kind === "unread") {
+    return (
+      <Alert variant="destructive">
+        <AlertTriangle className="size-4" />
+        <AlertTitle>No se pudo leer el registro de agentes</AlertTitle>
+        <AlertDescription>
+          <p>{reads.agents.kind === "error" ? reads.agents.message : reads.agents.reason}</p>
+          <p>No se dibuja el grafo: sin esa lectura no se sabe qué agentes hay ni en qué estado están.</p>
+          <div className="mt-2">
+            <Button type="button" size="sm" variant="outline" onClick={retry}>
+              <RefreshCw /> Reintentar
+            </Button>
+          </div>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (reads.agents.kind === "empty") {
+    return (
+      <div className="rounded-xl border">
+        <EmptyState
+          icon={Network}
+          title="El registro no tiene agentes"
+          description="El backend respondió y no hay ningún agente registrado. No se dibuja ningún grafo de relleno."
+          action={
+            <Button type="button" size="sm" variant="outline" onClick={retry}>
+              <RefreshCw /> Volver a leer
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
+
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
 
   return (
     <div className="space-y-3">
@@ -138,6 +213,24 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
         onResetCamera={() => setResetToken((token) => token + 1)}
       />
 
+      {reads.executions.kind === "error" || reads.executions.kind === "unread" ? (
+        <Alert variant="destructive">
+          <AlertTriangle className="size-4" />
+          <AlertTitle>No se pudo leer el log de ejecuciones</AlertTitle>
+          <AlertDescription>
+            <p>
+              {reads.executions.kind === "error" ? reads.executions.message : reads.executions.reason} El grafo enseña los agentes
+              del registro, pero las ejecuciones, la latencia y el coste de cada agente salen como «No disponible».
+            </p>
+            <div className="mt-2">
+              <Button type="button" size="sm" variant="outline" onClick={retry}>
+                <RefreshCw /> Reintentar
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <div
         ref={container}
         className={cn(
@@ -145,9 +238,7 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
           fullscreen ? "h-screen w-screen" : "h-[34rem] w-full",
         )}
       >
-        {loading ? (
-          <Skeleton className="size-full rounded-none" />
-        ) : view === "3d" ? (
+        {view === "3d" ? (
           <NexusScene
             nodes={nodes}
             edges={view3d.edges}
@@ -188,9 +279,8 @@ export function NeuralNexusGraph({ decision }: { decision: Decision | null }) {
         {view === "3d"
           ? "Arrastra para orbitar, rueda para hacer zoom y haz clic en un nodo para ver su detalle."
           : "Haz clic en un nodo para ver su detalle. La vista 2D usa los mismos datos que la 3D."}{" "}
-        Del backend: los {counts.running + counts.available + counts.waiting + counts.blocked + counts.error + counts.inactive} agentes del
-        registro con su estado, sus ejecuciones y la decisión del CEO. De demostración: la tarea en curso de cada agente, su
-        progreso, los handoffs entre dominios y las métricas del Decision Engine.
+        Del backend: los {total} agentes del registro con su estado, sus ejecuciones y la decisión del CEO. De demostración: la
+        tarea en curso de un agente que ejecuta, su progreso y los handoffs entre dominios.
       </p>
     </div>
   );

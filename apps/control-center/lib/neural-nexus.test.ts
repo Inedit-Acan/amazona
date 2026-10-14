@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Agent, AgentExecution, Decision } from "./api.ts";
-import { CANONICAL_AGENTS, DEMO_CORE_METRICS, DOMAINS } from "./demo/neural-nexus.ts";
+import { readAgentStatus } from "./agent-status.ts";
+import { CANONICAL_AGENTS, DEMO_CORE_METRICS, DEMO_PROJECT, DOMAINS } from "./demo/neural-nexus.ts";
 import { CEO_ANCHOR, zoneAnchor } from "./decision-engine.ts";
 import {
   CEO_ID,
@@ -14,7 +15,9 @@ import {
   coreStatus,
   domainAngle,
   hudMetrics,
+  meanLatencyMs,
   neuralZones,
+  nodeStatusOfRegistry,
   relatedIds,
   ringPosition,
   worstStatus,
@@ -124,11 +127,14 @@ test("agentSlots: los 13 agentes reales caen en los 8 dominios de la especificac
   assert.ok(slots.every((slot) => slot.agent !== undefined));
 });
 
-test("agentSlots: sin registro se usa el roster canónico y se marca como demostración", () => {
-  const slots = agentSlots([]);
-  assert.equal(slots.length, CANONICAL_AGENTS.length);
-  assert.ok(slots.every((slot) => slot.agent === undefined));
-  assert.equal(buildGraph({ agents: [], executions: [], decision: null, now: NOW }).nodes.filter((n) => n.type === "agent" && n.isDemo).length, 13);
+test("agentSlots: un registro vacío NO se rellena con el roster canónico de demostración (M47)", () => {
+  assert.deepEqual(agentSlots([]), []);
+  const { nodes } = buildGraph({ agents: [], executions: [], decision: null, now: NOW });
+  assert.equal(nodes.filter((node) => node.type === "agent").length, 0);
+  assert.equal(nodes.some((node) => node.isDemo), false, "ningún nodo del grafo puede ser de demostración");
+  // Ni siquiera por el nombre: ningún agente del roster canónico aparece.
+  const labels = new Set(CANONICAL_AGENTS.map((entry) => entry.label));
+  assert.equal(nodes.some((node) => labels.has(node.label)), false);
 });
 
 // --- Grafo ------------------------------------------------------------------------
@@ -294,15 +300,28 @@ test("relatedIds devuelve el nodo y sus conexiones directas", () => {
 
 // --- HUD --------------------------------------------------------------------------
 
-test("hudMetrics: agentes activos y latencia reales, proyecto y progreso demo sin decisión", () => {
+test("hudMetrics: sin decisión no hay proyecto, ni progreso, ni eventos: ni el 68 % ni AMZ-2026-003 ni los 3 eventos (M47)", () => {
   const { nodes } = buildGraph({ agents: REGISTRY, executions: [], decision: null, now: NOW });
   const hud = hudMetrics(nodes, [execution("e1", "a-product", NOW, 800), execution("e2", "a-legal", NOW, 1_200)], null);
   assert.equal(hud.totalAgents, 13);
   assert.equal(hud.activeAgents, 0);
   assert.equal(hud.latencyMs, 1_000);
-  assert.equal(hud.projectIsReal, false);
-  assert.equal(hud.progressIsReal, false);
-  assert.equal(hud.activeEventsAreDemo, true);
+  assert.equal(hud.projectName, null);
+  assert.equal(hud.progress, null);
+  assert.equal(hud.activeEvents, null);
+  const dump = JSON.stringify(hud);
+  for (const forbidden of [DEMO_PROJECT.code, String(DEMO_PROJECT.progress), String(DEMO_CORE_METRICS.latencyMs)]) {
+    assert.equal(dump.includes(forbidden), false, `el HUD contiene el valor de demostración ${forbidden}`);
+  }
+});
+
+test("hudMetrics: si el log de ejecuciones no se pudo leer, la latencia es «sin dato» y no un número", () => {
+  const { nodes } = buildGraph({ agents: REGISTRY, executions: null, decision: null, now: NOW });
+  const hud = hudMetrics(nodes, null, null);
+  assert.equal(hud.latencyMs, null);
+  assert.equal(meanLatencyMs(null), null);
+  assert.equal(meanLatencyMs([]), null);
+  assert.equal(meanLatencyMs([execution("e1", "a-product", NOW, 400), execution("e2", "a-product", NOW, 600)]), 500);
 });
 
 test("hudMetrics: con decisión, el proyecto, el progreso y los eventos son reales", () => {
@@ -310,11 +329,8 @@ test("hudMetrics: con decisión, el proyecto, el progreso y los eventos son real
   const { nodes } = buildGraph({ agents: REGISTRY, executions: [], decision: withDecision, now: NOW });
   const hud = hudMetrics(nodes, [], withDecision);
   assert.equal(hud.projectName, "AMZ-REAL-1");
-  assert.equal(hud.projectIsReal, true);
   assert.equal(hud.progress, 0.75);
-  assert.equal(hud.progressIsReal, true);
   assert.equal(hud.activeEvents, 1);
-  assert.equal(hud.activeEventsAreDemo, false);
   assert.equal(hud.activeAgents, 1);
   assert.equal(hud.latencyMs, null);
 });
@@ -357,13 +373,16 @@ test("buildGraph: el flujo y las incidencias de un agente entran por la zona de 
   }
 });
 
-test("buildGraph: el núcleo publica los datos del panel de detalle, reales en cuanto hay decisión", () => {
-  const demo = buildGraph({ agents: REGISTRY, executions: [], decision: null, now: NOW });
-  const core = demo.nodes.find((node) => node.id === CORE_ID)!;
-  assert.equal(core.metrics?.activeEvents, DEMO_CORE_METRICS.activeEvents);
-  assert.equal(core.metrics?.handoffs, DEMO_CORE_METRICS.handoffs);
-  assert.equal(core.metrics?.humanGates, DEMO_CORE_METRICS.humanGates);
-  assert.equal(core.isDemo, true);
+test("buildGraph: el núcleo solo publica lo que tiene fuente: sin decisión no hay eventos, handoffs ni puertas humanas", () => {
+  const empty = buildGraph({ agents: REGISTRY, executions: [], decision: null, now: NOW });
+  const core = empty.nodes.find((node) => node.id === CORE_ID)!;
+  assert.equal(core.metrics?.activeEvents, undefined);
+  assert.equal(core.metrics?.handoffs, undefined);
+  assert.equal(core.metrics?.humanGates, undefined);
+  assert.equal(core.metrics?.latencyMs, undefined);
+  assert.equal(core.projectName, undefined);
+  assert.equal(core.progress, undefined);
+  assert.equal(core.isDemo, false);
 
   const real = buildGraph({
     agents: REGISTRY,
@@ -387,4 +406,68 @@ test("neuralZones: ocho zonas en el orden de los dominios, con el estado de cada
     assert.equal(zone.status, domain.status);
     assert.equal(zone.angle, domainAngle(index));
   });
+});
+
+// --- M47 · Commit 1: estados reales del registro y lecturas que fallan -------------------------------------------------
+
+const withStatus = (status: string): Agent[] => REGISTRY.map((entry, index) => (index === 0 ? { ...entry, status } : entry));
+
+test("nodeStatusOfRegistry: los siete estados del backend y ninguno más", () => {
+  const status = (raw: string) => nodeStatusOfRegistry(readAgentStatus(raw));
+  assert.equal(status("AVAILABLE"), "available");
+  assert.equal(status("BUSY"), "running");
+  assert.equal(status("WAITING"), "waiting");
+  assert.equal(status("BLOCKED"), "blocked");
+  assert.equal(status("DEGRADED"), "degraded");
+  assert.equal(status("DISABLED"), "inactive");
+  assert.equal(status("FAILED"), "error");
+  // El backend no envía OFFLINE ni ERROR: llegan como lo que son, un texto desconocido; jamás como «disponible».
+  for (const raw of ["OFFLINE", "ERROR", "ONLINE", "available", "", "x"]) assert.equal(status(raw), "unknown", raw);
+});
+
+test("buildGraph: BLOCKED, DEGRADED, DISABLED y FAILED NO se dibujan como «Disponible»", () => {
+  const expected: Record<string, string> = { BLOCKED: "blocked", DEGRADED: "degraded", DISABLED: "inactive", FAILED: "error", OFFLINE: "unknown" };
+  for (const [raw, status] of Object.entries(expected)) {
+    const node = buildGraph({ agents: withStatus(raw), executions: [], decision: null, now: NOW }).nodes.find((n) => n.id === "a-product")!;
+    assert.equal(node.status, status, raw);
+    assert.notEqual(node.status, "available");
+    assert.equal(node.registry && node.registry.kind === "known" ? node.registry.status : node.registry?.raw, raw);
+  }
+});
+
+test("buildGraph: la decisión del CEO no convierte en «ejecutando» a un agente que el registro da por degradado o fallido", () => {
+  const withEvidence = decision({ evidence: [{ source: "product_validation", summary: "ok", data: {} }] });
+  for (const [raw, status] of [["DEGRADED", "degraded"], ["FAILED", "error"], ["BLOCKED", "blocked"], ["DISABLED", "inactive"], ["OFFLINE", "unknown"]] as const) {
+    const node = buildGraph({ agents: withStatus(raw), executions: [], decision: withEvidence, now: NOW }).nodes.find((n) => n.id === "a-product")!;
+    assert.equal(node.status, status, raw);
+  }
+  // Con un registro sano, la misma evidencia sí lo pone a ejecutar.
+  assert.equal(buildGraph({ agents: REGISTRY, executions: [], decision: withEvidence, now: NOW }).nodes.find((n) => n.id === "a-product")?.status, "running");
+});
+
+test("un agente degradado o desconocido contamina su dominio y abre una incidencia; DEGRADED no es «esperando»", () => {
+  for (const raw of ["DEGRADED", "OFFLINE"]) {
+    const { nodes, edges } = buildGraph({ agents: withStatus(raw), executions: [], decision: null, now: NOW });
+    const agentNode = nodes.find((node) => node.id === "a-product")!;
+    const domain = nodes.find((node) => node.type === "domain" && node.domain === agentNode.domain)!;
+    assert.ok(["degraded", "unknown"].includes(domain.status), `${raw}: el dominio sigue sano (${domain.status})`);
+    assert.equal(edges.filter((edge) => edge.type === "incident").length, 1, raw);
+  }
+  assert.notEqual(nodeStatusOfRegistry(readAgentStatus("DEGRADED")), nodeStatusOfRegistry(readAgentStatus("WAITING")));
+  assert.equal(worstStatus(["available", "degraded", "waiting"]), "degraded");
+  assert.equal(worstStatus(["running", "unknown"]), "unknown");
+  assert.equal(worstStatus(["degraded", "blocked"]), "blocked");
+});
+
+test("buildGraph: sin el log de ejecuciones leído no hay métricas de ejecución, ni un 0 ni un 0 €", () => {
+  const { nodes } = buildGraph({ agents: REGISTRY, executions: null, decision: null, now: NOW });
+  for (const node of nodes.filter((n) => n.type === "agent")) {
+    assert.equal(node.metrics?.runs, undefined, node.label);
+    assert.equal(node.metrics?.successRate, undefined, node.label);
+    assert.equal(node.metrics?.latencyMs, undefined, node.label);
+    assert.equal(node.metrics?.costToday, undefined, node.label);
+  }
+  // Con el log leído y vacío, el cero SÍ es un hecho.
+  const read = buildGraph({ agents: REGISTRY, executions: [], decision: null, now: NOW }).nodes.find((n) => n.id === "a-product")!;
+  assert.equal(read.metrics?.runs, 0);
 });

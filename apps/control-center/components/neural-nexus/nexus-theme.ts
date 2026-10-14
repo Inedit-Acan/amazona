@@ -31,8 +31,12 @@ export const STATUS_COLOR: Record<NodeStatus, string> = {
   available: "#22c997",
   waiting: "#f3b63f",
   blocked: "#ef5a5a",
+  // Degradado: naranja de aviso, distinto del ámbar de «esperando» (que es esperar legítimamente).
+  degraded: "#f0873a",
   error: "#ef5a5a",
   inactive: "#52615d",
+  // Desconocido: gris azulado, el color de «no sé qué es esto».
+  unknown: "#8ea0b4",
 };
 
 /** Clase de texto equivalente, para el HUD y la vista 2D. */
@@ -41,8 +45,10 @@ export const STATUS_TEXT: Record<NodeStatus, string> = {
   available: "text-[#22c997]",
   waiting: "text-[#f3b63f]",
   blocked: "text-[#ef5a5a]",
+  degraded: "text-[#f0873a]",
   error: "text-[#ef5a5a]",
   inactive: "text-[#52615d]",
+  unknown: "text-[#8ea0b4]",
 };
 
 /** Emisividad del anillo de cada estado. Es la jerarquía de intensidad de la
@@ -53,8 +59,10 @@ export const STATUS_EMISSIVE: Record<NodeStatus, number> = {
   available: 0.22,
   waiting: 1,
   blocked: 1.25,
+  degraded: 1.05,
   error: 1.4,
   inactive: 0.06,
+  unknown: 0.12,
 };
 
 /** Opacidad del anillo principal: define el borde sin recurrir al brillo. */
@@ -63,8 +71,10 @@ export const STATUS_RING_OPACITY: Record<NodeStatus, number> = {
   available: 0.72,
   waiting: 0.9,
   blocked: 0.95,
+  degraded: 0.92,
   error: 1,
   inactive: 0.34,
+  unknown: 0.5,
 };
 
 /** Los estados que merecen bloom (§7). El resto se queda mate. */
@@ -73,8 +83,10 @@ export const STATUS_BLOOMS: Record<NodeStatus, boolean> = {
   available: false,
   waiting: true,
   blocked: true,
+  degraded: true,
   error: true,
   inactive: false,
+  unknown: false,
 };
 
 /** Radio de cada nivel. Los dominios son ~25 % mayores que los agentes y el CEO

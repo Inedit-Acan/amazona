@@ -1,0 +1,66 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { Agent, AgentExecution } from "./api.ts";
+import { readNexus, type NexusSource } from "./nexus-reads.ts";
+import { buildGraph } from "./neural-nexus.ts";
+import { listOf } from "./read-state.ts";
+import { agent, execution, FAILURES, INVALID_PAYLOADS, NOW, TECHNICAL } from "./read-test-support.ts";
+
+// Las lecturas del grafo de agentes (M47, Commit 1). Un fallo NUNCA es una lista vacía: de una lista vacía salía el roster
+// de demostración con «13 Disponible».
+
+const ok = <T>(value: T) => async () => value;
+const source = (agents: () => Promise<unknown>, executions: () => Promise<unknown>): NexusSource => ({
+  listAgents: agents as NexusSource["listAgents"],
+  listAgentExecutions: executions as NexusSource["listAgentExecutions"],
+});
+
+test("un fallo del registro de agentes es `error`, jamás una lista vacía", async () => {
+  for (const [name, make] of Object.entries(FAILURES)) {
+    const reads = await readNexus(
+      source(async () => { throw make(); }, ok<AgentExecution[]>([execution("e1", "a1")])),
+    );
+    assert.equal(reads.agents.kind, "error", name);
+    assert.equal(listOf(reads.agents), null, `${name}: un fallo no puede leerse como lista`);
+    if (reads.agents.kind === "error") assert.doesNotMatch(reads.agents.message, TECHNICAL, name);
+  }
+});
+
+test("una respuesta con la forma equivocada es `error`, no «registro vacío»", async () => {
+  for (const [name, payload] of INVALID_PAYLOADS) {
+    const reads = await readNexus(source(ok(payload), ok<AgentExecution[]>([])));
+    assert.equal(reads.agents.kind, "error", name);
+    assert.equal(listOf(reads.agents), null, name);
+  }
+});
+
+test("el registro vacío es `empty` (un hecho) y no se parece a un error", async () => {
+  const reads = await readNexus(source(ok<Agent[]>([]), ok<AgentExecution[]>([])));
+  assert.equal(reads.agents.kind, "empty");
+  assert.deepEqual(listOf(reads.agents), []);
+});
+
+test("agentes bien y ejecuciones fallidas: los agentes son `loaded` y las ejecuciones `error`, no `[]`", async () => {
+  for (const [name, make] of Object.entries(FAILURES)) {
+    const reads = await readNexus(source(ok([agent("a1")]), async () => { throw make(); }));
+    assert.equal(reads.agents.kind, "loaded", name);
+    assert.equal(reads.executions.kind, "error", name);
+    assert.equal(listOf(reads.executions), null, name);
+  }
+});
+
+test("las ejecuciones que no se pudieron leer dejan las métricas de ejecución sin valor, no en cero", async () => {
+  const reads = await readNexus(source(ok([agent("a1")]), async () => { throw FAILURES["500"](); }));
+  const agents = listOf(reads.agents)!;
+  const { nodes } = buildGraph({ agents, executions: listOf(reads.executions), decision: null, now: NOW });
+  const node = nodes.find((n) => n.id === "a1")!;
+  assert.equal(node.metrics?.runs, undefined);
+  assert.equal(node.metrics?.costToday, undefined);
+});
+
+test("lecturas válidas: loaded con su contenido", async () => {
+  const reads = await readNexus(source(ok([agent("a1"), agent("a2")]), ok([execution("e1", "a1")])));
+  assert.equal(reads.agents.kind, "loaded");
+  assert.equal(reads.executions.kind, "loaded");
+  assert.equal(listOf(reads.agents)?.length, 2);
+});

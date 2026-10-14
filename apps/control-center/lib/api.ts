@@ -1,6 +1,7 @@
 import { IDEMPOTENCY_HEADER, withIdempotencyKey } from "@/lib/idempotency";
 import { revenuePath, type RevenueWindow } from "@/lib/revenue-query";
 import { assertRevenueEntries, assertRevenueSeries, assertRevenueSummary } from "@/lib/revenue-contract";
+import type { ReadinessReply } from "@/lib/backend-health";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -1601,6 +1602,19 @@ export const api = {
     request<AuditEntry[]>(`/api/audit${correlationId ? `?correlation_id=${correlationId}` : ""}`),
   listAgentExecutions: () => request<AgentExecution[]>("/api/agent-executions"),
   getHealth: () => request<DetailedHealth>("/health/detailed"),
+  /** `GET /health/ready` (M47): público, así que va SIN token y sin `Content-Type` (es una petición simple, sin preflight).
+   * Devuelve el estado y el cuerpo tal cual; quien llama (`lib/backend-health.ts`) decide qué significan. Si el backend no
+   * responde, `fetch` rechaza: no se traduce a ninguna respuesta inventada. */
+  getReadiness: async (signal?: AbortSignal): Promise<ReadinessReply> => {
+    const response = await fetch(`${API_BASE_URL}/health/ready`, { cache: "no-store", signal });
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = null; // cuerpo ilegible: `classifyReadiness` lo trata como «no demostrado»
+    }
+    return { status: response.status, body };
+  },
 
   listJobs: (limit = 50) => request<Job[]>(`/api/jobs?limit=${limit}`),
   getJob: (id: string) => request<Job>(`/api/jobs/${id}`),
