@@ -1,16 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState, type Ref } from "react";
 import dynamic from "next/dynamic";
 import { AlertTriangle, Network, RefreshCw } from "lucide-react";
-import { api, type Decision } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   applyMode,
   buildGraph,
-  hudMetrics,
+  meanLatencyMs,
   type GraphMode,
   type NodeStatus,
 } from "@/lib/neural-nexus";
+import {
+  engineHud,
+  engineView,
+  initialEngineState,
+  persistedMissionOf,
+  reduceEngine,
+  tasksOfView,
+  type MissionEvent,
+} from "@/lib/nexus-engine-state";
 import { readNexus, type NexusReads } from "@/lib/nexus-reads";
 import { listOf } from "@/lib/read-state";
 import { useGraphFallback } from "./use-nexus-fallback";
@@ -57,10 +66,9 @@ const EMPTY_COUNTS: Record<NodeStatus, number> = {
  * Ejecución e Incidencias) y vista 3D con alternativa 2D sobre el mismo dataset
  * (docs/design/KOVA_Neural_Nexus_especificacion_Claude_Code.md).
  *
- * Real: los agentes del registro con su estado, su log de ejecuciones y la
- * decisión del CEO con sus evidencias, que es lo que pone a un agente a ejecutar,
- * a esperar o bloqueado. Demo: la tarea en curso de un agente que ejecuta, su
- * progreso y los handoffs entre dominios; el panel de cada nodo lo declara.
+ * Real: los agentes del registro con su estado, su log de ejecuciones y la última misión registrada (proyecto, decisión y tareas).
+ * Nada es de demostración (M47 · Commit 4). El HUD sale de la máquina de estados de `lib/nexus-engine-state.ts`, que concilia lo que
+ * dice el backend con la misión recién creada en esta sesión; cada dato del HUD lleva su procedencia.
  *
  * M47 · Commit 1: las lecturas son `ReadState` (lib/nexus-reads.ts) y NINGUNA se
  * traga. Sin una lectura válida del registro no hay grafo: hay un aviso. Un
@@ -68,14 +76,12 @@ const EMPTY_COUNTS: Record<NodeStatus, number> = {
  * log de ejecuciones, el grafo se dibuja con los agentes reales y lo que depende
  * de las ejecuciones dice «No disponible». */
 export function NeuralNexusGraph({
-  decision,
-  decisionUnavailable = false,
+  missionEvent = null,
   ref,
   onDrawnChange,
 }: {
-  decision: Decision | null;
-  /** La misión se ejecutó pero su decisión no se pudo leer: el HUD dice «No disponible», no «Sin decisión». */
-  decisionUnavailable?: boolean;
+  /** La misión que se acaba de crear en esta sesión: adelanta lo que se enseña hasta que la relectura la confirma. */
+  missionEvent?: MissionEvent | null;
   ref?: Ref<NexusGraphHandle>;
   /** Avisa de si el grafo está dibujado (hay registro leído): sin él no hay nada que ver a pantalla completa. */
   onDrawnChange?: (drawn: boolean) => void;
@@ -83,6 +89,10 @@ export function NeuralNexusGraph({
   // `null` = leyendo. Después, el `ReadState` de cada lectura.
   const [reads, setReads] = useState<NexusReads | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // La última misión registrada y la de esta sesión, conciliadas por una máquina de estados (lib/nexus-engine-state.ts). Cada lectura lleva
+  // un sello: una respuesta vieja que llega tarde no pisa a la nueva.
+  const [engine, dispatch] = useReducer(reduceEngine, undefined, initialEngineState);
+  const readSeq = useRef(0);
   const [mode, setMode] = useState<GraphMode>("architecture");
   const [manualView, setManualView] = useState<"3d" | "2d" | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -101,15 +111,26 @@ export function NeuralNexusGraph({
   // Con "reducir movimiento" la escena se queda quieta pero sigue informando.
   const animate = view === "3d" && !autoFallback;
 
+  // Una misión nueva se anota ANTES de la relectura que dispara (mismo orden de efectos).
+  useEffect(() => {
+    if (missionEvent !== null) dispatch({ type: "mission_created", session: missionEvent.session });
+  }, [missionEvent]);
+
+  // Se lee al montar, al reintentar y tras cada «Crear misión»: registro, ejecuciones y última misión (proyecto → decisión + tareas).
   useEffect(() => {
     let cancelled = false;
+    readSeq.current += 1;
+    const seq = readSeq.current;
+    dispatch({ type: "read_requested" });
     readNexus(api).then((result) => {
-      if (!cancelled) setReads(result);
+      if (cancelled) return;
+      setReads(result);
+      dispatch({ type: "read_result", seq, mission: persistedMissionOf(result.mission) });
     });
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, missionEvent]);
 
   function retry() {
     setReads(null);
@@ -158,15 +179,24 @@ export function NeuralNexusGraph({
 
   useImperativeHandle(ref, () => ({ toggleFullscreen }), [toggleFullscreen]);
 
+  const missionView = useMemo(() => engineView(engine), [engine]);
+  const missionTasks = useMemo(() => tasksOfView(missionView), [missionView]);
   const { nodes, edges } = useMemo(
     () =>
       drawGraph && lists?.agents
-        ? buildGraph({ agents: lists.agents, executions: lists.executions, decision, now })
+        ? buildGraph({ agents: lists.agents, executions: lists.executions, tasks: missionTasks, now })
         : { nodes: [], edges: [] },
-    [drawGraph, lists, decision, now],
+    [drawGraph, lists, missionTasks, now],
   );
   const view3d = useMemo(() => applyMode(nodes, edges, mode), [nodes, edges, mode]);
-  const metrics = useMemo(() => hudMetrics(nodes, lists?.executions ?? null, decision), [nodes, lists, decision]);
+  const hud = useMemo(() => {
+    const agentNodes = nodes.filter((node) => node.type === "agent");
+    return engineHud({
+      view: missionView,
+      agents: { running: agentNodes.filter((node) => node.status === "running").length, total: agentNodes.length },
+      latencyMs: meanLatencyMs(lists?.executions ?? null),
+    });
+  }, [nodes, missionView, lists]);
   const counts = useMemo(() => {
     const totals = { ...EMPTY_COUNTS };
     for (const node of nodes) if (node.type === "agent") totals[node.status] += 1;
@@ -304,7 +334,7 @@ export function NeuralNexusGraph({
               : "xl:pointer-events-none xl:absolute xl:inset-0 xl:justify-between",
           )}
         >
-          <NexusHud metrics={metrics} decisionUnavailable={decisionUnavailable} />
+          <NexusHud hud={hud} />
           <div className="flex flex-col items-start gap-2 xl:items-end">
             <NexusLegend counts={counts} />
             {selected ? (
@@ -318,8 +348,8 @@ export function NeuralNexusGraph({
         {view === "3d"
           ? "Arrastra para orbitar, rueda para hacer zoom y haz clic en un nodo para ver su detalle."
           : "Haz clic en un nodo para ver su detalle. La vista 2D usa los mismos datos que la 3D."}{" "}
-        Del backend: los {total} agentes del registro con su estado, sus ejecuciones y la decisión del CEO. De demostración: la
-        tarea en curso de un agente que ejecuta, su progreso y los handoffs entre dominios.
+        Del backend: los {total} agentes del registro con su estado, su log de ejecuciones y la última misión registrada (proyecto, decisión y
+        tareas). Las tareas se enseñan como «relacionadas por capacidad»: el backend no registra qué agente ejecutó cada una.
       </p>
     </div>
   );

@@ -341,6 +341,11 @@ const COMMIT_FILES = [
   ...readdirSync(join(ROOT, "lib")).filter((name) => /^ceo-.*\.tsx?$/.test(name) || /^backend-health-store(\.test)?\.ts$/.test(name)).map((name) => `lib/${name}`),
   // M47 · Commit 3A.1: el núcleo compartido de los ingresos, sus primitivas de texto y sus pruebas.
   ...readdirSync(join(ROOT, "lib")).filter((name) => /^revenue-(figures|format|kpis|surfaces)(-boundary)?(\.test)?\.ts$/.test(name)).map((name) => `lib/${name}`),
+  // M47 · Commit 4: la capa de datos, estado y HUD del Decision Engine (sin la escena 3D, que no se toca).
+  ...readdirSync(join(ROOT, "lib")).filter((name) => /^nexus-(domains|mission|engine-state|honesty-boundary|test-support)(\.test)?\.ts$/.test(name) || /^nexus-(mission|engine-state)\.test\.ts$/.test(name)).map((name) => `lib/${name}`),
+  "components/neural-nexus/neural-nexus-graph.tsx",
+  "components/neural-nexus/nexus-hud.tsx",
+  "components/neural-nexus/nexus-details.tsx",
   "components/backend-status.tsx",
   "components/use-backend-health.ts",
   "components/use-media-query.ts",

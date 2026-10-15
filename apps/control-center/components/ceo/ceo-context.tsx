@@ -3,17 +3,19 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import type { NexusGraphHandle } from "@/components/neural-nexus/neural-nexus-graph";
 import { fullscreenBlocker, fullscreenSupported } from "@/lib/ceo-fullscreen";
-import type { DecisionState } from "@/lib/ceo-mission-view";
+import type { MissionEvent, SessionMission } from "@/lib/nexus-engine-state";
 
 /** Lo que el Director ejecutivo comparte entre su cabecera, su tarjeta del Decision Engine y sus drawers (M47, Commit 2):
- * la decisión de la última misión, y las asas con las que se abren los drawers y la pantalla completa del grafo. */
+ * la misión recién creada en esta sesión (Commit 4; el grafo la concilia con lo guardado), y las asas con las que se abren los drawers y la pantalla completa del grafo. */
 export interface DrawerHandle {
   open(): void;
 }
 
 interface CeoContextValue {
-  decision: DecisionState;
-  setDecision: (decision: DecisionState) => void;
+  /** La última misión creada en esta sesión; cada una trae un `id` nuevo y dispara una relectura del grafo. `null` = ninguna todavía. */
+  missionEvent: MissionEvent | null;
+  /** La misión que acaba de ejecutarse: el formulario avisa aquí y el grafo la enseña (sin confirmar) mientras relee. */
+  notifyMission: (session: SessionMission) => void;
   graphRef: RefObject<NexusGraphHandle | null>;
   missionRef: RefObject<DrawerHandle | null>;
   assistantRef: RefObject<DrawerHandle | null>;
@@ -38,7 +40,7 @@ function useFullscreenSupported(): boolean {
 }
 
 export function CeoProvider({ children }: { children: ReactNode }) {
-  const [decision, setDecision] = useState<DecisionState>({ kind: "none" });
+  const [missionEvent, setMissionEvent] = useState<MissionEvent | null>(null);
   const [graphDrawn, setGraphDrawn] = useState(false);
   const graphRef = useRef<NexusGraphHandle>(null);
   const missionRef = useRef<DrawerHandle>(null);
@@ -48,13 +50,14 @@ export function CeoProvider({ children }: { children: ReactNode }) {
   const openGraphFullscreen = useCallback(() => {
     void graphRef.current?.toggleFullscreen();
   }, []);
+  const notifyMission = useCallback((session: SessionMission) => setMissionEvent((previous) => ({ id: (previous?.id ?? 0) + 1, session })), []);
   const openMission = useCallback(() => missionRef.current?.open(), []);
   const openAssistant = useCallback(() => assistantRef.current?.open(), []);
 
   const value = useMemo<CeoContextValue>(
     () => ({
-      decision,
-      setDecision,
+      missionEvent,
+      notifyMission,
       graphRef,
       missionRef,
       assistantRef,
@@ -65,7 +68,7 @@ export function CeoProvider({ children }: { children: ReactNode }) {
       openMission,
       openAssistant,
     }),
-    [decision, graphDrawn, supported, openGraphFullscreen, openMission, openAssistant],
+    [missionEvent, notifyMission, graphDrawn, supported, openGraphFullscreen, openMission, openAssistant],
   );
 
   return <CeoContext.Provider value={value}>{children}</CeoContext.Provider>;

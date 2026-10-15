@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DOMAINS } from "./demo/neural-nexus.ts";
+import { DOMAINS } from "./nexus-domains.ts";
 import { LAYOUT, domainAngle } from "./neural-nexus.ts";
 import {
   BRAIN,

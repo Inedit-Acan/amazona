@@ -48,7 +48,6 @@ const ALLOWED = [
   "lib/economics-baseline.ts",
   "lib/legal-view.ts",
   "lib/marketing-view.ts",
-  "lib/neural-nexus.ts",
   "lib/operations-view.ts",
   "lib/research-view.ts",
   "lib/sourcing-view.ts",

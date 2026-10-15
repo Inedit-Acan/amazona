@@ -161,6 +161,8 @@ export interface Task {
   input: Record<string, unknown> | null;
   output: Record<string, unknown> | null;
   error: string | null;
+  /** Los ids de las tareas de las que depende (las aristas reales del plan del CEO). El backend siempre los envía; la lectura del grafo lo exige. */
+  depends_on?: string[];
 }
 
 export interface Agent {

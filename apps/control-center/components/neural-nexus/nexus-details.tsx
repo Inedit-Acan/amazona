@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, X } from "lucide-react";
 import { relativeTime } from "@/lib/dates";
-import { formatDuration, formatEuro, formatInteger, formatPercent } from "@/lib/format";
+import { formatDuration, formatInteger, formatPercent } from "@/lib/format";
 import { agentStatusText } from "@/lib/agent-status";
 import { STATUS_LABEL, type GraphEdge, type GraphNode } from "@/lib/neural-nexus";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
@@ -12,13 +12,12 @@ import { NODE_ICON, STATUS_COLOR } from "./nexus-theme";
 
 const NO_DATA = "No disponible";
 
-function Field({ label, value, title, demo }: { label: string; value: string; title?: string; demo?: boolean }) {
+function Field({ label, value, title }: { label: string; value: string; title?: string }) {
   return (
     <div className="flex items-start justify-between gap-3 text-xs">
       <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-right break-words" title={demo ? "Dato de demostración" : title}>
+      <span className="min-w-0 text-right break-words" title={title}>
         {value}
-        {demo ? <span className="ml-1 text-[10px] text-muted-foreground">demo</span> : null}
       </span>
     </div>
   );
@@ -89,14 +88,27 @@ export function NexusDetails({
 
       <div className="space-y-1.5 border-t border-white/10 pt-2.5">
         {node.registry ? <Field label="Estado del registro" value={agentStatusText(node.registry)} /> : null}
-        {node.projectName ? <Field label="Proyecto" value={node.projectName} /> : null}
-        {node.task ? <Field label="Tarea actual" value={node.task} /> : null}
-        {node.progress !== undefined ? (
-          <div className="space-y-1">
-            <Field label="Progreso" value={formatPercent(node.progress, 0)} />
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div className="h-full rounded-full" style={{ width: `${Math.round(node.progress * 100)}%`, background: color }} />
-            </div>
+        {node.relatedTasks ? (
+          <div data-section="tareas-relacionadas" data-provenance="derived" className="space-y-1">
+            <p
+              className="text-[11px] text-muted-foreground"
+              title="El backend no registra qué agente ejecutó cada tarea: se emparejan por capacidad."
+            >
+              {node.relatedTasks.length === 1 ? "Tarea relacionada" : "Tareas relacionadas"} (por capacidad)
+            </p>
+            {node.relatedTasks.map((item) => (
+              <div key={item.id} className="space-y-0.5">
+                <Field label={item.name} value={item.statusText} />
+                {item.failed ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Existe una tarea FAILED relacionada con esta capacidad{item.error ? `: ${item.error}` : ""}. No es un fallo demostrado de este agente.
+                  </p>
+                ) : null}
+              </div>
+            ))}
+            <p className="text-[10px] text-muted-foreground">
+              No registra qué agente ejecutó la tarea: es una correlación por capacidad, no una asignación.
+            </p>
           </div>
         ) : null}
         {node.lastActivityAt ? <Field label="Última actividad" value={relativeTime(node.lastActivityAt, now)} /> : null}
@@ -117,18 +129,16 @@ export function NexusDetails({
 
       {node.metrics && node.type === "core" ? (
         <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/10 pt-2.5">
-          <Field label="Eventos" value={node.metrics.activeEvents === undefined ? NO_DATA : formatInteger(node.metrics.activeEvents)} />
           <Field label="Latencia media" value={node.metrics.latencyMs === undefined ? NO_DATA : formatDuration(node.metrics.latencyMs)} />
         </div>
       ) : null}
 
       {node.metrics && node.type === "agent" ? (
         <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-white/10 pt-2.5">
-          {/* `runs` y `costToday` solo existen si el log de ejecuciones se pudo leer: sin él no hay «0», hay «No disponible». */}
+          {/* `runs` solo existe si el log de ejecuciones se pudo leer: sin él no hay «0», hay «No disponible». No hay coste por agente. */}
           <Field label="Ejecuciones" value={node.metrics.runs === undefined ? NO_DATA : formatInteger(node.metrics.runs)} />
           <Field label="Éxito" value={node.metrics.successRate === undefined ? "—" : formatPercent(node.metrics.successRate)} />
           <Field label="Latencia" value={node.metrics.latencyMs === undefined ? "—" : formatDuration(node.metrics.latencyMs)} />
-          <Field label="Coste hoy" value={node.metrics.costToday === undefined ? NO_DATA : formatEuro(node.metrics.costToday)} />
         </div>
       ) : null}
 
@@ -151,15 +161,15 @@ export function NexusDetails({
       ) : null}
 
       <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-white/10 pt-2.5">
-        <DataProvenanceBadge
-          status={node.isDemo ? "demo" : "recorded"}
-          compact
-          tooltip={
-            node.isDemo
-              ? "Nodo de demostración: el backend no lo proporciona todavía."
-              : "Agente del registro de agentes; la tarea en curso y el progreso son de demostración."
-          }
-        />
+        {node.type === "agent" ? (
+          <DataProvenanceBadge
+            status="recorded"
+            compact
+            tooltip="Agente del registro de agentes (registrado). Las ejecuciones se derivan del log de ejecuciones y las tareas relacionadas se emparejan por capacidad (derivado)."
+          />
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Nodo estructural del grafo</span>
+        )}
         {link ? (
           <Button size="sm" variant="outline" nativeButton={false} render={<Link href={link.href} />}>
             {link.label} <ArrowRight />

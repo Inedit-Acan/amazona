@@ -10,7 +10,7 @@ import { FULLSCREEN_CARD_LABEL } from "@/lib/ceo-fullscreen";
  * su motor 3D quedan para el Commit 5): lee el registro de agentes y el log de ejecuciones con `ReadState`, y no tiene datos de
  * demostración como relleno. «Abrir vista completa» es la misma acción que «Vista completa» de la cabecera. */
 export function AgentNetworkCard() {
-  const { decision, graphRef, setGraphDrawn } = useCeo();
+  const { missionEvent, graphRef, setGraphDrawn } = useCeo();
   return (
     <Card className="min-w-0" data-block="Red de agentes">
       <CardHeader>
@@ -20,12 +20,7 @@ export function AgentNetworkCard() {
         </CardAction>
       </CardHeader>
       <CardContent>
-        <NeuralNexusGraph
-          ref={graphRef}
-          decision={decision.kind === "loaded" ? decision.decision : null}
-          decisionUnavailable={decision.kind === "unavailable"}
-          onDrawnChange={setGraphDrawn}
-        />
+        <NeuralNexusGraph ref={graphRef} missionEvent={missionEvent} onDrawnChange={setGraphDrawn} />
       </CardContent>
     </Card>
   );

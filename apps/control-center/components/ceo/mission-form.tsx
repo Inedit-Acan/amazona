@@ -76,7 +76,7 @@ function CollapsibleRow({
 /** El estado y las acciones de la misión. Vive en el drawer (siempre montado) y no en el formulario, para que cerrar el drawer
  * por error no pierda lo escrito. */
 export function useMission(initial: MissionInitialState) {
-  const { setDecision } = useCeo();
+  const { notifyMission } = useCeo();
   const [title, setTitle] = useState(initial.title);
   const [createdBy, setCreatedBy] = useState("");
   const [description, setDescription] = useState(DEFAULT_DESCRIPTION);
@@ -147,7 +147,6 @@ export function useMission(initial: MissionInitialState) {
     setSubmitting(true);
     setRunResult(null);
     setOutcome(null);
-    setDecision({ kind: "none" });
     try {
       const brief = { title, description, created_by: createdBy.trim(), context: parsedContext };
       const result = await intent.run(
@@ -172,7 +171,12 @@ export function useMission(initial: MissionInitialState) {
       ]);
       const view = missionOutcome({ correlationId: result.correlation_id, decision, executions, agents });
       setOutcome(view);
-      setDecision(view.decision);
+      // El grafo enseña esta misión (sin confirmar) y relee lo guardado: proyecto, decisión, tareas y log de ejecuciones.
+      notifyMission({
+        projectId: result.project_id,
+        projectName: brief.title,
+        decision: view.decision.kind === "loaded" ? view.decision.decision : null,
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "No se pudo ejecutar este objetivo.");
     } finally {

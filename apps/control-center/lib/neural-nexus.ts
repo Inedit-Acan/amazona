@@ -1,37 +1,32 @@
-import type { Agent, AgentExecution, Decision } from "./api.ts";
-import { teamOf } from "./agents.ts";
+import type { Agent, AgentExecution, Task, TaskStatus } from "./api.ts";
 import { CEO_ANCHOR, zoneAnchor, type Vec3 } from "./decision-engine.ts";
 import { parseUtc } from "./dates.ts";
-import { COST_PER_RUN } from "./demo/agents.ts";
 import { readAgentStatus, type AgentStatusReading } from "./agent-status.ts";
 import {
   DOMAIN_AGENT_ICON_KEYS,
   DOMAIN_ICON_KEY,
-  DEMO_HANDOFFS,
-  DEMO_TASKS,
   DOMAINS,
   DOMAIN_DESCRIPTION,
-  demoEvaluation,
-  demoProgress,
-  demoTaskIndex,
+  domainOfRole,
   type DomainKey,
-} from "./demo/neural-nexus.ts";
+} from "./nexus-domains.ts";
+import { isFailedTask, relatedTasks, taskDependencyEdges, taskStatusText, type DomainDependency } from "./nexus-mission.ts";
 
 // Modelo del grafo de agentes del Director ejecutivo («Neural Nexus»,
 // docs/design/KOVA_Neural_Nexus_especificacion_Claude_Code.md). Cuatro niveles:
 // CEO → Decision Engine → 8 dominios → los agentes del registro. El layout es
 // DETERMINISTA y estable entre sesiones: las posiciones se calculan aquí, no las
-// decide un force-graph. Real: los agentes del registro con su estado, el log de
-// ejecuciones y la decisión del CEO con sus evidencias. Demo
-// (lib/demo/neural-nexus.ts): la tarea en curso de un agente que ejecuta, su
-// progreso y los handoffs entre dominios (se retiran en el Commit 5 de M47).
+// decide un force-graph.
 //
-// M47 · Commit 1: este módulo ya NO inventa nada para llenar un hueco. Sin
-// registro de agentes no hay agentes (antes salía un roster canónico de 13
-// «Disponible»); sin decisión no hay proyecto ni progreso ni eventos (antes salían
-// «AMZ-2026-003», «68 %» y «3 eventos»); sin ejecuciones leídas no hay métricas de
-// ejecución. Y un estado de registro que el backend no envía no se traduce a uno
-// conocido: es `unknown` (ver lib/agent-status.ts).
+// Real: los agentes del registro con su estado, su log de ejecuciones y las tareas de la última misión registrada.
+//
+// M47 · Commit 4: nada de este grafo es de demostración y NINGÚN estado se infiere. El estado de un agente sale SOLO del registro
+// (`readAgentStatus`): ni una decisión ni una tarea FAILED lo cambian, porque el backend no registra qué agente ejecutó cada tarea (`Task`
+// no trae `agent_id`). Las tareas se enseñan como «relacionadas por capacidad» (una correlación, no una asignación). Las únicas aristas de
+// dependencia son las de `Task.depends_on` de tareas reales. No hay coste por agente: el backend no lo registra.
+//
+// M47 · Commit 1: sin registro de agentes no hay agentes; sin ejecuciones leídas no hay métricas de ejecución; y un estado de registro que
+// el backend no envía no se traduce a uno conocido: es `unknown` (ver lib/agent-status.ts).
 
 export type NodeType = "ceo" | "core" | "domain" | "agent";
 /** Estado VISUAL de un nodo. No es `AgentStatus` (lo que dice el registro) ni `ReadState` (si se pudo leer): es la
@@ -62,17 +57,23 @@ export const MODE_LABEL: Record<GraphMode, string> = {
   incidents: "Incidencias",
 };
 
+/** Solo lo que el log de ejecuciones puede decir. No hay coste por agente ni evaluación: el backend no los registra. */
 export interface NodeMetrics {
   successRate?: number;
   latencyMs?: number;
-  costToday?: number;
-  evaluationScore?: number;
   runs?: number;
-  /** Solo el núcleo (§28 de la especificación del Decision Engine): eventos en
-   * curso, handoffs entre dominios y puertas humanas. */
-  activeEvents?: number;
-  handoffs?: number;
-  humanGates?: number;
+}
+
+/** Una tarea de la última misión cuya capacidad coincide con una de las del agente. */
+export interface RelatedTask {
+  id: string;
+  name: string;
+  status: TaskStatus;
+  /** El estado de la tarea escrito para el usuario. */
+  statusText: string;
+  /** La tarea está FAILED (un hecho de la tarea, no del agente). */
+  failed: boolean;
+  error: string | null;
 }
 
 export interface GraphNode {
@@ -82,20 +83,19 @@ export interface GraphNode {
   domain?: DomainKey;
   /** Posición determinista [x, y, z]; el mismo dato lo usa la vista 2D. */
   position: [number, number, number];
+  /** Solo del registro de agentes (los dominios, lo peor de sus agentes). */
   status: NodeStatus;
   description: string;
   /** Clave del icono; la capa visual la traduce a un componente. */
   icon: string;
-  projectName?: string;
-  task?: string;
-  progress?: number;
   lastActivityAt?: number;
   metrics?: NodeMetrics;
-  /** El estado o la tarea del nodo son de demostración. */
-  isDemo: boolean;
-  /** Lo que dice el registro de este agente, sin traducir (solo agentes). El estado visual (`status`) puede diferir
-   * cuando la decisión del CEO lo matiza; este campo es siempre lo que el backend devolvió. */
+  /** Lo que dice el registro de este agente, sin traducir (solo agentes). */
   registry?: AgentStatusReading;
+  /** Tareas de la última misión que comparten capacidad con el agente. CORRELACIÓN, no asignación: el backend no dice qué agente ejecutó cada
+   * tarea. Solo existe si hay alguna. */
+  relatedTasks?: RelatedTask[];
+  relatedBasis?: "capability";
 }
 
 export interface GraphEdge {
@@ -198,29 +198,9 @@ const SEVERITY: Record<NodeStatus, number> = {
   inactive: 0,
 };
 
-/** Estados del registro que la decisión del CEO NO puede suavizar: si el registro dice que el agente no está bien, el
- * hecho de que aparezca en la evidencia de una decisión no lo convierte en «ejecutando». */
-const REGISTRY_OVERRIDES_DECISION: ReadonlySet<NodeStatus> = new Set<NodeStatus>(["blocked", "degraded", "error", "inactive", "unknown"]);
-
 export function worstStatus(statuses: NodeStatus[]): NodeStatus {
   if (statuses.length === 0) return "inactive";
   return statuses.reduce((worst, status) => (SEVERITY[status] > SEVERITY[worst] ? status : worst), statuses[0]);
-}
-
-/** Evidencia de la decisión del CEO por capacidad del agente que la produce. */
-const EVIDENCE_BY_CAPABILITY: Record<string, string> = {
-  market_validation: "product_validation",
-  supplier_sourcing: "supplier_sourcing",
-  financial_validation: "finance_validation",
-  legal_validation: "legal_validation",
-};
-
-/** Estado del núcleo a partir de la decisión real del CEO. */
-export function coreStatus(decision: Decision | null): NodeStatus {
-  if (!decision) return "available";
-  if (decision.status === "GO") return "running";
-  if (decision.status === "NO_GO") return "error";
-  return "waiting";
 }
 
 // --- Construcción del grafo -----------------------------------------------------------
@@ -231,7 +211,8 @@ export interface NexusInput {
   /** El log de ejecuciones. `null` = NO se pudo leer: nada de lo derivado de las ejecuciones se calcula (ni un 0). `[]` =
    * el backend dijo que no hay ninguna. */
   executions: AgentExecution[] | null;
-  decision: Decision | null;
+  /** Las tareas de la última misión registrada. `null` = no se leyeron (o no hay): sin ellas no hay tareas relacionadas ni dependencias. */
+  tasks: Task[] | null;
   now: number;
 }
 
@@ -247,26 +228,16 @@ interface AgentSlot {
 export function agentSlots(agents: Agent[]): AgentSlot[] {
   const byDomain = new Map<DomainKey, AgentSlot[]>();
   for (const agent of agents) {
-    const team = teamOf(agent.role);
-    const domain = (DOMAINS as readonly string[]).includes(team) ? (team as DomainKey) : "Operaciones";
+    const domain = domainOfRole(agent.role);
     byDomain.set(domain, [...(byDomain.get(domain) ?? []), { id: agent.id, label: agent.name, domain, agent }]);
   }
   return DOMAINS.flatMap((domain) => byDomain.get(domain) ?? []);
 }
 
-function agentStatusOf(slot: AgentSlot, decision: Decision | null): { status: NodeStatus; registry: AgentStatusReading } {
+/** El estado de un agente es el del REGISTRO, sin más: una decisión o una tarea no lo cambian (el backend no registra qué agente ejecutó qué). */
+function agentStatusOf(slot: AgentSlot): { status: NodeStatus; registry: AgentStatusReading } {
   const registry = readAgentStatus(slot.agent.status);
-  const fromRegistry = nodeStatusOfRegistry(registry);
-  if (!decision || REGISTRY_OVERRIDES_DECISION.has(fromRegistry)) return { status: fromRegistry, registry };
-
-  const source = slot.agent.capabilities.map((capability) => EVIDENCE_BY_CAPABILITY[capability]).find(Boolean);
-  if (!source) return { status: fromRegistry, registry };
-  const evidence = decision.evidence.find((item) => item.source === source);
-  if (!evidence) return { status: "waiting", registry };
-
-  // El veto financiero y el NO_GO legal son bloqueos reales de la decisión.
-  const vetoed = Boolean(evidence.data?.finance_veto) || evidence.data?.legal_status === "NO_GO";
-  return { status: vetoed ? "blocked" : "running", registry };
+  return { status: nodeStatusOfRegistry(registry), registry };
 }
 
 /** Latencia media de un log de ejecuciones; `null` si no se pudo leer o está vacío. Nunca un número de relleno. */
@@ -276,9 +247,8 @@ export function meanLatencyMs(executions: AgentExecution[] | null): number | nul
 }
 
 export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: GraphEdge[] } {
-  const { agents, executions, decision, now } = input;
+  const { agents, executions, tasks } = input;
   const slots = agentSlots(agents);
-  const dayStart = now - (now % 86_400_000);
   const byAgent = new Map<string, AgentExecution[]>();
   for (const execution of executions ?? []) {
     byAgent.set(execution.agent_id, [...(byAgent.get(execution.agent_id) ?? []), execution]);
@@ -291,11 +261,11 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     const domainIndex = DOMAINS.indexOf(domain);
     const own = slots.filter((slot) => slot.domain === domain);
     own.forEach((slot, indexInDomain) => {
-      const { status, registry } = agentStatusOf(slot, decision);
+      const { status, registry } = agentStatusOf(slot);
       const runs = byAgent.get(slot.id) ?? [];
       const failures = runs.filter((run) => !run.success).length;
-      const tasks = DEMO_TASKS[domain];
       const lastAt = runs.length > 0 ? Math.max(...runs.map((run) => parseUtc(run.created_at))) : undefined;
+      const related = tasks === null ? [] : relatedTasks(slot.agent, tasks);
       agentNodes.push({
         id: slot.id,
         type: "agent",
@@ -305,23 +275,30 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
         status,
         description: DOMAIN_DESCRIPTION[domain],
         icon: DOMAIN_AGENT_ICON_KEYS[domain][indexInDomain] ?? DOMAIN_ICON_KEY[domain],
-        projectName: decision ? decision.project_id : undefined,
-        task: status === "running" ? tasks[demoTaskIndex(slot.id, tasks.length)] : undefined,
-        progress: status === "running" ? demoProgress(slot.id) : undefined,
         lastActivityAt: lastAt,
-        // Sin el log de ejecuciones leído NO hay métricas de ejecución: ni «0 ejecuciones» ni «0 €» (eso sería ERROR → 0).
+        // Sin el log de ejecuciones leído NO hay métricas de ejecución: ni «0 ejecuciones» (eso sería ERROR → 0).
         metrics:
           executions === null
-            ? { evaluationScore: demoEvaluation(slot.id) }
+            ? undefined
             : {
                 runs: runs.length,
                 successRate: runs.length > 0 ? (runs.length - failures) / runs.length : undefined,
                 latencyMs: runs.length > 0 ? runs.reduce((sum, run) => sum + run.duration_ms, 0) / runs.length : undefined,
-                costToday: round2(runs.filter((run) => parseUtc(run.created_at) >= dayStart).length * (COST_PER_RUN[domain] ?? COST_PER_RUN.Otros)),
-                evaluationScore: demoEvaluation(slot.id),
               },
-        isDemo: false,
         registry,
+        ...(related.length > 0
+          ? {
+              relatedTasks: related.map((item) => ({
+                id: item.id,
+                name: item.name,
+                status: item.status,
+                statusText: taskStatusText(item.status),
+                failed: isFailedTask(item),
+                error: item.error,
+              })),
+              relatedBasis: "capability" as const,
+            }
+          : {}),
       });
       domainStatuses.set(domain, [...(domainStatuses.get(domain) ?? []), status]);
     });
@@ -336,25 +313,21 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     status: worstStatus(domainStatuses.get(domain) ?? []),
     description: DOMAIN_DESCRIPTION[domain],
     icon: DOMAIN_ICON_KEY[domain],
-    isDemo: false,
   }));
 
+  const latencyMs = meanLatencyMs(executions);
+  // El núcleo y el CEO no se «encienden» con una decisión guardada ni con una tarea: no hay nada vivo que medir. Su estado es «Disponible»;
+  // lo que no va bien se ve en la zona del dominio afectado (que sale del registro), no tiñendo el cerebro entero.
   const core: GraphNode = {
     id: CORE_ID,
     type: "core",
     label: "Decision Engine",
     position: [0, LAYOUT.coreHeight, 0],
-    status: coreStatus(decision),
+    status: "available",
     description: "Núcleo de inteligencia: procesa la información, evalúa opciones y coordina la ejecución.",
     icon: "core",
-    projectName: decision ? decision.project_id : undefined,
-    // Solo lo que existe: los eventos son las evidencias de la decisión y la latencia es la media de las ejecuciones
-    // leídas. Los handoffs y las puertas humanas no tienen fuente en el backend: no se enseñan.
-    metrics: {
-      latencyMs: meanLatencyMs(executions) ?? undefined,
-      activeEvents: decision ? decision.evidence.length : undefined,
-    },
-    isDemo: false,
+    // Solo lo que existe: la latencia media de las ejecuciones leídas.
+    metrics: latencyMs === null ? undefined : { latencyMs },
   };
 
   const ceo: GraphNode = {
@@ -362,22 +335,19 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     type: "ceo",
     label: "CEO",
     position: [0, LAYOUT.ceoHeight, 0],
-    status: decision ? "running" : "available",
+    status: "available",
     description: "Orquestador del sistema. Coordina agentes, valida decisiones y supervisa la ejecución global.",
     icon: "ceo",
-    isDemo: false,
   };
 
   const nodes = [ceo, core, ...domainNodes, ...agentNodes];
-  return { nodes, edges: buildEdges(nodes) };
+  return { nodes, edges: buildEdges(nodes, tasks === null ? [] : taskDependencyEdges(tasks, agents)) };
 }
-
-const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /** Jerarquía permanente (CEO → núcleo → dominios → agentes) más las conexiones
  * contextuales: flujo de los agentes que están ejecutando, dependencia de los
  * handoffs entre dominios e incidencia de los que están bloqueados o en error. */
-export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
+export function buildEdges(nodes: GraphNode[], dependencies: DomainDependency[] = []): GraphEdge[] {
   const domains = nodes.filter((node) => node.type === "domain");
   const agents = nodes.filter((node) => node.type === "agent");
   const domainIdOf = new Map(domains.map((node) => [node.domain!, node.id] as const));
@@ -437,12 +407,12 @@ export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
     }
   }
 
-  // Handoffs entre dominios: dependencia de demostración, solo con los dos extremos presentes.
-  for (const [from, to] of DEMO_HANDOFFS) {
-    const source = domainIdOf.get(from as DomainKey);
-    const target = domainIdOf.get(to as DomainKey);
+  // Dependencias entre dominios: SOLO las de `Task.depends_on` de tareas reales (ver `taskDependencyEdges`). Sin ellas no se dibuja nada.
+  for (const dependency of dependencies) {
+    const source = domainIdOf.get(dependency.source);
+    const target = domainIdOf.get(dependency.target);
     if (!source || !target) continue;
-    edges.push({ id: `handoff-${source}-${target}`, source, target, type: "dependency", active: false, status: "normal" });
+    edges.push({ id: `dependency-${source}-${target}`, source, target, type: "dependency", active: false, status: "normal" });
   }
 
   return edges;
@@ -528,36 +498,4 @@ export function relatedIds(edges: GraphEdge[], id: string | null): Set<string> {
     if (edge.target === id) related.add(edge.source);
   }
   return related;
-}
-
-// --- HUD ------------------------------------------------------------------------------
-
-/** Cada cifra del HUD es un dato real o `null` («sin dato»): ninguna lleva un valor de relleno ni una etiqueta «demo». */
-export interface HudMetrics {
-  coreStatus: NodeStatus;
-  /** Las evidencias de la decisión del CEO; `null` si no hay decisión. */
-  activeEvents: number | null;
-  activeAgents: number;
-  totalAgents: number;
-  /** Latencia media de las ejecuciones; `null` si el log no se pudo leer o está vacío. */
-  latencyMs: number | null;
-  /** El proyecto de la decisión del CEO; `null` si no hay decisión. */
-  projectName: string | null;
-  /** La confianza de la decisión (0–1); `null` si no hay decisión o no trae confianza. */
-  progress: number | null;
-}
-
-export function hudMetrics(nodes: GraphNode[], executions: AgentExecution[] | null, decision: Decision | null): HudMetrics {
-  const agents = nodes.filter((node) => node.type === "agent");
-  const running = agents.filter((node) => node.status === "running").length;
-  const core = nodes.find((node) => node.id === CORE_ID);
-  return {
-    coreStatus: core?.status ?? "available",
-    activeEvents: decision ? decision.evidence.length : null,
-    activeAgents: running,
-    totalAgents: agents.length,
-    latencyMs: meanLatencyMs(executions),
-    projectName: decision ? decision.project_id : null,
-    progress: decision?.confidence ?? null,
-  };
 }

@@ -1,4 +1,5 @@
 import type { Agent, AgentExecution } from "./api.ts";
+import { readMission, type MissionRead, type MissionSource } from "./nexus-mission.ts";
 import { readList, type ReadState } from "./read-state.ts";
 
 // Las lecturas del grafo de agentes (M47, Commit 1). Antes eran dos `.catch(() => [])` dentro del componente: el error
@@ -7,7 +8,7 @@ import { readList, type ReadState } from "./read-state.ts";
 // probar —con dobles que fallan de todas las formas— que un fallo no se convierte en un dato.
 
 /** Lo que el grafo necesita del cliente de la API. `api` lo cumple; las pruebas pasan dobles. */
-export interface NexusSource {
+export interface NexusSource extends MissionSource {
   listAgents(): Promise<Agent[]>;
   listAgentExecutions(): Promise<AgentExecution[]>;
 }
@@ -17,12 +18,15 @@ export interface NexusReads {
   agents: ReadState<Agent[]>;
   /** El log de ejecuciones. Sin él el grafo se dibuja igual, pero lo que depende de las ejecuciones no se enseña. */
   executions: ReadState<AgentExecution[]>;
+  /** La última misión registrada (M47, Commit 4): proyecto, su decisión y sus tareas, cada una con su estado. */
+  mission: MissionRead;
 }
 
 export async function readNexus(source: NexusSource): Promise<NexusReads> {
-  const [agents, executions] = await Promise.all([
+  const [agents, executions, mission] = await Promise.all([
     readList(() => source.listAgents(), "el registro de agentes"),
     readList(() => source.listAgentExecutions(), "el log de ejecuciones"),
+    readMission(source),
   ]);
-  return { agents, executions };
+  return { agents, executions, mission };
 }
