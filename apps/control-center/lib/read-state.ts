@@ -47,7 +47,16 @@ export async function readList<T>(read: () => Promise<T[]>, subject: string): Pr
   return settled.data.length === 0 ? { kind: "empty" } : { kind: "loaded", data: settled.data };
 }
 
-export const unreadState = (reason: string): ReadState<never> => ({ kind: "unread", reason });
+/** Lee un único recurso (no una lista) y lo clasifica. Un fallo es `error`; una respuesta vacía (`null`/`undefined`) también: un recurso
+ * único que no llega no es «vacío», es una lectura que no se pudo hacer. */
+export async function readOne<T>(read: () => Promise<T>, subject: string): Promise<ReadState<T>> {
+  const settled = await settle(read, (status) => readErrorText(status, subject));
+  if (!settled.ok) return { kind: "error", message: settled.message };
+  if (settled.data === null || settled.data === undefined) return { kind: "error", message: readErrorText(undefined, subject) };
+  return { kind: "loaded", data: settled.data };
+}
+
+export const unreadState =(reason: string): ReadState<never> => ({ kind: "unread", reason });
 
 /** La lista de una lectura válida (`[]` solo si el backend dijo que estaba vacía); `null` si no hay lectura válida. */
 export function listOf<T>(state: ReadState<T[]>): T[] | null {

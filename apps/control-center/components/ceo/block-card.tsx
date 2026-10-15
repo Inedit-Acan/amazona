@@ -14,10 +14,20 @@ const NOTICE_STYLE: Record<Exclude<BlockKind, "loaded">, { icon: LucideIcon; box
   empty: { icon: Inbox, box: "border-border", text: "text-muted-foreground" },
 };
 
-/** El aviso de un bloque sin dato. `data-block-state` lo hace comprobable (pruebas y revisión visual). */
-export function BlockNotice({ state, className }: { state: BlockState<unknown>; className?: string }) {
-  const notice = blockNotice(state);
-  if (notice === null) return null;
+/** El aviso de un bloque sin dato. `data-block-state` lo hace comprobable (pruebas y revisión visual). `empty` deja que el bloque diga SU
+ * vacío («Ninguna decisión pendiente») en lugar del genérico; no cambia el aspecto ni el estado. */
+export function BlockNotice({
+  state,
+  empty,
+  className,
+}: {
+  state: BlockState<unknown>;
+  empty?: { label: string; detail: string };
+  className?: string;
+}) {
+  const base = blockNotice(state);
+  if (base === null) return null;
+  const notice = base.kind === "empty" && empty ? { ...base, ...empty } : base;
   const style = NOTICE_STYLE[notice.kind];
   const Icon = style.icon;
   return (
@@ -41,6 +51,9 @@ export function BlockCard({
   state,
   seeAll,
   hideTitle = false,
+  count,
+  emptyNotice,
+  footer,
   children,
   className,
 }: {
@@ -50,13 +63,30 @@ export function BlockCard({
   seeAll?: { href: string; label: string };
   /** El título ya lo da la pestaña que contiene la tarjeta: se queda solo para lectores de pantalla. */
   hideTitle?: boolean;
+  /** El contador de la cabecera, ya calculado por la vista del bloque: aquí solo se pinta. */
+  count?: { text: string; label: string };
+  /** Lo que dice el bloque cuando su lectura es válida y no hay nada. */
+  emptyNotice?: { label: string; detail: string };
+  /** Lo que va debajo del contenido o del aviso (la insignia de procedencia y las líneas fijas). */
+  footer?: ReactNode;
   children?: ReactNode;
   className?: string;
 }) {
   return (
     <Card className={cn("min-w-0", className)} data-block={title}>
       <CardHeader>
-        <CardTitle className={cn("text-sm font-semibold", hideTitle && "sr-only")}>{title}</CardTitle>
+        <div className="flex min-w-0 items-center gap-2">
+          <CardTitle className={cn("text-sm font-semibold", hideTitle && "sr-only")}>{title}</CardTitle>
+          {count ? (
+            <span
+              data-slot="block-count"
+              aria-label={count.label}
+              className="inline-flex h-5 shrink-0 items-center rounded-full bg-muted px-2 text-xs font-medium text-foreground tabular-nums"
+            >
+              {count.text}
+            </span>
+          ) : null}
+        </div>
         {seeAll ? (
           <CardAction>
             <Link
@@ -69,7 +99,10 @@ export function BlockCard({
           </CardAction>
         ) : null}
       </CardHeader>
-      <CardContent>{state.kind === "loaded" ? children : <BlockNotice state={state} />}</CardContent>
+      <CardContent>
+        {state.kind === "loaded" ? children : <BlockNotice state={state} empty={emptyNotice} />}
+        {footer}
+      </CardContent>
     </Card>
   );
 }

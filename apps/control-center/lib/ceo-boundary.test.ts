@@ -92,7 +92,12 @@ test("«sin leer» y «no disponible» no se mezclan: los bloques con fuente pot
   }
   assert.match(code("components/ceo/bottom-row.tsx"), /title="Próximos hitos" state=\{unavailableState\(/);
   assert.match(code("components/ceo/bottom-row.tsx"), /title="Actividad reciente"\s+state=\{NOT_CONNECTED_YET\}/);
-  assert.match(code("components/ceo/decision-triptych.tsx"), /key: "decisiones", title: "Decisiones pendientes", tab: "Decisiones", state: NOT_CONNECTED_YET/);
+  // Desde el Commit 3B los tres bloques del tríptico SÍ leen su fuente: ya no son `unread` por construcción. Su estado sale de la lectura
+  // (`readBlocksNow`) y se traduce con `blockStateOf`; «sin leer» solo existe si una lectura no se hizo, nunca como valor fijo.
+  const triptych = code("components/ceo/decision-triptych.tsx");
+  assert.doesNotMatch(triptych, /NOT_CONNECTED_YET|unreadState\(|unavailableState\(/);
+  assert.match(triptych, /readBlocksNow\(api\)/);
+  assert.match(triptych, /blockStateOf\(/);
 });
 
 test("un error de lectura no se convierte en dato ni en demostración: el aviso del bloque lo dice", () => {
