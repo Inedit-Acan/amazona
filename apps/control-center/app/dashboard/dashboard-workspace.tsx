@@ -18,7 +18,15 @@ import {
 } from "@/lib/dashboard-view";
 import { listOf } from "@/lib/read-state";
 import { type RevenueWindow } from "@/lib/revenue-query";
-import { periodLabel, revenueKpis, type KpiText, type Settled } from "@/lib/revenue-view";
+import {
+  OUTSIDE_TABLE_ID,
+  periodLabel,
+  revenueKpis,
+  VERIFIED_TABLE_ID,
+  type KpiText,
+  type RevenueKpisResult,
+  type Settled,
+} from "@/lib/revenue-view";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { HeaderClock } from "@/components/header-clock";
 import { KpiCard } from "@/components/kpi-card";
@@ -57,28 +65,36 @@ const iconBox = (icon: React.ReactNode) => (
   <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-background/40">{icon}</span>
 );
 
-/** Una cifra de ingresos: el valor y su pie salen tal cual de `lib/revenue-view.ts`; si la lectura falló, se dice. */
+/** Una cifra de ingresos: el valor y su pie salen tal cual de `lib/revenue-view.ts` (que los lee del núcleo `lib/revenue-figures.ts`); si la
+ * lectura falló o el contrato se rompió, se dice. Con varias cifras (origen × moneda) la tarjeta es compacta y enlaza a la tabla de esta misma
+ * página que las enseña todas. */
 function RevenueKpi({
   label,
   icon,
   summary,
   pick,
   tooltip,
+  detailId,
   accent = false,
   tone = "default",
 }: {
   label: string;
   icon: React.ReactNode;
   summary: Settled<RevenueSummary>;
-  pick: (kpis: ReturnType<typeof revenueKpis>) => KpiText;
+  pick: (kpis: Extract<RevenueKpisResult, { kind: "ok" }>) => KpiText;
   tooltip: string;
+  /** El `id` de la tabla de esta página con todas las filas. */
+  detailId: string;
   accent?: boolean;
   tone?: "default" | "warning";
 }) {
-  if (!summary.ok) {
-    return <KpiCard label={label} value="No disponible" leading={iconBox(icon)} caption={summary.message} tone="danger" />;
+  const failed = !summary.ok ? summary.message : null;
+  const kpis = summary.ok ? revenueKpis(summary.data) : null;
+  if (failed !== null || kpis === null || kpis.kind === "error") {
+    const message = failed ?? (kpis?.kind === "error" ? kpis.message : "");
+    return <KpiCard label={label} value="No disponible" leading={iconBox(icon)} caption={message} tone="danger" />;
   }
-  const text = pick(revenueKpis(summary.data));
+  const text = pick(kpis);
   return (
     <KpiCard
       label={label}
@@ -90,6 +106,16 @@ function RevenueKpi({
       provenance="ledger"
       provenanceCompact
       provenanceTooltip={tooltip}
+      footer={
+        text.detail ? (
+          <a
+            href={`#${detailId}`}
+            className="inline-block rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            Ver detalle en la tabla
+          </a>
+        ) : undefined
+      }
     />
   );
 }
@@ -178,22 +204,25 @@ export function DashboardWorkspace({
           icon={<Coins className="size-5 text-primary" />}
           summary={revenue.summary}
           pick={(k) => k.verified}
+          detailId={VERIFIED_TABLE_ID}
           accent
-          tooltip="Cobros verificados del registro de ingresos, en EUR (la única moneda consolidada). Otras monedas se enseñan aparte y nunca se suman. Sin entradas en EUR el valor es «Sin datos», no 0."
+          tooltip="Cobros verificados del registro de ingresos, por origen y por moneda: nada se suma ni se convierte, y ninguna moneda se oculta. Con varias cifras la tarjeta es compacta y la tabla «Verificado por moneda» las enseña todas. Sin ningún cobro verificado el valor es «Sin datos», no 0."
         />
         <RevenueKpi
           label={`En revisión · ${period}`}
           icon={<Scale className="size-5 text-primary" />}
           summary={revenue.summary}
           pick={(k) => k.underReview}
+          detailId={OUTSIDE_TABLE_ID}
           tone="warning"
-          tooltip="Dinero recibido como duplicado o con discrepancia y aún sin resolver, en EUR. No suma a lo verificado ni se compensa con ello."
+          tooltip="Dinero recibido como duplicado o con discrepancia y aún sin resolver, por origen, moneda y clase. No suma a lo verificado ni se compensa con ello."
         />
         <RevenueKpi
           label={`Evidencia pendiente · ${period}`}
           icon={<ReceiptText className="size-5 text-primary" />}
           summary={revenue.summary}
           pick={(k) => k.pending}
+          detailId={OUTSIDE_TABLE_ID}
           tooltip="Eventos de pago (cobros o reembolsos) que no se pudieron asentar. No son ingreso ni reembolso y no entran en ningún total."
         />
         {agentsKpi.kind === "error" || agentsKpi.kind === "unread" ? (

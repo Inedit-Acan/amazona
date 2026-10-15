@@ -20,6 +20,7 @@ import {
   seriesView,
   settle,
   summaryView,
+  type RevenueKpisResult,
 } from "./revenue-view.ts";
 
 // Vista de los ingresos del Panel (M45, ADR 0030). Lo que se enseña, y lo que NO se enseña como si fuera un dato.
@@ -80,8 +81,15 @@ test("formatMoney: nada se redondea en silencio; un texto roto se ve tal cual", 
 
 // --- Sin datos ---------------------------------------------------------------------------------------------------
 
-test("sin datos: sin filas en consolidated_eur_by_origin se dice «Sin datos», nunca 0", () => {
-  const kpis = revenueKpis(summary());
+/** El Panel lee las tres cifras del núcleo; un `error` aquí sería un contrato roto (lo cubre `revenue-kpis.test.ts`). */
+function panel(data: RevenueSummary): Extract<RevenueKpisResult, { kind: "ok" }> {
+  const kpis = revenueKpis(data);
+  assert.equal(kpis.kind, "ok", "la respuesta de la prueba cumple el contrato");
+  return kpis as Extract<RevenueKpisResult, { kind: "ok" }>;
+}
+
+test("sin datos: sin ninguna fila verificada se dice «Sin datos», nunca 0", () => {
+  const kpis = panel(summary());
   assert.equal(kpis.verified.value, NO_DATA);
   assert.equal(kpis.verified.isNoData, true);
   assert.equal(kpis.underReview.value, NO_DATA);
@@ -90,27 +98,27 @@ test("sin datos: sin filas en consolidated_eur_by_origin se dice «Sin datos», 
     assert.ok(!/\d/.test(text), `«${text}» no debe parecer una cifra`);
   }
   const view = summaryView(summary());
-  assert.deepEqual(view.eurByOrigin, []);
   assert.equal(view.hasAnyData, false);
   assert.deepEqual(view.verified, []);
 });
 
 test("sin datos: la evidencia pendiente SÍ es una cuenta medida; cero eventos es un cero verdadero", () => {
-  const kpis = revenueKpis(summary());
+  const kpis = panel(summary());
   assert.equal(kpis.pending.value, "0");
   assert.equal(kpis.pending.isNoData, false);
 });
 
-test("sin datos EUR pero con otra moneda: «Sin datos» en EUR y la otra moneda aparte", () => {
+test("solo otra moneda (USD verificado): se enseña su importe, NUNCA «Sin datos»; la moneda no se convierte ni se oculta", () => {
   const usdOnly = summary({
     entries: 1,
     verified: [{ provider_kind: "mock", currency: "USD", revenue: "50.0000", refunds: "0.0000", net: "50.0000", captures: 1, refund_count: 0 }],
     non_aggregable_currencies: [{ currency: "USD", reason: "no valid accounting conversion exists yet" }],
   });
-  const kpis = revenueKpis(usdOnly);
-  assert.equal(kpis.verified.value, NO_DATA);
-  assert.match(kpis.verified.caption, /USD/);
-  assert.match(kpis.verified.caption, /no se suman ni se convierten/);
+  const kpis = panel(usdOnly);
+  assert.equal(kpis.verified.value, "50,00 USD");
+  assert.equal(kpis.verified.isNoData, false);
+  assert.notEqual(kpis.verified.value, NO_DATA);
+  assert.match(kpis.verified.caption, /Origen: Simulado/);
   assert.equal(summaryView(usdOnly).verified[0].revenue, "50,00 USD");
 });
 
@@ -125,31 +133,30 @@ test("serie y entradas sin datos: ninguna columna, ninguna fila, ningún cero in
 // --- Datos del registro -------------------------------------------------------------------------------------------
 
 test("datos del registro: ingresos, reembolsos y neto en EUR salen tal cual los dio el registro", () => {
-  const kpis = revenueKpis(EUR_SUMMARY);
+  const kpis = panel(EUR_SUMMARY);
   assert.equal(kpis.verified.value, "100,00 €");
   assert.match(kpis.verified.caption, /Reembolsos 10,00 €/);
   assert.match(kpis.verified.caption, /Neto 90,00 €/);
   assert.equal(kpis.verified.isNoData, false);
   const view = summaryView(EUR_SUMMARY);
-  assert.deepEqual(view.eurByOrigin, [
-    { providerKind: "mock", revenue: "100,00 €", refunds: "10,00 €", net: "90,00 €", underReview: "0,00 €" },
-  ]);
   assert.deepEqual(view.verified, [
     { providerKind: "mock", currency: "EUR", revenue: "100,00 €", refunds: "10,00 €", net: "90,00 €", captures: "2", refundCount: "1" },
   ]);
 });
 
-test("datos del registro: un cero medido (hay entradas en EUR y suman cero) SÍ se enseña como cero", () => {
+test("datos del registro: una partida en revisión medida con importe cero SÍ se enseña como cero (hay una fila); sin fila no hay cifra", () => {
   const measuredZero = summary({
     entries: 2,
-    verified: [{ provider_kind: "mock", currency: "EUR", revenue: "20.0000", refunds: "20.0000", net: "0.0000", captures: 1, refund_count: 1 }],
-    consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "20.0000", refunds: "20.0000", net: "0.0000", under_review_outstanding: "0.0000" }],
+    under_review: [
+      { provider_kind: "mock", currency: "EUR", classification: "DUPLICATE_RECEIPT", received: "20.0000", refunded: "20.0000", outstanding: "0.0000", receipts: 1, refund_count: 1 },
+    ],
   });
-  assert.equal(revenueKpis(measuredZero).underReview.value, "0,00 €");
-  assert.equal(revenueKpis(measuredZero).underReview.isNoData, false);
+  assert.equal(panel(measuredZero).underReview.value, "0,00 €");
+  assert.equal(panel(measuredZero).underReview.isNoData, false);
+  assert.equal(panel(summary()).underReview.value, NO_DATA, "sin ninguna partida en revisión no hay cifra");
 });
 
-// --- Monedas: ni se suman ni se convierten ------------------------------------------------------------------------
+// --- Monedas: ni se suman ni se convierten ni se ocultan ----------------------------------------------------------
 
 const MIXED = summary({
   entries: 5,
@@ -158,18 +165,21 @@ const MIXED = summary({
     { provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", captures: 2, refund_count: 0 },
     { provider_kind: "mock", currency: "GBP", revenue: "7.0000", refunds: "0.0000", net: "7.0000", captures: 1, refund_count: 0 },
   ],
-  consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", under_review_outstanding: "0.0000" }],
   non_aggregable_currencies: [
     { currency: "USD", reason: "x" },
     { currency: "GBP", reason: "x" },
   ],
 });
 
-test("monedas distintas: cada una en su línea, EUR primero, y el KPI es solo EUR", () => {
+test("monedas distintas: cada una en su línea, EUR primero; el KPI no elige ninguna como total y dice cuántas cifras hay", () => {
   const view = summaryView(MIXED);
   assert.deepEqual(view.verified.map((row) => row.currency), ["EUR", "GBP", "USD"]);
   assert.deepEqual(view.otherCurrencies, ["GBP", "USD"]);
-  assert.equal(revenueKpis(MIXED).verified.value, "100,00 €");
+  const kpis = panel(MIXED);
+  assert.equal(kpis.verified.value, "3 cifras");
+  assert.equal(kpis.verified.isNoData, true);
+  assert.equal(kpis.verified.detail, true, "la tarjeta enlaza a la tabla que las enseña todas");
+  assert.doesNotMatch(kpis.verified.value, /100,00|50,00|7,00/, "ninguna cifra se elige como la de la tarjeta");
 });
 
 test("monedas distintas: ninguna cifra de la vista es la suma de monedas", () => {
@@ -186,11 +196,10 @@ const REVIEWED = summary({
   under_review: [
     { provider_kind: "mock", currency: "EUR", classification: "DUPLICATE_RECEIPT", received: "40.0000", refunded: "0.0000", outstanding: "40.0000", receipts: 1, refund_count: 0 },
   ],
-  consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "10.0000", net: "90.0000", under_review_outstanding: "40.0000" }],
 });
 
 test("en revisión: no aumenta lo verificado ni se muestra sumado a ello", () => {
-  const kpis = revenueKpis(REVIEWED);
+  const kpis = panel(REVIEWED);
   assert.equal(kpis.verified.value, "100,00 €");
   assert.equal(kpis.underReview.value, "40,00 €");
   const everything = JSON.stringify([summaryView(REVIEWED), kpis]);
@@ -199,12 +208,11 @@ test("en revisión: no aumenta lo verificado ni se muestra sumado a ello", () =>
 });
 
 test("en revisión: cambiar lo que está en revisión no cambia NI UNA cifra verificada", () => {
-  const without = revenueKpis(EUR_SUMMARY);
-  const withReview = revenueKpis(REVIEWED);
+  const without = panel(EUR_SUMMARY);
+  const withReview = panel(REVIEWED);
   assert.deepEqual(withReview.verified.value, without.verified.value);
+  assert.deepEqual(withReview.verified.caption, without.verified.caption);
   assert.deepEqual(summaryView(REVIEWED).verified, summaryView(EUR_SUMMARY).verified);
-  assert.equal(summaryView(REVIEWED).eurByOrigin[0].revenue, summaryView(EUR_SUMMARY).eurByOrigin[0].revenue);
-  assert.equal(summaryView(REVIEWED).eurByOrigin[0].net, summaryView(EUR_SUMMARY).eurByOrigin[0].net);
 });
 
 test("en revisión: cada clase lleva su etiqueta y no se funden", () => {
@@ -227,12 +235,11 @@ test("evidencia pendiente: no aumenta ningún total", () => {
       by_currency: [{ provider_kind: "mock", currency: "EUR", event_type: "payment.succeeded", count: 3, amount: "999.0000" }],
     },
   });
-  const before = revenueKpis(EUR_SUMMARY);
-  const after = revenueKpis(withEvidence);
+  const before = panel(EUR_SUMMARY);
+  const after = panel(withEvidence);
   assert.equal(after.verified.value, before.verified.value);
   assert.equal(after.verified.caption, before.verified.caption);
   assert.equal(after.underReview.value, before.underReview.value);
-  assert.deepEqual(summaryView(withEvidence).eurByOrigin, summaryView(EUR_SUMMARY).eurByOrigin);
   assert.deepEqual(summaryView(withEvidence).verified, summaryView(EUR_SUMMARY).verified);
   // Y se enseña aparte, con su propia etiqueta.
   assert.equal(after.pending.value, "3");
@@ -248,7 +255,7 @@ test("evidencia pendiente sola cuenta como dato (no es 'sin datos'), pero no cre
     non_aggregable_currencies: [],
   });
   assert.equal(summaryView(onlyEvidence).hasAnyData, true);
-  assert.equal(revenueKpis(onlyEvidence).verified.value, NO_DATA);
+  assert.equal(panel(onlyEvidence).verified.value, NO_DATA);
 });
 
 // --- Serie por día ------------------------------------------------------------------------------------------------
@@ -492,6 +499,7 @@ const TWO_ORIGINS = summary({
     { provider_kind: "sandbox", entries: 2 },
   ],
   verified: [EUR_ROW("sandbox", "40.0000"), EUR_ROW("mock", "20.0000")],
+  // El bloque consolidado sigue en el contrato, pero ninguna cifra sale de él: se deja aquí para que la prueba lo demuestre.
   consolidated_eur_by_origin: [EUR_CONSOLIDATED("sandbox", "40.0000"), EUR_CONSOLIDATED("mock", "20.0000")],
 });
 
@@ -501,41 +509,54 @@ test("origen: la vista conserva el provider_kind de cada línea, sin completarlo
     ["mock", "20,00 €"],
     ["sandbox", "40,00 €"],
   ]);
-  assert.deepEqual(view.eurByOrigin.map((line) => line.providerKind), ["mock", "sandbox"]);
   assert.deepEqual(view.origins, ["mock", "sandbox"]);
 });
 
-test("origen: con varios orígenes la cabecera NO es una cifra: cada origen va aparte y nada se suma", () => {
-  const kpis = revenueKpis(TWO_ORIGINS);
-  assert.equal(kpis.verified.value, "Varios orígenes");
+test("origen: con varios orígenes la tarjeta NO elige una cifra: dice cuántas hay, no se suma nada y el detalle está en la tabla", () => {
+  const kpis = panel(TWO_ORIGINS);
+  assert.equal(kpis.verified.value, "2 cifras");
   assert.equal(kpis.verified.isNoData, true);
-  assert.match(kpis.verified.caption, /Simulado 20,00 € · Entorno de pruebas 40,00 €/);
+  assert.equal(kpis.verified.detail, true);
   const everything = JSON.stringify([summaryView(TWO_ORIGINS), kpis]);
   for (const sum of ["60,00", "60.0000", "70,00"]) {
     assert.ok(!everything.includes(sum), `aparece ${sum}: se han sumado orígenes distintos`);
   }
+  // Y NINGUNA procedencia se pierde: la tabla (misma página) las lleva las dos, con sus importes.
+  assert.deepEqual(summaryView(TWO_ORIGINS).verified.map((line) => [line.providerKind, line.revenue]), [
+    ["mock", "20,00 €"],
+    ["sandbox", "40,00 €"],
+  ]);
 });
 
 test("origen: con un solo origen se enseña su cifra y se dice de qué origen es", () => {
-  const kpis = revenueKpis(EUR_SUMMARY);
+  const kpis = panel(EUR_SUMMARY);
   assert.equal(kpis.verified.value, "100,00 €");
   assert.match(kpis.verified.caption, /Origen: Simulado\./);
-  assert.match(kpis.underReview.caption, /Origen: Simulado\./);
+  const reviewed = panel(REVIEWED);
+  assert.match(reviewed.underReview.caption, /Origen: Simulado\./);
 });
 
-test("origen: tres orígenes tampoco se suman en las cabeceras de revisión", () => {
-  const three = summary({
-    ...TWO_ORIGINS,
-    consolidated_eur_by_origin: [
-      { ...EUR_CONSOLIDATED("mock", "20.0000"), under_review_outstanding: "1.0000" },
-      { ...EUR_CONSOLIDATED("real", "80.0000"), under_review_outstanding: "2.0000" },
-      { ...EUR_CONSOLIDATED("sandbox", "40.0000"), under_review_outstanding: "3.0000" },
-    ],
+test("origen: tres orígenes en revisión tampoco se suman: «3 partidas» y ninguna cifra elegida", () => {
+  const review = (provider_kind: "mock" | "real" | "sandbox", outstanding: string) => ({
+    provider_kind,
+    currency: "EUR",
+    classification: "DUPLICATE_RECEIPT",
+    received: outstanding,
+    refunded: "0.0000",
+    outstanding,
+    receipts: 1,
+    refund_count: 0,
   });
-  const kpis = revenueKpis(three);
-  assert.equal(kpis.underReview.value, "Varios orígenes");
-  assert.match(kpis.underReview.caption, /Simulado 1,00 € · Proveedor real 2,00 € · Entorno de pruebas 3,00 €/);
+  const three = summary({ ...TWO_ORIGINS, under_review: [review("mock", "1.0000"), review("real", "2.0000"), review("sandbox", "3.0000")] });
+  const kpis = panel(three);
+  assert.equal(kpis.underReview.value, "3 partidas");
+  assert.equal(kpis.underReview.detail, true);
   assert.ok(!JSON.stringify(kpis).includes("6,00"), "1 + 2 + 3 no es la cifra de nadie");
+  assert.deepEqual(summaryView(three).underReview.map((row) => [row.providerKind, row.outstanding]), [
+    ["mock", "1,00 €"],
+    ["real", "2,00 €"],
+    ["sandbox", "3,00 €"],
+  ]);
 });
 
 test("origen: la evidencia pendiente y el dinero en revisión se quedan en su origen", () => {

@@ -1,27 +1,25 @@
 import type {
-  DecimalText,
   RevenueEntriesPage,
   RevenueEntry,
   RevenueProviderKind,
   RevenueSeries,
   RevenueSummary,
 } from "./api.ts";
-import { ORIGIN_MULTIPLE_LABEL, originName } from "./provenance.ts";
 import { RevenueContractError } from "./revenue-contract.ts";
+import { classificationLabel, formatCount, formatMoney } from "./revenue-format.ts";
+import { revenueFigures, summaryFigures, type FigureLine, type FigureSecondary, type RevenueFigures } from "./revenue-figures.ts";
 
-// Vista de los ingresos del Panel (M45, ADR 0030). Aquí NO se calcula nada económico: el backend ya devolvió cada cifra
-// por moneda, separando lo verificado, lo que está en revisión y la evidencia pendiente. Este módulo solo decide QUÉ SE
-// ENSEÑA y CÓMO SE DICE, con tres reglas que las pruebas fijan:
+// Vista de los ingresos del Panel y de Finanzas (M45, ADR 0030). Aquí NO se calcula nada económico: el backend ya devolvió cada cifra por moneda,
+// separando lo verificado, lo que está en revisión y la evidencia pendiente. Este módulo solo decide QUÉ SE ENSEÑA y CÓMO SE DICE, y desde
+// M47 · Commit 3A.1 NO conserva ninguna segunda implementación de la semántica: todo lo que lee de `GET /api/revenue/summary` pasa por
+// `lib/revenue-figures.ts` (el núcleo que comparten `/ceo`, `/dashboard` y `/cfo`). Las reglas, que las pruebas fijan:
 //
-//   1. «Sin datos» no es un cero. Sin filas en `consolidated_eur_by_origin` se dice «Sin datos»; un cero solo sale cuando
-//      el backend lo midió (hay entradas en EUR de ese origen y su suma es cero).
-//   2. Las monedas no se suman ni se convierten. Cada una sale en su línea; lo único consolidado es EUR, y lo dice el
-//      backend, no esta vista.
-//   3. Lo verificado, lo que está en revisión y la evidencia pendiente son tres cosas distintas: ninguna cifra de una
-//      se construye con las otras, y esta vista no hace ninguna suma de importes.
-//   4. (M46, ADR 0031) Cada cifra es de UN origen (`provider_kind`), tal como lo guardó el backend.
-//      Esta vista nunca suma orígenes distintos, y no pone etiquetas finales: enseña el valor tal cual (el texto de cara
-//      al usuario es del Commit 4). Un origen ausente o desconocido no se completa jamás: ver `revenue-contract.ts`.
+//   1. «Sin datos» no es un cero. Sin ninguna fila verificada se dice «Sin datos»; un cero solo sale cuando el backend lo midió (hay una fila).
+//   2. Las monedas no se suman ni se convierten. Cada pareja origen × moneda sale en su línea; una moneda distinta de EUR NO se oculta.
+//   3. Lo verificado, lo que está en revisión y la evidencia pendiente son tres cosas distintas: ninguna cifra de una se construye con las otras,
+//      y esta vista no hace ninguna suma de importes.
+//   4. (M46, ADR 0031) Cada cifra es de UN origen (`provider_kind`), tal como lo guardó el backend. Nunca se suman orígenes distintos. Un
+//      origen ausente o desconocido no se completa jamás: ver `revenue-contract.ts`.
 //
 // No importa nada de `lib/demo` ni del P&L modelado (`cfo-view`, `operations-view`): lo que hay aquí es medido.
 
@@ -30,52 +28,17 @@ export const NO_DATA = "Sin datos";
 /** Lo que se dice cuando una lectura FALLÓ. No es «Sin datos» (el backend no lo tiene): es «no sé si lo tiene». Un error
  * de lectura no es un dato, y no se convierte en una lista vacía ni en un cero. */
 export const UNREAD = "No se pudo leer";
-const CONSOLIDATION_CURRENCY = "EUR";
 const DAY_MS = 86_400_000;
 
-// --- Importes: texto exacto, nunca `float` -------------------------------------------------------------------------
-
-const DECIMAL = /^(-?)(\d+)(?:\.(\d+))?$/;
-
-/** `"1234.5600"` → `"1.234,56 €"` sin pasar por un número: no hay redondeo ni pérdida de precisión con importes de 17
- * dígitos. Dos decimales salvo que haya una cifra distinta de cero más allá de los céntimos (entonces se enseñan todos:
- * nada se redondea en silencio). Un texto que no es un decimal se devuelve tal cual, visible: ocultarlo escondería un
- * contrato roto. */
-export function formatMoney(amount: DecimalText, currency: string): string {
-  const match = DECIMAL.exec(amount);
-  if (!match) return `${amount} ${currency}`;
-  const [, sign, integer, fraction = ""] = match;
-  let decimals = fraction.padEnd(2, "0");
-  if (decimals.length > 2 && /^0+$/.test(decimals.slice(2))) decimals = decimals.slice(0, 2);
-  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-  const isZero = /^0*$/.test(integer) && /^0*$/.test(decimals);
-  const text = `${grouped},${decimals}`;
-  const signed = sign === "-" && !isZero ? `−${text}` : text;
-  return currency === CONSOLIDATION_CURRENCY ? `${signed} €` : `${signed} ${currency}`;
-}
-
-export function formatCount(value: number): string {
-  return String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
+// Las primitivas de texto (importes exactos, recuentos y etiquetas de clase) viven en `lib/revenue-format.ts` desde M47 · Commit 3A.1, y se
+// reexportan aquí con los mismos nombres: ningún import existente cambia.
+export { classificationLabel, evidenceLabel, formatCount, formatMoney } from "./revenue-format.ts";
 
 // --- Etiquetas ----------------------------------------------------------------------------------------------------
 
-const CLASSIFICATION_LABEL: Record<string, string> = {
-  ORDER_PAYMENT: "Verificado",
-  DUPLICATE_RECEIPT: "Duplicado · en revisión",
-  MISMATCH_RECEIPT: "Discrepancia · en revisión",
-};
-
 const KIND_LABEL: Record<string, string> = { CAPTURE: "Cobro", REFUND: "Reembolso" };
 
-const EVIDENCE_LABEL: Record<string, string> = {
-  "payment.succeeded": "Cobro sin asentar",
-  "refund.succeeded": "Reembolso sin asentar",
-};
-
-export const classificationLabel = (value: string) => CLASSIFICATION_LABEL[value] ?? value;
 export const kindLabel = (value: string) => KIND_LABEL[value] ?? value;
-export const evidenceLabel = (value: string) => EVIDENCE_LABEL[value] ?? value;
 
 /** Solo `ORDER_PAYMENT` es ingreso verificado; todo lo demás está en revisión. */
 export const isVerified = (classification: string) => classification === "ORDER_PAYMENT";
@@ -161,159 +124,169 @@ export interface EvidenceLine {
   amount: string;
 }
 
-export interface EurLine {
-  providerKind: RevenueProviderKind;
-  revenue: string;
-  refunds: string;
-  net: string;
-  underReview: string;
-}
-
 export interface SummaryView {
   /** Hay algo que enseñar: alguna entrada del registro o algún evento sin asentar. */
   hasAnyData: boolean;
-  /** Una fila por origen con entradas en EUR; vacío = «Sin datos» en EUR. Nunca hay una fila que sume orígenes. */
-  eurByOrigin: EurLine[];
   /** Orígenes con algún dato (entradas), en el orden del backend. */
   origins: RevenueProviderKind[];
   verified: VerifiedLine[];
   underReview: UnderReviewLine[];
   pendingEvidence: { count: number; lines: EvidenceLine[] };
-  /** Monedas que no se consolidan: salen por separado y nunca se suman ni se convierten. */
+  /** Monedas declaradas sin conversión: informativo, no oculta ninguna. Salen por separado y nunca se suman ni se convierten. */
   otherCurrencies: string[];
 }
 
-/** Primero por origen (el orden del backend: alfabético) y dentro de cada uno EUR antes que el resto. */
-const byOriginThenCurrency = <T extends { currency: string; provider_kind: string }>(a: T, b: T) => {
-  const rank = (currency: string) => (currency === CONSOLIDATION_CURRENCY ? 0 : 1);
-  return (
-    a.provider_kind.localeCompare(b.provider_kind) ||
-    rank(a.currency) - rank(b.currency) ||
-    a.currency.localeCompare(b.currency)
-  );
-};
-
-const byCurrency = <T extends { currency: string }>(a: T, b: T) => {
-  const rank = (currency: string) => (currency === CONSOLIDATION_CURRENCY ? 0 : 1);
-  return rank(a.currency) - rank(b.currency) || a.currency.localeCompare(b.currency);
-};
-
+/** Las TABLAS de `/dashboard` y `/cfo`. Es un adaptador de presentación (recuentos con separador de miles): todas las filas, su orden y su
+ * formato salen de `lib/revenue-figures.ts`, el mismo núcleo que las tarjetas; aquí no se ordena, no se agrega ni se decide nada. */
 export function summaryView(summary: RevenueSummary): SummaryView {
+  const figures = summaryFigures(summary);
   return {
-    hasAnyData: summary.entries > 0 || summary.pending_evidence.count > 0,
-    eurByOrigin: [...summary.consolidated_eur_by_origin]
-      .sort((a, b) => a.provider_kind.localeCompare(b.provider_kind))
-      .map((eur) => ({
-        providerKind: eur.provider_kind,
-        revenue: formatMoney(eur.revenue, eur.currency),
-        refunds: formatMoney(eur.refunds, eur.currency),
-        net: formatMoney(eur.net, eur.currency),
-        underReview: formatMoney(eur.under_review_outstanding, eur.currency),
-      })),
-    origins: summary.entries_by_provider_kind.map((row) => row.provider_kind),
-    verified: [...summary.verified].sort(byOriginThenCurrency).map((row) => ({
-      providerKind: row.provider_kind,
-      currency: row.currency,
-      revenue: formatMoney(row.revenue, row.currency),
-      refunds: formatMoney(row.refunds, row.currency),
-      net: formatMoney(row.net, row.currency),
-      captures: formatCount(row.captures),
-      refundCount: formatCount(row.refund_count),
+    hasAnyData: figures.hasAnyData,
+    origins: figures.origins,
+    verified: figures.verified.map((line) => ({
+      providerKind: line.providerKind,
+      currency: line.currency,
+      revenue: line.revenue,
+      refunds: line.refunds,
+      net: line.net,
+      captures: formatCount(line.captures),
+      refundCount: formatCount(line.refundCount),
     })),
-    underReview: [...summary.under_review].sort(byOriginThenCurrency).map((row) => ({
-      providerKind: row.provider_kind,
+    underReview: figures.underReview.map((row) => ({
+      providerKind: row.providerKind,
       currency: row.currency,
       classification: row.classification,
-      label: classificationLabel(row.classification),
-      received: formatMoney(row.received, row.currency),
-      refunded: formatMoney(row.refunded, row.currency),
-      outstanding: formatMoney(row.outstanding, row.currency),
+      label: row.label,
+      received: row.received,
+      refunded: row.refunded,
+      outstanding: row.amount,
       receipts: formatCount(row.receipts),
-      refundCount: formatCount(row.refund_count),
+      refundCount: formatCount(row.refundCount),
     })),
     pendingEvidence: {
-      count: summary.pending_evidence.count,
-      lines: [...summary.pending_evidence.by_currency].sort(byOriginThenCurrency).map((row) => ({
-        providerKind: row.provider_kind,
-        currency: row.currency,
-        label: evidenceLabel(row.event_type),
-        count: formatCount(row.count),
-        amount: formatMoney(row.amount, row.currency),
+      count: figures.pending.count,
+      lines: figures.pending.lines.map((line) => ({
+        providerKind: line.providerKind,
+        currency: line.currency,
+        label: line.label,
+        count: formatCount(line.count),
+        amount: line.amount,
       })),
     },
-    otherCurrencies: summary.non_aggregable_currencies.map((row) => row.currency).sort(),
+    otherCurrencies: figures.nonAggregable,
   };
 }
+
+/** Los destinos del enlace «ver el detalle» de las tarjetas compactas: las tablas de la MISMA página que enseñan todas las filas. */
+export const VERIFIED_TABLE_ID = "ingresos-por-moneda";
+export const OUTSIDE_TABLE_ID = "fuera-de-lo-verificado";
 
 export interface KpiText {
   value: string;
   caption: string;
-  /** El valor es «Sin datos»: la pantalla lo enseña sin acento de cifra. */
+  /** El valor es «Sin datos», o no hay una sola cifra: la pantalla lo enseña sin acento de cifra. */
   isNoData: boolean;
+  /** Hay varias cifras (origen × moneda): la tarjeta es compacta y el detalle completo está en la tabla de la misma página. */
+  detail?: boolean;
 }
 
-export interface RevenueKpis {
-  verified: KpiText;
-  underReview: KpiText;
-  pending: KpiText;
-}
+export type RevenueKpisResult =
+  | { kind: "error"; message: string }
+  | { kind: "ok"; verified: KpiText; underReview: KpiText; pending: KpiText };
 
-const othersText = (currencies: string[]) =>
-  currencies.length === 0 ? "" : ` Hay entradas en ${currencies.join(", ")}: se enseñan aparte, no se suman ni se convierten.`;
+export type VerifiedMetric = "revenue" | "refunds" | "net";
 
-/** Lo que dice una cifra de cabecera cuando hay datos de más de un origen: ninguna cifra, porque no existe un total que
- * cruce orígenes (ADR 0031 A2). El texto final de cara al usuario es del Commit 4. */
-export const SEVERAL_ORIGINS = ORIGIN_MULTIPLE_LABEL;
+export type VerifiedKpisResult =
+  | { kind: "error"; message: string }
+  | { kind: "ok"; revenue: KpiText; refunds: KpiText; net: KpiText };
 
-const perOrigin = (lines: EurLine[], pick: (line: EurLine) => string) =>
-  lines.map((line) => `${originName(line.providerKind)} ${pick(line)}`).join(" · ");
+const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
-/** Las tres cifras de cabecera. EUR es lo único consolidado; sin entradas en EUR el valor es «Sin datos», no 0,00 €. Con
- * un solo origen se enseña su cifra y su origen; con varios NO hay cifra (cada uno va aparte en el caption), porque
- * sumarlos sería mezclar dinero de procedencias distintas. */
-export function revenueKpis(summary: RevenueSummary): RevenueKpis {
-  const view = summaryView(summary);
-  const others = view.otherCurrencies;
-  const eur = view.eurByOrigin;
-  const [single] = eur;
-  const verified: KpiText =
-    eur.length === 0
-      ? { value: NO_DATA, caption: `Ninguna entrada en EUR en el periodo.${othersText(others)}`, isNoData: true }
-      : eur.length === 1
-        ? {
-            value: single.revenue,
-            caption: `Origen: ${originName(single.providerKind)}. Reembolsos ${single.refunds} · Neto ${single.net}.${othersText(others)}`,
-            isNoData: false,
-          }
-        : {
-            value: SEVERAL_ORIGINS,
-            caption: `${perOrigin(eur, (line) => line.revenue)}. Cada origen va por separado: no se suman.${othersText(others)}`,
-            isNoData: true,
-          };
-  const underReview: KpiText =
-    eur.length === 0
-      ? { value: NO_DATA, caption: "Ninguna entrada en EUR en el periodo. No suma a lo verificado.", isNoData: true }
-      : eur.length === 1
-        ? {
-            value: single.underReview,
-            caption: `Origen: ${originName(single.providerKind)}. Duplicados y discrepancias pendientes de resolver. No suman a lo verificado.`,
-            isNoData: false,
-          }
-        : {
-            value: SEVERAL_ORIGINS,
-            caption: `${perOrigin(eur, (line) => line.underReview)}. Cada origen va por separado: no se suman.`,
-            isNoData: true,
-          };
-  const evidence = view.pendingEvidence;
-  const pending: KpiText = {
-    value: formatCount(evidence.count),
-    caption:
-      evidence.count === 0
-        ? "Ningún evento de pago sin asentar."
-        : `Eventos de pago sin asentar (${evidence.lines.map((line) => `${line.amount}`).join(" · ")}). No son ingreso ni reembolso.`,
-    isNoData: false,
+/** Lo que dice una tarjeta compacta cuando hay varias cifras (la etiqueta de la tarjeta ya dice «verificados»): ninguna se elige como total, ninguna se
+ * pierde y el detalle está en la tabla de la misma página. El valor es solo el recuento («4 cifras»). */
+const COMPACT_CAPTION = "Verificadas, por origen y moneda: sin sumar ni convertir.";
+const COMPACT_REVIEW_CAPTION = "Por origen, moneda y clase: sin sumar ni convertir. No suman a lo verificado.";
+
+const notesText = (secondary: FigureSecondary): string => (secondary.notes.length === 0 ? "" : ` ${secondary.notes.join(" · ")}.`);
+
+/** UNA métrica verificada (ingresos, reembolsos o neto) a partir de las líneas del núcleo. Sin ninguna línea: «Sin datos». Una línea: su cifra.
+ * Varias: «N cifras» y ninguna cifra elegida; el detalle está en la tabla de la misma página. */
+function verifiedKpi(
+  figures: Exclude<RevenueFigures, { kind: "error" }>,
+  metric: VerifiedMetric,
+  singleCaption: (line: FigureLine) => string,
+  emptyCaption: string,
+): KpiText {
+  const notes = notesText(figures.secondary);
+  if (figures.kind === "empty") return { value: NO_DATA, caption: `${emptyCaption}${notes}`, isNoData: true };
+  if (figures.lines.length === 1) {
+    const [line] = figures.lines;
+    return { value: line[metric], caption: `${singleCaption(line)}${notes}`, isNoData: false };
+  }
+  return {
+    value: `${figures.lines.length} cifras`,
+    caption: `${COMPACT_CAPTION}${notes}`,
+    isNoData: true,
+    detail: true,
   };
-  return { verified, underReview, pending };
+}
+
+function reviewKpi(secondary: FigureSecondary): KpiText {
+  const rows = secondary.underReview;
+  if (rows.length === 0) return { value: NO_DATA, caption: "Nada en revisión en el periodo. No suma a lo verificado.", isNoData: true };
+  if (rows.length === 1) {
+    const [row] = rows;
+    return { value: row.amount, caption: `${row.label} · Origen: ${row.origin}. No suma a lo verificado.`, isNoData: false };
+  }
+  return {
+    value: `${rows.length} partidas`,
+    caption: COMPACT_REVIEW_CAPTION,
+    isNoData: true,
+    detail: true,
+  };
+}
+
+/** El recuento es un recuento de EVENTOS (no dinero): cero es un cero verdadero. Cada línea conserva su clase, origen, moneda, recuento e
+ * importe; dos orígenes o dos monedas nunca se funden en una cifra. */
+function pendingKpi(secondary: FigureSecondary): KpiText {
+  const value = formatCount(secondary.pendingCount);
+  if (secondary.pendingCount === 0) return { value, caption: "Ningún evento de pago sin asentar.", isNoData: false };
+  const lines = secondary.pending.map(
+    (line) => `${line.label} · ${line.origin} · ${line.count} ${plural(line.count, "evento", "eventos")} · ${line.amount}`,
+  );
+  const listed = lines.length === 0 ? "Eventos de pago sin asentar" : lines.join("; ");
+  return { value, caption: `${listed}. No son ingreso ni reembolso.`, isNoData: false };
+}
+
+/** Las tres cifras de cabecera del Panel. Salen del núcleo (`revenueFigures`): una línea por origen × moneda, nada se suma ni se convierte, y
+ * sin ningún cobro verificado el valor es «Sin datos», nunca un cero fabricado. */
+export function revenueKpis(summary: RevenueSummary): RevenueKpisResult {
+  const figures = revenueFigures(summary);
+  if (figures.kind === "error") return { kind: "error", message: figures.message };
+  return {
+    kind: "ok",
+    verified: verifiedKpi(
+      figures,
+      "revenue",
+      (line) => `Origen: ${line.origin}. Reembolsos ${line.refunds} · Neto ${line.net}.`,
+      "Ningún ingreso verificado en el periodo.",
+    ),
+    underReview: reviewKpi(figures.secondary),
+    pending: pendingKpi(figures.secondary),
+  };
+}
+
+/** Las tres cifras verificadas de Finanzas (ingresos, reembolsos y neto), sobre LAS MISMAS líneas: coherentes entre sí por construcción. */
+export function verifiedMetricKpis(summary: RevenueSummary): VerifiedKpisResult {
+  const figures = revenueFigures(summary);
+  if (figures.kind === "error") return { kind: "error", message: figures.message };
+  const none = "Ningún ingreso verificado en el periodo.";
+  return {
+    kind: "ok",
+    revenue: verifiedKpi(figures, "revenue", (line) => `Cobros verificados. Origen: ${line.origin}.`, none),
+    refunds: verifiedKpi(figures, "refunds", (line) => `Devoluciones confirmadas. Origen: ${line.origin}.`, none),
+    net: verifiedKpi(figures, "net", (line) => `Ingresos menos reembolsos, tal como los da el backend. Origen: ${line.origin}.`, none),
+  };
 }
 
 // --- Serie por día ------------------------------------------------------------------------------------------------
@@ -356,7 +329,13 @@ export interface SeriesView {
   windowDays: number;
 }
 
-const DAY_BUCKET = /^\d{4}-\d{2}-\d{2}$/;
+/** El orden de las SERIES por día (`/api/revenue/series`, otro endpoint): EUR primero dentro de cada origen. No es el de `verified[]`. */
+const byCurrency = <T extends { currency: string }>(a: T, b: T) => {
+  const rank = (currency: string) => (currency === "EUR" ? 0 : 1);
+  return rank(a.currency) - rank(b.currency) || a.currency.localeCompare(b.currency);
+};
+
+const DAY_BUCKET =/^\d{4}-\d{2}-\d{2}$/;
 
 export function dayLabel(at: number): string {
   return new Date(at).toLocaleDateString("es-ES", { day: "numeric", month: "short", timeZone: "UTC" });

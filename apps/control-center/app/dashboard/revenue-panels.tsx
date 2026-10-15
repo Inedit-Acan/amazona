@@ -12,11 +12,13 @@ import {
   entriesFromPage,
   entriesSummaryText,
   entryRow,
+  OUTSIDE_TABLE_ID,
   periodLabel,
   REVENUE_SCOPE_NOTE,
   revenueErrorText,
   seriesView,
   summaryView,
+  VERIFIED_TABLE_ID,
   type EntriesLoaded,
   type Settled,
 } from "@/lib/revenue-view";
@@ -159,7 +161,7 @@ export function RevenueSeriesCard({
 export function RevenueBreakdownCard({ summary, days }: { summary: Settled<RevenueSummary>; days: number }) {
   const view = useMemo(() => (summary.ok ? summaryView(summary.data) : null), [summary]);
   return (
-    <Card className="min-w-0">
+    <Card id={VERIFIED_TABLE_ID} className="min-w-0 scroll-mt-4">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           Verificado por moneda · {periodLabel(days)}
@@ -224,7 +226,7 @@ export function RevenueBreakdownCard({ summary, days }: { summary: Settled<Reven
 export function OutsideVerifiedCard({ summary, days }: { summary: Settled<RevenueSummary>; days: number }) {
   const view = useMemo(() => (summary.ok ? summaryView(summary.data) : null), [summary]);
   return (
-    <Card className="min-w-0">
+    <Card id={OUTSIDE_TABLE_ID} className="min-w-0 scroll-mt-4">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
           Fuera de lo verificado · {periodLabel(days)}

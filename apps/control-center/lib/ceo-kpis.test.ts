@@ -4,6 +4,7 @@ import type { RevenueSummary } from "./api.ts";
 import { OUTSIDE_FIGURE_TEXT, UNAVAILABLE_KPIS, ingresosView, linesCountText, readIngresos, secondarySummary } from "./ceo-kpis.ts";
 import { assertRevenueSummary } from "./revenue-contract.ts";
 import { parseRevenueDays, revenuePath, revenueWindow, type RevenueWindow } from "./revenue-query.ts";
+import { formatMoney } from "./revenue-format.ts";
 import { settle, type Settled } from "./revenue-view.ts";
 
 // Ingresos del Director ejecutivo (M47, Commit 3A). La unidad de presentación es la pareja ORIGEN × MONEDA, y las cifras salen
@@ -218,7 +219,14 @@ test("K. EUR solo en revisión, sin verificado: empty, y NO aparece «0,00 €»
   assert.equal(result.secondary.underReview.length, 1);
   assert.equal(result.secondary.underReview[0].amount, "40,00 €");
   assert.doesNotMatch(JSON.stringify(result), /"revenue"|"lines"/);
-  assert.equal(JSON.stringify(result).match(/(^|[^\d,.])0,00 €/g), null, "ningún «0,00 €» fabricado");
+  // Estructural (no un texto suelto): la vista vacía no lleva NINGUNA línea verificada, y todo importe que contiene es de la partida en revisión
+  // del fixture (su recibido, su devuelto y su pendiente, tal como los da el backend): ninguno puede ser un ingreso verificado fabricado.
+  assert.equal("lines" in result, false, "una vista vacía no tiene líneas verificadas");
+  const review = data.under_review[0];
+  const fromReview = new Set([review.received, review.refunded, review.outstanding].map((amount) => formatMoney(amount, review.currency)));
+  const amounts = JSON.stringify(result).match(/\d[\d.]*,\d{2,4} (?:€|[A-Z]{3})/g) ?? [];
+  assert.ok(amounts.length > 0);
+  for (const amount of amounts) assert.ok(fromReview.has(amount), `el importe ${amount} no viene de la partida en revisión: se fabricó un ingreso`);
 });
 
 test("G. con verified[] vacío pero evidencia pendiente: sigue siendo empty y la evidencia es solo secundaria", () => {

@@ -7,7 +7,16 @@ import { amountText, coverageText, BLOCKED_TEXT, type MarginSummary, type OrderM
 import { PLAN_BLOCKED_TEXT, PLAN_NOTE, type PlanView } from "@/lib/cfo-plan";
 import { NO_VERDICT_TEXT, UNREAD_VERDICT_TEXT, type VerdictView } from "@/lib/cfo-verdict";
 import { originName, PROVENANCE_MEANING, summarizeOrigins, type Provenance } from "@/lib/provenance";
-import { formatMoney, NO_DATA, SEVERAL_ORIGINS, summaryView, UNREAD, type Settled } from "@/lib/revenue-view";
+import {
+  formatMoney,
+  NO_DATA,
+  OUTSIDE_TABLE_ID,
+  summaryView,
+  UNREAD,
+  verifiedMetricKpis,
+  VERIFIED_TABLE_ID,
+  type Settled,
+} from "@/lib/revenue-view";
 import { DataProvenanceBadge, type DataProvenance } from "@/components/data-provenance-badge";
 import { EmptyState } from "@/components/empty-state";
 import { OriginBadge } from "@/components/origin-badge";
@@ -81,14 +90,20 @@ function Figure({
   provenance,
   caption,
   accent = false,
+  muted,
+  detailId,
 }: {
   label: string;
   value: string;
   provenance: Provenance;
   caption?: string;
   accent?: boolean;
+  /** No es una cifra (sin datos, o varias cifras sin total): se enseña sin acento de número. Por defecto, solo «Sin datos». */
+  muted?: boolean;
+  /** Hay varias cifras: el `id` de la tabla de esta página que las enseña todas. */
+  detailId?: string;
 }) {
-  const noData = value === NO_DATA || value === SEVERAL_ORIGINS;
+  const noData = muted ?? value === NO_DATA;
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-2">
@@ -105,6 +120,14 @@ function Figure({
           {value}
         </p>
         {caption ? <p className="text-xs text-muted-foreground">{caption}</p> : null}
+        {detailId ? (
+          <a
+            href={`#${detailId}`}
+            className="inline-block rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            Ver detalle en la tabla
+          </a>
+        ) : null}
         <DataProvenanceBadge status={BADGE[provenance]} compact tooltip={PROVENANCE_MEANING[provenance]} />
       </CardContent>
     </Card>
@@ -115,52 +138,29 @@ function Figure({
 
 export function VerifiedFigures({ summary }: { summary: Settled<RevenueSummary> }) {
   if (!summary.ok) return <ReadFailed what="el registro de ingresos" message={summary.message} />;
-  const view = summaryView(summary.data);
-  const lines = view.eurByOrigin;
-  const single = lines.length === 1 ? lines[0] : null;
-  const several = lines.length > 1;
-  const others = view.otherCurrencies.length > 0 ? ` Otras monedas: ${view.otherCurrencies.join(", ")}, aparte.` : "";
-  // Con varios orígenes no hay cifra de cabecera: sumarlos mezclaría dinero de procedencias distintas (ADR 0031 A2).
-  const apart = (pick: (line: (typeof lines)[number]) => string) =>
-    `${lines.map((line) => `${originName(line.providerKind)} ${pick(line)}`).join(" · ")}. Cada origen va por separado: no se suman.`;
+  // Las tres cifras salen del MISMO núcleo (`lib/revenue-figures.ts`) y de las MISMAS líneas origen × moneda: coherentes entre sí por construcción.
+  // Con varias cifras no hay total (ADR 0031 A2): la tarjeta lo dice y enlaza a la tabla «Por moneda» de esta página, que las enseña todas.
+  const kpis = verifiedMetricKpis(summary.data);
+  if (kpis.kind === "error") return <ReadFailed what="el registro de ingresos" message={kpis.message} />;
+  const cards = [
+    { label: "Ingresos verificados", kpi: kpis.revenue, accent: true },
+    { label: "Reembolsos verificados", kpi: kpis.refunds, accent: false },
+    { label: "Neto verificado", kpi: kpis.net, accent: true },
+  ];
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <Figure
-        label="Ingresos verificados"
-        value={single?.revenue ?? (several ? SEVERAL_ORIGINS : NO_DATA)}
-        provenance="verified"
-        accent
-        caption={
-          single
-            ? `Cobros verificados en euros. Origen: ${originName(single.providerKind)}.${others}`
-            : several
-              ? `${apart((line) => line.revenue)}${others}`
-              : `Ninguna entrada en euros en el periodo.${others}`
-        }
-      />
-      <Figure
-        label="Reembolsos verificados"
-        value={single?.refunds ?? (several ? SEVERAL_ORIGINS : NO_DATA)}
-        provenance="verified"
-        caption={
-          single
-            ? `Devoluciones confirmadas en euros. Origen: ${originName(single.providerKind)}.`
-            : several
-              ? apart((line) => line.refunds)
-              : "Ninguna entrada en euros en el periodo."
-        }
-      />
-      <Figure
-        label="Neto verificado"
-        value={single?.net ?? (several ? SEVERAL_ORIGINS : NO_DATA)}
-        provenance="verified"
-        accent
-        caption={
-          several
-            ? apart((line) => line.net)
-            : "Ingresos menos reembolsos. Puede ser negativo, y no se oculta."
-        }
-      />
+      {cards.map(({ label, kpi, accent }) => (
+        <Figure
+          key={label}
+          label={label}
+          value={kpi.value}
+          provenance="verified"
+          accent={accent}
+          muted={kpi.isNoData}
+          caption={kpi.caption}
+          detailId={kpi.detail ? VERIFIED_TABLE_ID : undefined}
+        />
+      ))}
     </div>
   );
 }
@@ -169,7 +169,7 @@ export function VerifiedByCurrencyCard({ summary }: { summary: Settled<RevenueSu
   if (!summary.ok) return null;
   const view = summaryView(summary.data);
   return (
-    <Card className="min-w-0">
+    <Card id={VERIFIED_TABLE_ID} className="min-w-0 scroll-mt-4">
       <CardHeader>
         <CardTitle>Por moneda</CardTitle>
       </CardHeader>
@@ -220,7 +220,7 @@ export function OutsideVerifiedCard({ summary }: { summary: Settled<RevenueSumma
   if (!summary.ok) return null;
   const view = summaryView(summary.data);
   return (
-    <Card className="min-w-0">
+    <Card id={OUTSIDE_TABLE_ID} className="min-w-0 scroll-mt-4">
       <CardHeader>
         <CardTitle>Fuera de lo verificado</CardTitle>
       </CardHeader>

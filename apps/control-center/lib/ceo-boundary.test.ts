@@ -229,9 +229,13 @@ test("Ingresos se lee en el servidor con el token de la petición y sin tragarse
 });
 
 test("la cifra de Ingresos sale de verified[]: nunca de consolidated_eur_by_origin ni de revenueKpis", () => {
+  // Desde el Commit 3A.1 la cifra la construye el núcleo compartido (`lib/revenue-figures.ts`); `lib/ceo-kpis.ts` solo lo llama.
   const lib = code("lib/ceo-kpis.ts");
+  const core = code("lib/revenue-figures.ts");
   assert.doesNotMatch(lib, /consolidated_eur|revenueKpis|summaryView/);
-  assert.match(lib, /summary\.verified/);
+  assert.doesNotMatch(core, /consolidated_eur|revenueKpis|summaryView/);
+  assert.match(lib, /revenueFigures\(settled\.data\)/);
+  assert.match(core, /summary\.verified/);
   for (const file of ["components/ceo/revenue-kpi.tsx", "components/ceo/kpi-row.tsx"]) {
     assert.doesNotMatch(code(file), /consolidated_eur|revenueKpis|summaryView/, file);
   }
@@ -289,7 +293,7 @@ test("«Ver desglose» enseña TODAS las líneas y TODO lo de fuera de la cifra,
 
 test("el modo compacto no deja ningún dato fuera: todo lo que la vista tiene está en la tarjeta o en el desglose", () => {
   const compact = code("components/ceo/revenue-kpi.tsx") + code("components/ceo/revenue-breakdown.tsx");
-  const view = code("lib/ceo-kpis.ts");
+  const view = code("lib/revenue-figures.ts");
   // Cada campo de una línea del modelo se pinta en alguna de las dos superficies.
   for (const field of ["currency", "origin", "revenue", "refunds", "net", "captures", "refundCount"]) {
     assert.match(view, new RegExp(`\\b${field}[:,]`), `la vista ya no lleva ${field}`);
@@ -330,6 +334,8 @@ function sourceFilesUnder(directory: string): string[] {
 const COMMIT_FILES = [
   ...CEO_FILES,
   ...readdirSync(join(ROOT, "lib")).filter((name) => /^ceo-.*\.tsx?$/.test(name) || /^backend-health-store(\.test)?\.ts$/.test(name)).map((name) => `lib/${name}`),
+  // M47 · Commit 3A.1: el núcleo compartido de los ingresos, sus primitivas de texto y sus pruebas.
+  ...readdirSync(join(ROOT, "lib")).filter((name) => /^revenue-(figures|format|kpis|surfaces)(-boundary)?(\.test)?\.ts$/.test(name)).map((name) => `lib/${name}`),
   "components/backend-status.tsx",
   "components/use-backend-health.ts",
   "components/use-media-query.ts",

@@ -8,7 +8,7 @@ import { marginSummary } from "./cfo-margin.ts";
 import { planView } from "./cfo-plan.ts";
 import { toText } from "./decimal.ts";
 import { PROVENANCE_LABEL } from "./provenance.ts";
-import { NO_DATA, summaryView } from "./revenue-view.ts";
+import { NO_DATA, summaryView, verifiedMetricKpis } from "./revenue-view.ts";
 
 // Las quince invariantes del CFO (M45, Commit 10), pedidas por el propietario.
 //
@@ -178,7 +178,19 @@ test("4 · monedas distintas no se suman nunca, ni en el margen ni en el resumen
       consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", under_review_outstanding: "0.0000" }],
     }),
   );
-  assert.equal(view.eurByOrigin[0].revenue, "100,00 €");
+  // Las tarjetas de Finanzas leen el núcleo compartido: con EUR y USD NO hay una cifra elegida ni un total, y las dos monedas están en la tabla.
+  const kpis = verifiedMetricKpis(
+    summary({
+      entries: 2,
+      verified: [
+        { provider_kind: "mock", currency: "EUR", revenue: "100.0000", refunds: "0.0000", net: "100.0000", captures: 1, refund_count: 0 },
+        { provider_kind: "mock", currency: "USD", revenue: "50.0000", refunds: "0.0000", net: "50.0000", captures: 1, refund_count: 0 },
+      ],
+    }),
+  );
+  assert.equal(kpis.kind, "ok");
+  if (kpis.kind === "ok") for (const card of [kpis.revenue, kpis.refunds, kpis.net]) assert.equal(card.value, "2 cifras");
+  assert.deepEqual(view.verified.map((row) => [row.currency, row.revenue]), [["EUR", "100,00 €"], ["USD", "50,00 USD"]]);
   assert.ok(!view.verified.some((row) => row.revenue.startsWith("150")));
 });
 
@@ -209,8 +221,9 @@ test("6 · no queda ningún dato de demostración en el CFO", () => {
 // --- 7 y 8. Sin datos y errores --------------------------------------------------------------------------------------
 
 test("7 · «sin datos» nunca se convierte en cero", () => {
-  const empty = summaryView(summary());
-  assert.deepEqual(empty.eurByOrigin, []);
+  const empty = verifiedMetricKpis(summary());
+  assert.equal(empty.kind, "ok");
+  if (empty.kind === "ok") for (const card of [empty.revenue, empty.refunds, empty.net]) assert.equal(card.value, NO_DATA);
   const result = marginSummary([], [], complete);
   assert.deepEqual(result.origins, [], "sin pedidos no hay ningún origen, ni margen, ni neto");
   assert.equal(result.blockedBy, "no_orders");
@@ -241,15 +254,20 @@ test("8 · un error del backend no se convierte en demostración ni en cero", ()
 
 // --- 9. Cuadre con el registro ---------------------------------------------------------------------------------------
 
-test("9 · las cifras verificadas son las que dio /api/revenue/*, sin recalcular", () => {
+test("9 · las cifras son las que dio /api/revenue/*, sin recalcular", () => {
   const data = summary({
     entries: 3,
     verified: [{ provider_kind: "mock", currency: "EUR", revenue: "703.8000", refunds: "10.0000", net: "693.8000", captures: 9, refund_count: 1 }],
     consolidated_eur_by_origin: [{ provider_kind: "mock", currency: "EUR", revenue: "703.8000", refunds: "10.0000", net: "693.8000", under_review_outstanding: "42.5000" }],
   });
-  const view = summaryView(data);
-  assert.equal(view.eurByOrigin[0].revenue, "703,80 €");
-  assert.equal(view.eurByOrigin[0].net, "693,80 €");
+  const kpis = verifiedMetricKpis(data);
+  assert.equal(kpis.kind, "ok");
+  if (kpis.kind === "ok") {
+    assert.equal(kpis.revenue.value, "703,80 €");
+    assert.equal(kpis.refunds.value, "10,00 €");
+    assert.equal(kpis.net.value, "693,80 €");
+  }
+  assert.equal(summaryView(data).verified[0].net, "693,80 €");
   // La vista formatea el texto del backend; no vuelve a restar ingresos menos reembolsos por su cuenta.
   assert.ok(!/revenue\s*-\s*refunds|revenue\s*−\s*refunds/.test(stripComments(read("lib/revenue-view.ts"))));
 });
