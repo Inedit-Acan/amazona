@@ -91,7 +91,9 @@ test("«sin leer» y «no disponible» no se mezclan: los bloques con fuente pot
     assert.doesNotMatch(code(file), /kind:\s*["']empty["']|kind:\s*["']loaded["']|\bempty\b.*NOT_CONNECTED/, `${file} presenta un bloque sin leer como vacío o cargado`);
   }
   assert.match(code("components/ceo/bottom-row.tsx"), /title="Próximos hitos" state=\{unavailableState\(/);
-  assert.match(code("components/ceo/bottom-row.tsx"), /title="Actividad reciente"\s+state=\{NOT_CONNECTED_YET\}/);
+  // Desde el Commit 5 «Actividad registrada» y «Ejecuciones por área» SÍ leen su fuente (`readActivityNow`): ya no son `unread` por construcción.
+  assert.doesNotMatch(code("components/ceo/bottom-row.tsx"), /NOT_CONNECTED_YET|unreadState\(/);
+  assert.match(code("components/ceo/bottom-row.tsx"), /readActivityNow\(api\)/);
   // Desde el Commit 3B los tres bloques del tríptico SÍ leen su fuente: ya no son `unread` por construcción. Su estado sale de la lectura
   // (`readBlocksNow`) y se traduce con `blockStateOf`; «sin leer» solo existe si una lectura no se hizo, nunca como valor fijo.
   const triptych = code("components/ceo/decision-triptych.tsx");
