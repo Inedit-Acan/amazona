@@ -2,7 +2,7 @@ import datetime
 from typing import cast
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy import update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
@@ -32,6 +32,18 @@ class ApprovalOut(BaseModel):
     expires_at: datetime.datetime | None
     resolved_at: datetime.datetime | None
     resolved_by: str | None
+    # Commit 6a: existían en la tabla (ambos NOT NULL) y no salían. `requested_at` es cuándo se PIDIÓ la aprobación (ni
+    # su caducidad ni su resolución); `correlation_id` es el de la ejecución del CEO que la pidió: el mismo de su
+    # decisión, de su auditoría y de su log de ejecuciones.
+    requested_at: datetime.datetime
+    correlation_id: str
+
+    @field_validator("requested_at")
+    @classmethod
+    def _requested_at_with_zone(cls, value: datetime.datetime) -> datetime.datetime:
+        """SQLite descarta la zona al leer y todo lo que se guarda aquí es UTC: el campo nuevo sale SIEMPRE con zona,
+        para que un cliente no lo lea como hora local. (Los campos antiguos no cambian.)"""
+        return value if value.tzinfo is not None else value.replace(tzinfo=datetime.UTC)
 
 
 class ApprovalActionIn(BaseModel):
