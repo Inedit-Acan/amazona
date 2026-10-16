@@ -2,9 +2,8 @@ import { BlockCard } from "@/components/ceo/block-card";
 import { BlockFooter } from "@/components/ceo/block-rows";
 import { Badge } from "@/components/ui/badge";
 import { ACTIVITY_BLOCK, activityStateOf, type ActivityRow, type ActivityView } from "@/lib/ceo-activity";
-import { moreText } from "@/lib/ceo-block-view";
 
-/** «Actividad registrada» (M47, Commit 5): las últimas cinco entradas del registro de auditoría, con su fecha y hora absolutas. Este
+/** «Actividad registrada» (M47, Commit 5): las últimas cinco entradas del registro de auditoría (el servidor las devuelve ya ordenadas, `order=desc&limit=5`), con su fecha y hora absolutas. Este
  * componente NO interpreta nada: no ordena, no filtra, no cuenta ni decide qué es un fallo; recibe la vista ya calculada por
  * `lib/ceo-activity`. No lleva «Ver todas»: ninguna pantalla existente es el detalle de este bloque (`/agents` no es el registro de
  * actividad y `/audit` mezcla filas de demostración con las del backend). */
@@ -45,18 +44,13 @@ function Row({ row }: { row: ActivityRow }) {
 
 function Rows({ view }: { view: Loaded }) {
   return (
-    <div className="space-y-2" data-count={view.total}>
+    <div className="space-y-2">
       <p className="text-xs text-muted-foreground">{view.subtitle}</p>
       <ul className="space-y-0.5">
         {view.visible.map((row) => (
           <Row key={row.key} row={row} />
         ))}
       </ul>
-      {view.more > 0 ? (
-        <p data-more={view.more} className="px-1.5 text-xs text-muted-foreground">
-          {moreText(view.more)}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -67,7 +61,6 @@ export function ActivityCard({ view, className }: { view: ActivityView; classNam
       title={ACTIVITY_BLOCK.title}
       state={activityStateOf(view)}
       className={className}
-      count={view.kind === "loaded" ? { text: String(view.total), label: `${view.total} entradas leídas del registro de auditoría` } : undefined}
       emptyNotice={view.kind === "empty" ? { label: view.text, detail: "El backend respondió y el registro de auditoría está vacío." } : undefined}
       footer={
         view.kind === "loaded" ? (

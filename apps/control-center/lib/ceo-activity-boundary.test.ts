@@ -83,17 +83,35 @@ test("ni «Ver todas» ni enlace a /agents o /audit en estos bloques (D-5-5)", (
   }
 });
 
-test("la guarda de las 500 entradas está en el código: `>= AUDIT_API_LIMIT` ⇒ no disponible, nunca cargado", () => {
-  assert.match(code(ACTIVITY), /AUDIT_API_LIMIT\s*=\s*500/);
-  assert.match(code(ACTIVITY), /length\s*>=\s*AUDIT_API_LIMIT/);
+test("la petición es `order=desc&limit=5` y la guarda de compatibilidad está en el código: más de 5 filas o fuera de orden ⇒ no disponible", () => {
+  assert.match(code(ACTIVITY), /ACTIVITY_LIMIT\s*=\s*5/);
+  assert.match(code(ACTIVITY), /length\s*>\s*ACTIVITY_LIMIT/);
+  assert.match(code(ACTIVITY), /isNewestFirst\(/);
+  assert.match(code(READS), /\{\s*order:\s*"desc",\s*limit:\s*ACTIVITY_LIMIT\s*\}/);
+  assert.doesNotMatch(code(READS), /limit:\s*500|AUDIT_API_LIMIT/, "la ruta nueva no depende de recibir 500 filas");
   assert.match(code(AREAS), /EXECUTIONS_API_LIMIT\s*=\s*100/);
 });
 
-test("el orden sale del instante y del id, nunca del orden de la API ni del índice del array", () => {
-  const text = code(ACTIVITY);
-  assert.match(text, /parseUtc\(/);
-  assert.doesNotMatch(text, /\.reverse\(\)/, "invertir el array de la API no es ordenar");
-  assert.doesNotMatch(text, /\.slice\(\s*-\s*\d|\.slice\(\s*-VISIBLE/, "las últimas N por posición del array");
+test("el subtítulo no conoce el total: ni «de N», ni «y N más», ni contador, ni `moreText`; y la auditoría se lee UNA vez", () => {
+  for (const file of [ACTIVITY, ACTIVITY_UI]) {
+    const text = code(file);
+    assert.doesNotMatch(text, /entradas del registro de auditor[ií]a|de \$\{|moreText|data-more|\bmore\b|\btotal\b/, `${file} habla de un total`);
+  }
+  assert.doesNotMatch(code(ACTIVITY_UI), /count=\{/, "sin contador en la cabecera: no se conoce N");
+  const yMas = /\by\s+(\d+|\$\{[^}]*\})\s+m[aá]s/i;
+  assert.doesNotMatch(code(ACTIVITY_UI), yMas, "«y N más» en la tarjeta");
+  assert.doesNotMatch(code(ACTIVITY_UI), />\s*y\s+[^<]*m[aá]s\s*</i, "«y … más» escrito a mano en la tarjeta");
+  assert.doesNotMatch(code(ACTIVITY), yMas, "«y N más» en la vista");
+  assert.equal([...code(READS).matchAll(/source\.listAudit\(/g)].length, 1, "la auditoría se lee una vez, sin segunda petición para un total");
+});
+
+test("la petición se construye con `auditPath` (URLSearchParams), nunca concatenando a mano; sin opciones es la de siempre", () => {
+  const api = code("lib/api.ts");
+  assert.match(api, /listAudit:\s*\(options\?:\s*AuditQuery\s*\|\s*string\)\s*=>\s*request<AuditEntry\[\]>\(auditPath\(options\)\)/);
+  assert.doesNotMatch(api, /\/api\/audit\$\{|`\/api\/audit\?/, "la ruta de auditoría no se arma a mano");
+  const query = code("lib/audit-query.ts");
+  assert.match(query, /new URLSearchParams\(/);
+  assert.doesNotMatch(query, /\+\s*["'`]|encodeURI|escape\(/, "la codificación es la de URLSearchParams");
 });
 
 test("el área se deriva con `strictDomainOfRole`, no con `domainOfRole` (que cae en «Operaciones»)", () => {
@@ -125,7 +143,7 @@ test("la lectura sale de UN sitio: `readActivityNow(api)` con el cliente de serv
   assert.match(bottom, /readActivityNow\(api\)/);
   assert.match(bottom, /from "@\/lib\/api-server"/);
   const reads = code(READS);
-  for (const call of ["listAudit()", "listAgents()", "listAgentExecutions()"]) assert.ok(reads.includes(call), `falta ${call}`);
+  for (const call of ["listAudit({ order: \"desc\", limit: ACTIVITY_LIMIT })", "listAgents()", "listAgentExecutions()"]) assert.ok(reads.includes(call), `falta ${call}`);
   assert.doesNotMatch(reads, /listApprovals|listIncidents|listProjects|listTasks|listJobs|listDecisions|listPipeline/);
 });
 
@@ -148,6 +166,6 @@ test("un fallo de un bloque no apaga al otro: cada tarjeta recibe SU vista, y la
 });
 
 test("ningún fichero de este commit contiene el byte 0x08 (un `\b` convertido por una herramienta de edición)", () => {
-  const files = [...ALL, "lib/ceo-activity-test-support.ts", "lib/ceo-activity.test.ts", "lib/ceo-activity-contracts.test.ts", "lib/ceo-activity-reads.test.ts", "lib/ceo-area-executions.test.ts", "lib/ceo-activity-boundary.test.ts"];
+  const files = [...ALL, "lib/ceo-activity-test-support.ts", "lib/ceo-activity.test.ts", "lib/ceo-activity-contracts.test.ts", "lib/ceo-activity-reads.test.ts", "lib/ceo-area-executions.test.ts", "lib/ceo-activity-boundary.test.ts", "lib/audit-query.ts", "lib/audit-query.test.ts"];
   for (const file of files) assert.equal(readFileSync(join(ROOT, file)).includes(0x08), false, `${file} contiene 0x08`);
 });

@@ -29,6 +29,14 @@ export function auditAscending(count: number, over: (index: number) => Partial<A
   );
 }
 
+/** `count` entradas en el orden que pide el frontend nuevo (`order=desc`): la más reciente primero. Es la lista ascendente al revés. */
+export const auditDescending = (count: number, over?: (index: number) => Partial<AuditEntry>): AuditEntry[] => auditAscending(count, over).reverse();
+
+/** Entradas ya en orden descendente: la primera es la más reciente (hace 1 min) y cada una es 1 min más antigua. Los ids son `a1`, `a2`… */
+export function stack(...patches: Partial<AuditEntry>[]): AuditEntry[] {
+  return patches.map((patch, index) => entry(`a${index + 1}`, { created_at: iso(NOW - (index + 1) * MINUTE), ...patch }));
+}
+
 export const execution = (id: string, agentId: string, over: Partial<AgentExecution> = {}): AgentExecution => ({
   id,
   agent_id: agentId,

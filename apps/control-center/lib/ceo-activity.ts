@@ -7,37 +7,37 @@ import { parseUtc } from "./dates.ts";
 import type { DomainKey } from "./nexus-domains.ts";
 import { listOf, type ReadState } from "./read-state.ts";
 
-// ACTIVIDAD REGISTRADA (M47, Commit 5, D-5-1 / D-5-2). Las últimas cinco entradas del registro de auditoría (`audit_log`, append-only).
+// ACTIVIDAD REGISTRADA (M47, Commit 5 y micro-commit 5B, D-5-1 / D-5-2). Las últimas cinco entradas del registro de auditoría
+// (`audit_log`, append-only).
 //
-// Por qué «registrada» y no «reciente»: `GET /api/audit` devuelve `ORDER BY created_at ASC LIMIT 500`, es decir, las 500 entradas más
-// ANTIGUAS, sin paginación, sin rango de tiempo y con un único filtro (`correlation_id`). Solo cuando la respuesta trae MENOS de 500
-// filas es el registro completo y «lo último» es verdad; con 500 el backend no puede garantizar las más recientes y el bloque dice
-// «No disponible»: nunca se enseñan las más antiguas como si fueran actividad. El arreglo duradero es un cambio aditivo del backend
-// (`order`, `limit`, `since`), pendiente de un micro-commit aparte.
+// LA PETICIÓN: `GET /api/audit?order=desc&limit=5` (micro-commit 5A del backend). El servidor devuelve ya las cinco más recientes,
+// ordenadas por `created_at` DESC y `id` DESC. Una sola lectura: no se pide el total (el endpoint no lo expone y leer 500 filas solo
+// para contarlas no merece la pena), así que el subtítulo dice «Últimas 5 entradas registradas», sin «de N» ni «y N más».
 //
-// «Lo último» sale del INSTANTE (`created_at`, descendente) y del `id` (descendente) como desempate: nunca del orden de la API ni de la
-// posición en el array. Cada fila lleva su fecha y hora absolutas en UTC.
+// LA GUARDA DE COMPATIBILIDAD. Antes del 5A, `GET /api/audit` devolvía `ORDER BY created_at ASC LIMIT 500`: las 500 entradas más
+// ANTIGUAS, y un backend viejo o mal desplegado ignora `order` y `limit`. La respuesta solo es válida si trae como mucho 5 filas Y
+// vienen en orden estrictamente descendente de `(created_at, id)`. Si trae más, o no están en ese orden, el bloque dice «No
+// disponible»: NO se recorta, NO se reordena y NO se presenta como válida una respuesta que no se sabe si contiene lo último.
 //
 // Qué se muestra y de dónde sale cada cosa (procedencia):
 //   · registrado: `created_at`, `actor`, `action`, `resource` (tal cual los guarda el backend);
 //   · derivado: la categoría (por el prefijo de la acción), el área (solo si el actor es un agente del registro) y «Fallo» (solo si la
 //     acción dice `fail` o `error`). Una entrada de auditoría dice que algo OCURRIÓ, no que saliera bien: no existe un «OK».
 //
-// Privacidad: un actor con correo se enseña como «Persona» y un recurso con correo no se enseña; la dirección no llega a la pantalla.
-// D-5-2: no se oculta ninguna acción técnica (`exchange_rate.*`, `memory.*`, `task.*`…); la acción original se conserva siempre.
+// Cada fila lleva su fecha y hora absolutas en UTC. Privacidad: un actor con correo se enseña como «Persona» y un recurso con correo no
+// se enseña; la dirección no llega a la pantalla. D-5-2: no se oculta ninguna acción técnica; la acción original se conserva siempre.
 
 export const ACTIVITY_BLOCK = {
   key: "actividad",
   title: "Actividad registrada",
 } as const;
 
-/** El tope de `GET /api/audit`: con tantas filas, la respuesta puede haber dejado fuera lo último. */
-export const AUDIT_API_LIMIT = 500;
-export const VISIBLE_ACTIVITY = 5;
+/** Cuántas filas se piden y, como mucho, cuántas se enseñan. */
+export const ACTIVITY_LIMIT = 5;
 
 const EMPTY_TEXT = "Sin actividad registrada";
 const UNAVAILABLE_REASON =
-  "La API de auditoría no puede garantizar las entradas más recientes: devuelve las 500 más antiguas, así que no se enseña ninguna como actividad.";
+  "La API de auditoría no puede garantizar las últimas entradas: devolvió más filas de las pedidas o no las ordenó de más reciente a más antigua, así que no se enseña ninguna como actividad.";
 const AGENTS_NOTE = "El nombre y el área de los agentes no están disponibles: el registro de agentes no se pudo leer.";
 const FOOTNOTE = "Hora, actor y acción: registrados. Categoría, área y fallo: derivados de la acción y del registro de agentes.";
 
@@ -71,10 +71,9 @@ export interface ActivityRow {
 export type ActivityView =
   | {
       kind: "loaded";
-      total: number;
+      /** «Última entrada registrada» / «Últimas N entradas registradas»: N es lo que se enseña, nunca el total del registro. */
       subtitle: string;
       visible: ActivityRow[];
-      more: number;
       agentsNote: string | null;
       footnote: string;
     }
@@ -88,10 +87,15 @@ interface Dated {
   ms: number;
 }
 
-/** Más reciente primero; el id desempata (descendente). */
-function newest(a: Dated, b: Dated): number {
-  if (a.ms !== b.ms) return b.ms - a.ms;
-  return a.entry.id < b.entry.id ? 1 : a.entry.id > b.entry.id ? -1 : 0;
+/** Cuál va antes en «más reciente primero»: un número positivo si `a` es más reciente que `b`. El `id` desempata (descendente). */
+function recency(a: Dated, b: Dated): number {
+  if (a.ms !== b.ms) return a.ms - b.ms;
+  return a.entry.id > b.entry.id ? 1 : a.entry.id < b.entry.id ? -1 : 0;
+}
+
+/** Cada fila es ESTRICTAMENTE más antigua que la anterior en `(created_at, id)`: el orden `order=desc` del backend 5A. */
+function isNewestFirst(items: readonly Dated[]): boolean {
+  return items.every((item, index) => index === 0 || recency(items[index - 1], item) > 0);
 }
 
 function actorOf(actor: string, registry: ReadonlyMap<string, Agent> | null): { text: string; kind: ActorKind; agent: Agent | null } {
@@ -123,9 +127,7 @@ function rowOf({ entry, ms }: Dated, registry: ReadonlyMap<string, Agent> | null
   };
 }
 
-function subtitleOf(shown: number, total: number): string {
-  return `${shown === 1 ? "Última" : "Últimas"} ${shown} de ${total} ${total === 1 ? "entrada" : "entradas"} del registro de auditoría`;
-}
+const subtitleOf = (shown: number) => (shown === 1 ? "Última entrada registrada" : `Últimas ${shown} entradas registradas`);
 
 export function activityBlock(input: { audit: ReadState<AuditEntry[]>; agents: ReadState<Agent[]> }): ActivityView {
   const { audit, agents } = input;
@@ -134,20 +136,18 @@ export function activityBlock(input: { audit: ReadState<AuditEntry[]>; agents: R
 
   const entries = listOf(audit) ?? [];
   if (entries.length === 0) return { kind: "empty", text: EMPTY_TEXT };
-  // La guarda de completitud: con 500 filas la respuesta puede no contener lo último. Nunca se enseñan las 500 más antiguas.
-  if (entries.length >= AUDIT_API_LIMIT) return { kind: "unavailable", reason: UNAVAILABLE_REASON };
+
+  // La guarda de compatibilidad: más filas de las pedidas, o fuera de orden, es un backend que no cumple el contrato del 5A.
+  const dated = entries.map((entry): Dated => ({ entry, ms: parseUtc(entry.created_at) }));
+  if (dated.length > ACTIVITY_LIMIT || !isNewestFirst(dated)) return { kind: "unavailable", reason: UNAVAILABLE_REASON };
 
   // El registro de agentes solo da nombre y área al actor: si no se leyó, la actividad se enseña igual, sin ellos, y lo dice.
   const registry = agents.kind === "loaded" || agents.kind === "empty" ? new Map((listOf(agents) ?? []).map((agent) => [agent.id, agent] as const)) : null;
 
-  const ordered = entries.map((entry): Dated => ({ entry, ms: parseUtc(entry.created_at) })).sort(newest);
-  const visible = ordered.slice(0, VISIBLE_ACTIVITY).map((item) => rowOf(item, registry));
   return {
     kind: "loaded",
-    total: entries.length,
-    subtitle: subtitleOf(visible.length, entries.length),
-    visible,
-    more: Math.max(0, entries.length - VISIBLE_ACTIVITY),
+    subtitle: subtitleOf(dated.length),
+    visible: dated.map((item) => rowOf(item, registry)),
     agentsNote: registry === null ? AGENTS_NOTE : null,
     footnote: FOOTNOTE,
   };

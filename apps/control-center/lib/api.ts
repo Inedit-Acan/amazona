@@ -1,4 +1,5 @@
 import { IDEMPOTENCY_HEADER, withIdempotencyKey } from "@/lib/idempotency";
+import { auditPath, type AuditQuery } from "@/lib/audit-query";
 import { revenuePath, type RevenueWindow } from "@/lib/revenue-query";
 import { assertRevenueEntries, assertRevenueSeries, assertRevenueSummary } from "@/lib/revenue-contract";
 import type { ReadinessReply } from "@/lib/backend-health";
@@ -1600,8 +1601,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ actor }),
     }),
-  listAudit: (correlationId?: string) =>
-    request<AuditEntry[]>(`/api/audit${correlationId ? `?correlation_id=${correlationId}` : ""}`),
+  // Sin opciones, la petición de siempre; con ellas (`{ order: "desc", limit: 5 }`) el contrato del micro-commit 5A. Un texto es el
+  // `correlationId` (la firma antigua).
+  listAudit: (options?: AuditQuery | string) => request<AuditEntry[]>(auditPath(options)),
   listAgentExecutions: () => request<AgentExecution[]>("/api/agent-executions"),
   getHealth: () => request<DetailedHealth>("/health/detailed"),
   /** `GET /health/ready` (M47): público, así que va SIN token y sin `Content-Type` (es una petición simple, sin preflight).

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readActivity } from "./ceo-activity-reads.ts";
-import { auditAscending, entry, execution, fakeSource, NOW, REGISTRY } from "./ceo-activity-test-support.ts";
+import { auditAscending, auditDescending, entry, execution, fakeSource, NOW, REGISTRY } from "./ceo-activity-test-support.ts";
 import { FAILURES, INVALID_PAYLOADS, LOOKS_LIKE_ABSENCE, TECHNICAL } from "./read-test-support.ts";
 
 // Las lecturas de «Actividad registrada» y «Ejecuciones por área» (M47, Commit 5): TRES peticiones, cada una UNA vez, sin ventana
@@ -19,38 +19,46 @@ test("UNA sola ronda: cada una de las tres lecturas se hace exactamente una vez"
 
 test("el selector 7/14/30 no existe para estos bloques: `readActivity` recibe solo la fuente, y el resultado no depende de nada más", async () => {
   assert.equal(readActivity.length, 1, "readActivity(source): sin ventana, sin días, sin instante");
-  const make = () => fakeSource({ listAudit: async () => auditAscending(3), listAgentExecutions: async () => [execution("e1", "agent-product-1")] });
+  const make = () => fakeSource({ listAudit: async () => auditDescending(3), listAgentExecutions: async () => [execution("e1", "agent-product-1")] });
   assert.deepEqual(await readActivity(make()), await readActivity(make()));
 });
 
-test("la auditoría se pide SIN filtro: ninguna llamada pasa un `correlation_id`", async () => {
-  let args: unknown[] = ["no llamada"];
+test("la auditoría se pide con EXACTAMENTE `{ order: \"desc\", limit: 5 }`: sin filtro, sin ventana, sin 500 filas", async () => {
+  const calls: unknown[][] = [];
   await readActivity(
     fakeSource({
       listAudit: (async (...received: unknown[]) => {
-        args = received;
+        calls.push(received);
         return [];
       }) as never,
     }),
   );
-  assert.deepEqual(args, []);
+  assert.deepEqual(calls, [[{ order: "desc", limit: 5 }]]);
+});
+
+test("NO hay segunda petición para el total: tres lecturas en total y la auditoría, una", async () => {
+  const source = fakeSource({ listAudit: async () => auditDescending(5) });
+  await readActivity(source);
+  assert.deepEqual(source.calls, { listAudit: 1, listAgents: 1, listAgentExecutions: 1 });
 });
 
 test("con datos, los dos bloques se cargan cada uno con SU fuente", async () => {
   const { activity, areas } = await readActivity(
     fakeSource({
-      listAudit: async () => auditAscending(27, () => ({ actor: "agent-product-1" })),
+      listAudit: async () => auditDescending(5, () => ({ actor: "agent-product-1" })),
       listAgentExecutions: async () => [execution("e1", "agent-product-1"), execution("e2", "agent-cfo-1", { success: false })],
     }),
   );
-  assert.equal(activity.kind === "loaded" && activity.total, 27);
+  assert.equal(activity.kind === "loaded" && activity.visible.length, 5);
   assert.equal(areas.kind === "loaded" && areas.total, 2);
 });
 
-test("500 filas de auditoría ⇒ la actividad no está disponible, pero las ejecuciones se leen igual", async () => {
-  const { activity, areas } = await readActivity(fakeSource({ listAudit: async () => auditAscending(500), listAgentExecutions: async () => [execution("e1", "agent-product-1")] }));
-  assert.equal(activity.kind, "unavailable");
-  assert.equal(areas.kind, "loaded");
+test("un backend viejo (devuelve las 500 más antiguas, ascendentes) ⇒ la actividad no está disponible, pero las ejecuciones se leen igual", async () => {
+  for (const rows of [auditAscending(500), auditAscending(499), auditAscending(5), auditDescending(6)]) {
+    const { activity, areas } = await readActivity(fakeSource({ listAudit: async () => rows, listAgentExecutions: async () => [execution("e1", "agent-product-1")] }));
+    assert.equal(activity.kind, "unavailable", String(rows.length));
+    assert.equal(areas.kind, "loaded");
+  }
 });
 
 test("todo vacío ⇒ los dos bloques están VACÍOS (un hecho)", async () => {
@@ -63,10 +71,10 @@ test("una lectura que falla rompe SOLO el bloque que la usa, con un texto nuestr
     const audit = await readActivity(fakeSource({ listAudit: reject(make), listAgentExecutions: async () => [execution("e1", "agent-product-1")] }));
     assert.deepEqual([audit.activity.kind, audit.areas.kind], ["error", "loaded"], `${name}: un fallo de auditoría no apaga las ejecuciones`);
 
-    const log = await readActivity(fakeSource({ listAudit: async () => auditAscending(3), listAgentExecutions: reject(make) }));
+    const log = await readActivity(fakeSource({ listAudit: async () => auditDescending(3), listAgentExecutions: reject(make) }));
     assert.deepEqual([log.activity.kind, log.areas.kind], ["loaded", "error"], `${name}: un fallo del log no apaga la actividad`);
 
-    const registry = await readActivity(fakeSource({ listAudit: async () => auditAscending(3), listAgents: reject(make), listAgentExecutions: async () => [execution("e1", "agent-product-1")] }));
+    const registry = await readActivity(fakeSource({ listAudit: async () => auditDescending(3), listAgents: reject(make), listAgentExecutions: async () => [execution("e1", "agent-product-1")] }));
     assert.deepEqual([registry.activity.kind, registry.areas.kind], ["loaded", "error"], `${name}: sin registro, la actividad sigue y las áreas son error`);
     assert.equal(registry.activity.kind === "loaded" && registry.activity.agentsNote !== null, true);
 
@@ -87,7 +95,7 @@ test("una respuesta con la forma equivocada es error, no vacío", async () => {
 });
 
 test("una fila de auditoría con `created_at` roto ⇒ error de la actividad (no se omite la fila)", async () => {
-  const rows = [...auditAscending(3), entry("zzz", { created_at: "ayer por la tarde" })];
+  const rows = [entry("zzz", { created_at: "ayer por la tarde" }), ...auditDescending(3)];
   const out = await readActivity(fakeSource({ listAudit: async () => rows }));
   assert.equal(out.activity.kind, "error");
   assert.equal(out.areas.kind, "empty");
@@ -95,7 +103,7 @@ test("una fila de auditoría con `created_at` roto ⇒ error de la actividad (no
 
 test("una fila de ejecución rota ⇒ error de las áreas y la actividad sigue", async () => {
   const rows = [execution("e1", "agent-product-1"), execution("e2", "agent-product-1", { duration_ms: "mucho" as never })];
-  const out = await readActivity(fakeSource({ listAudit: async () => auditAscending(2), listAgentExecutions: async () => rows }));
+  const out = await readActivity(fakeSource({ listAudit: async () => auditDescending(2), listAgentExecutions: async () => rows }));
   assert.deepEqual([out.activity.kind, out.areas.kind], ["loaded", "error"]);
 });
 
