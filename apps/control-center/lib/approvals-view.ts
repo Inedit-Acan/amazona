@@ -304,30 +304,9 @@ export function requestFromApproval(approval: Approval, now: number): ApprovalRe
   };
 }
 
-/** Nombre legible de cada acción con efecto (Milestone 33, plan maestro §7). */
-export const SIDE_EFFECT_LABELS: Record<string, string> = {
-  publish_product: "publicar el producto",
-  activate_ads: "activar la publicidad",
-  spend_money: "gastar dinero",
-  purchase_supplier: "comprar al proveedor",
-  make_payment: "realizar el pago",
-  ship_order: "enviar el pedido",
-  refund: "hacer el reembolso",
-  change_price: "cambiar el precio",
-  send_contract_communication: "enviar la comunicación contractual",
-};
-
-export const PIPELINE_STEP_LABELS: Record<string, string> = {
-  research: "Investigación",
-  sourcing: "Proveedores",
-  economics: "Economía",
-  legal: "Legal",
-  ecommerce: "Tienda",
-  marketplace: "Marketplace",
-  marketing: "Marketing",
-  operations: "Operaciones",
-  cfo: "CFO",
-};
+// Las etiquetas viven en `approval-labels.ts` (sin datos de demostración) para que la bandeja REAL no importe nada de lo demo.
+export { PIPELINE_STEP_LABELS, SIDE_EFFECT_LABELS } from "./approval-labels.ts";
+import { PIPELINE_STEP_LABELS, SIDE_EFFECT_LABELS } from "./approval-labels.ts";
 
 /** Revisión de pipeline del backend en la misma bandeja.
  *

@@ -26,7 +26,7 @@ const ALLOWED = [
   "app/agents/agents-panels.tsx",
   "app/agents/agents-workspace.tsx",
   "app/approvals/approvals-panels.tsx",
-  "app/approvals/approvals-workspace.tsx",
+  "app/approvals/demo-inbox.tsx",
   "app/audit/audit-panels.tsx",
   "app/audit/audit-workspace.tsx",
   "app/dashboard/dashboard-panels.tsx",

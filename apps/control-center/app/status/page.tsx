@@ -1,15 +1,8 @@
 import { api } from "@/lib/api-server";
-import {
-  ApiError,
-  type Agent,
-  type AgentExecution,
-  type ApiProviderUsage,
-  type DetailedHealth,
-  type Incident,
-  type Job,
-  type PipelineRun,
-} from "@/lib/api";
+import { ApiError, type DetailedHealth } from "@/lib/api";
+import { listOf } from "@/lib/read-state";
 import type { HealthSignal } from "@/lib/status";
+import { readStatusPage, statusFailures } from "@/lib/status-reads";
 import { StatusWorkspace } from "./status-workspace";
 
 /** La comprobación de salud se mide desde el servidor del frontend: una sola medida, no un percentil. */
@@ -33,34 +26,25 @@ async function fetchHealth(): Promise<HealthSignal & { migration: string | null 
 }
 
 export default async function StatusPage() {
-  const [health, executions, incidents, agents, jobs, pipelineRuns, apiUsage] = await Promise.all([
-    fetchHealth(),
-    // null = la petición falló: no es lo mismo que «cero» y no se muestra como tal
-    api.listAgentExecutions().catch((): AgentExecution[] | null => null),
-    api.listIncidents().catch((): Incident[] | null => null),
-    api.listAgents().catch((): Agent[] => []),
-    api.listJobs().catch((): Job[] | null => null),
-    api.listPipelineRuns().catch((): PipelineRun[] | null => null),
-    // null = la petición falló. Un gasto inventado es peor que un gasto
-    // desconocido, así que la tarjeta lo dirá en vez de enseñar ceros.
-    api.listApiUsage().catch((): ApiProviderUsage[] | null => null),
-  ]);
+  const [health, reads] = await Promise.all([fetchHealth(), readStatusPage(api)]);
   const { migration, ...signal } = health;
 
   // El instante se fija en el servidor: las colas, las series de 24 h y los «hace
   // X» de demostración se calculan con él y el cliente hidrata exactamente lo mismo.
   const now = new Date().getTime();
 
+  // `listOf`: `null` si la lectura falló (cada tarjeta lo dice), `[]` solo si el backend dijo que estaba vacío.
   return (
     <StatusWorkspace
       signal={signal}
       migration={migration}
-      agents={agents}
-      executions={executions}
-      incidents={incidents}
-      jobs={jobs}
-      pipelineRuns={pipelineRuns}
-      apiUsage={apiUsage}
+      agents={listOf(reads.agents)}
+      executions={listOf(reads.executions)}
+      incidents={listOf(reads.incidents)}
+      jobs={listOf(reads.jobs)}
+      pipelineRuns={listOf(reads.pipelineRuns)}
+      apiUsage={listOf(reads.apiUsage)}
+      failures={statusFailures(reads)}
       now={now}
     />
   );

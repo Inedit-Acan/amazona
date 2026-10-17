@@ -61,9 +61,12 @@ function approvalRow(approval: Approval): BlockRow {
     key: `approval:${approval.id}`,
     title: actionLabel(approval.action),
     subtitle: `${amount} · ${expiry}`,
+    // Solo con el dato REAL del backend: sin `requested_at` no hay línea (nunca «ahora» ni la caducidad menos 24 h).
+    ...(approval.requested_at === undefined ? {} : { meta: `Solicitada ${formatUtcDateTime(parseUtc(approval.requested_at))}` }),
     tag: { text: "Aprobación del CEO" },
     detail: [
       `Acción: ${approval.action}`,
+      ...(approval.correlation_id === undefined ? [] : [`Correlación: ${approval.correlation_id}`]),
       "Autorización de una decisión del CEO; el importe está reservado en el presupuesto hasta que se resuelva.",
       ...(approval.amount === null ? [] : ["El backend no indica la moneda del importe."]),
     ],
@@ -74,6 +77,8 @@ function approvalRow(approval: Approval): BlockRow {
       status: approval.status,
       areaLabel: "Aprobación del CEO",
       at: approval.expires_at,
+      requestedAt: approval.requested_at ?? null,
+      correlationId: approval.correlation_id ?? null,
       confidence: null,
       rationale: null,
     },

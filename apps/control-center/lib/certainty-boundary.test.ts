@@ -29,6 +29,8 @@ const GOVERNED = [
   "app/agents/agents-workspace.tsx",
   "app/approvals/approvals-panels.tsx",
   "app/approvals/approvals-workspace.tsx",
+  "app/approvals/backend-inbox.tsx",
+  "app/approvals/demo-inbox.tsx",
   "app/audit/audit-panels.tsx",
   "app/audit/audit-workspace.tsx",
   "app/ceo/page.tsx",

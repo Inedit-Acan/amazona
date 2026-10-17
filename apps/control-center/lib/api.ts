@@ -213,6 +213,10 @@ export interface Approval {
   expires_at: string | null;
   resolved_at: string | null;
   resolved_by: string | null;
+  /** Cuándo se PIDIÓ la aprobación (`approvals.requested_at`, ISO 8601). Lo envía el backend desde el Commit 6a: un backend anterior no lo trae. */
+  requested_at?: string;
+  /** La correlación de la ejecución del CEO que la pidió: la misma de su decisión, su auditoría y su log. Desde el Commit 6a. */
+  correlation_id?: string;
 }
 
 export interface AuditEntry {

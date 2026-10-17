@@ -91,3 +91,28 @@ test("el mensaje del contrato roto es nuestro, legible y sin detalles técnicos"
   assert.doesNotMatch(message, /\b[45]\d\d\b|undefined|\[object|TypeError|Traceback|HTTP/);
   assert.match(message, /severidad/);
 });
+
+// --- Commit 6b: los dos campos nuevos de la aprobación (opcionales: un backend anterior al 6a no los envía) ----------------------------
+
+test("6b · una aprobación sin `requested_at` ni `correlation_id` (backend anterior) sigue siendo válida; con ellos válidos, también", () => {
+  assert.equal(approvalsContract(asLoaded([approval("a")])).kind, "loaded");
+  assert.equal(approvalsContract(asLoaded([approval("a", { requested_at: "2026-10-16T09:30:00+02:00", correlation_id: "0f8e2c1a-7b3d-4c5e-9a10-2b4d6f8a0c1e" })])).kind, "loaded");
+  assert.equal(approvalsContract(asLoaded([approval("a", { requested_at: "2026-10-16T09:30:00" })])).kind, "loaded", "sin zona = UTC");
+});
+
+test("6b · un `requested_at` que no es una fecha, o un `correlation_id` que no es texto, rompe el contrato (error, no se ignora)", () => {
+  const cases: Array<Record<string, unknown>> = [
+    { requested_at: "ayer" },
+    { requested_at: "" },
+    { requested_at: 1760000000 },
+    { requested_at: null },
+    { correlation_id: "" },
+    { correlation_id: 42 },
+    { correlation_id: null },
+  ];
+  for (const over of cases) {
+    const state = approvalsContract(asLoaded([approval("a", over as never)]));
+    assert.equal(state.kind, "error", JSON.stringify(over));
+    assert.match(state.kind === "error" ? state.message : "", /aprobaciones/);
+  }
+});

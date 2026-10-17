@@ -39,6 +39,7 @@ function Row({ row, href }: { row: BlockRow; href: string }) {
             )}
             <span className="line-clamp-2 text-sm font-medium break-words">{row.title}</span>
             <span className="block truncate text-xs text-muted-foreground">{row.subtitle}</span>
+            {row.meta ? <span className="block truncate text-xs text-muted-foreground">{row.meta}</span> : null}
           </span>
           {row.tag.level ? (
             <Badge variant="outline" className={cn("shrink-0", LEVEL_STYLE[row.tag.level])}>

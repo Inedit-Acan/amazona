@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo } from "react";
-import { ArrowRight, Bell, Boxes, CircleAlert, Code2, Gauge, ListChecks, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bell, Boxes, CircleAlert, Code2, Gauge, ListChecks, ShieldCheck } from "lucide-react";
 import type { Agent, AgentExecution, ApiProviderUsage, Incident, Job, PipelineRun } from "@/lib/api";
 import { teamOf } from "@/lib/agents";
 import { demoExecutions } from "@/lib/demo/agents";
 import { relativeTime } from "@/lib/dates";
 import { formatDuration, formatInteger, formatPercent } from "@/lib/format";
-import { overallStatus, realSignals, workerSignal, type HealthSignal } from "@/lib/status";
+import { UNREADABLE_WORKERS, overallStatus, realSignals, workerSignal, type HealthSignal } from "@/lib/status";
 import {
   costLines,
   cronRows,
@@ -27,7 +27,9 @@ import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { VerdictBanner } from "@/components/verdict-banner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { STATUS_DESCRIPTION, STATUS_TITLE } from "./copy";
 import {
   AgentRuntimeCard,
@@ -50,6 +52,19 @@ import {
 const DEMO_TOOLTIP =
   "Incluye datos de demostración: el backend solo responde una comprobación de salud (base de datos, migración y configuración de Supabase), el registro de agentes, su log de ejecuciones y los incidentes registrados a mano. Son de demostración el uptime y la latencia p95 de los 18 servicios, el estado de los doce sin telemetría, las series de las últimas 24 horas, las colas, las tareas programadas, las integraciones externas, las métricas del motor de base de datos, los despliegues y el coste de infraestructura. Comprobado o registrado: que el frontend se ha renderizado, que la API responde y cuánto tarda, si la base de datos se puede consultar, la migración aplicada, si Supabase está configurado, los agentes registrados, sus ejecuciones fallidas de hoy y los incidentes.";
 
+function UnavailableCard({ title, reason }: { title: string; reason: string }) {
+  return (
+    <Card className="min-w-0" data-unavailable={title}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p className="text-xs text-muted-foreground">No disponible. {reason}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function StatusWorkspace({
   signal,
   migration,
@@ -59,12 +74,14 @@ export function StatusWorkspace({
   jobs,
   pipelineRuns,
   apiUsage,
+  failures,
   now,
 }: {
   signal: HealthSignal;
   migration: string | null;
-  agents: Agent[];
-  /** null = la petición falló: no es lo mismo que «cero ejecuciones». */
+  /** null = la lectura falló: no es lo mismo que «cero agentes» (M47, Commit 6b). */
+  agents: Agent[] | null;
+  /** null = la petición falló: no es lo mismo que «cero ejecuciones», y NO se sustituye por ejecuciones de demostración. */
   executions: AgentExecution[] | null;
   incidents: Incident[] | null;
   jobs: Job[] | null;
@@ -73,25 +90,29 @@ export function StatusWorkspace({
   /** null = la petición falló. No es lo mismo que «cero llamadas hoy», y la
    * tarjeta lo dice en vez de enseñar ceros (Milestone 37). */
   apiUsage: ApiProviderUsage[] | null;
+  /** Un aviso por cada lectura que falló (vacío = todas leídas). */
+  failures: string[];
   now: number;
 }) {
-  // Mismo criterio que la pantalla de Agentes: si el log está vacío se usan las
-  // ejecuciones de demostración, para que las dos pantallas cuenten lo mismo.
+  // El runtime y el coste de agentes solo se enseñan si se LEYERON los agentes y su log. Con una lectura caída no hay ni cifras ni demostración.
+  const runtimeReadable = agents !== null && executions !== null;
+  // Mismo criterio que la pantalla de Agentes: si el log se leyó y está vacío (un hecho) se usan las ejecuciones de demostración, para que
+  // las dos pantallas cuenten lo mismo. Si NO se pudo leer, no hay ejecuciones: tampoco de demostración.
   const runs = useMemo(
-    () => (executions && executions.length > 0 ? executions : demoExecutions(agents, teamOf, now, 1)),
+    () => (executions === null ? [] : executions.length > 0 ? executions : demoExecutions(agents ?? [], teamOf, now, 1)),
     [agents, executions, now],
   );
-  const workers = useMemo(() => workerSignal(runs), [runs]);
+  const workers = useMemo(() => (executions === null ? UNREADABLE_WORKERS : workerSignal(runs)), [executions, runs]);
   const real = useMemo(() => realSignals(signal, workers), [signal, workers]);
   const rows = useMemo(() => serviceRows(signal, workers), [signal, workers]);
   const summary = useMemo(() => serviceSummary(rows), [rows]);
-  const runtime = useMemo(() => runtimeView(agents, runs, now), [agents, runs, now]);
+  const runtime = useMemo(() => runtimeView(agents ?? [], runs, now), [agents, runs, now]);
   const incidentsData = useMemo(() => incidentsView(incidents, now), [incidents, now]);
   const kpis = useMemo(() => statusKpis(rows, runtime, incidentsData, now), [rows, runtime, incidentsData, now]);
   const scores = useMemo(() => healthScores(signal, workers), [signal, workers]);
   const overall = overallStatus({ signal, openIncidents: incidentsData.open ?? 0 });
-  const costs = useMemo(() => costLines(agents, runs, now), [agents, runs, now]);
-  const usingDemoRuns = !executions || executions.length === 0;
+  const costs = useMemo(() => costLines(agents ?? [], runs, now), [agents, runs, now]);
+  const usingDemoRuns = executions !== null && executions.length === 0;
 
   return (
     <div className="space-y-4">
@@ -111,6 +132,21 @@ export function StatusWorkspace({
       {/* Solo cuando algo va mal de verdad: en el mockup no hay banda, pero una
           caída real tiene que verse antes que nada. */}
       {overall.tone === "ok" ? null : <VerdictBanner tone={overall.tone} title={overall.title} detail={overall.detail} />}
+
+      {failures.length > 0 ? (
+        <Alert variant="destructive" data-section="status-read-failures">
+          <AlertTriangle className="size-4" />
+          <AlertTitle>{failures.length === 1 ? "No se pudo leer una fuente" : `No se pudieron leer ${failures.length} fuentes`}</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {failures.map((failure) => (
+                <li key={failure}>{failure}</li>
+              ))}
+            </ul>
+            Lo que depende de esas lecturas no se enseña como cero ni como «sin datos»: aparece como no disponible.
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7" aria-label="Indicadores de infraestructura">
         <KpiCard
@@ -195,7 +231,7 @@ export function StatusWorkspace({
           <SystemHealthCard scores={scores} overall={overallHealth(scores)} />
         </div>
         <div className="min-w-0 space-y-3 2xl:col-span-2">
-          <AgentRuntimeCard runtime={runtime} />
+          {runtimeReadable ? <AgentRuntimeCard runtime={runtime} /> : <UnavailableCard title="Agent Runtime" reason={agents === null ? "No se pudo leer el registro de agentes." : "No se pudo leer el log de ejecuciones de agentes."} />}
           <JobRuntimeCard jobs={jobs} now={now} />
           <PipelineRunsCard runs={pipelineRuns} />
         </div>
@@ -226,7 +262,7 @@ export function StatusWorkspace({
           usingDemo={incidentsData.usingDemo}
           now={now}
         />
-        <CostCard lines={costs} />
+        {runtimeReadable ? <CostCard lines={costs} /> : <UnavailableCard title="Coste de infraestructura (hoy)" reason="El coste de inferencia sale del log de ejecuciones y no se pudo leer. No se enseña un coste inventado." />}
       </section>
 
       {/* Proveedores externos y consumo real de cuota (Milestone 37, plan §25).

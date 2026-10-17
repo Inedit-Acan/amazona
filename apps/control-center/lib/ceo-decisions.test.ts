@@ -156,6 +156,8 @@ test("la procedencia de cada fila es trazable: fuente, entidad, id, estado, áre
     status: "PENDING",
     areaLabel: "Aprobación del CEO",
     at: "2026-10-16T14:05:00+00:00",
+    requestedAt: null,
+    correlationId: null,
     confidence: null,
     rationale: null,
   });
@@ -210,4 +212,46 @@ test("UNREAD ≠ VACÍO: una lectura no hecha da «sin leer», nunca vacío ni 0
 test("el resultado no lleva demostración: ningún texto de demo, ningún `isDemo`", () => {
   const v = view({ approvals: loaded([approval("a")]), reviews: loaded([review("g")]) });
   assert.doesNotMatch(JSON.stringify(v), /demo|isDemo|APR-\d|ACT-|REV-/i);
+});
+
+// --- Commit 6b: «Solicitada <fecha UTC>» con `requested_at` REAL, y la correlación para poder rastrear -----------------------------------------
+
+test("6b · con `requested_at` la fila dice «Solicitada <fecha y hora UTC>» (la fecha del backend, no la caducidad ni «ahora»)", () => {
+  const v = view({
+    approvals: loaded([approval("a1", { requested_at: "2026-10-16T09:30:00+02:00", expires_at: "2026-10-17T07:30:00Z" })]),
+  });
+  const row = rowsOf(v)[0];
+  assert.equal(row.meta, "Solicitada 16 oct 2026 · 07:30 UTC");
+  assert.doesNotMatch(row.meta ?? "", /17 oct/, "no es la caducidad");
+  assert.equal(row.provenance.requestedAt, "2026-10-16T09:30:00+02:00");
+});
+
+test("6b · SIN `requested_at` (backend anterior al 6a) no se enseña ninguna fecha de solicitud: ni «ahora», ni caducidad − 24 h", () => {
+  const v = view({ approvals: loaded([approval("a1", { expires_at: "2026-10-17T07:30:00Z" })]) });
+  const row = rowsOf(v)[0];
+  assert.equal(row.meta, undefined);
+  assert.equal(row.provenance.requestedAt ?? null, null);
+  assert.doesNotMatch(JSON.stringify(row), /Solicitada|16 oct/);
+});
+
+test("6b · el `correlation_id` se conserva en la procedencia y se ofrece como línea de trazabilidad; sin él no se inventa", () => {
+  const corr = "0f8e2c1a-7b3d-4c5e-9a10-2b4d6f8a0c1e";
+  const withIt = rowsOf(view({ approvals: loaded([approval("a1", { correlation_id: corr })]) }))[0];
+  assert.equal(withIt.provenance.correlationId, corr);
+  assert.ok(withIt.detail.includes(`Correlación: ${corr}`));
+  const without = rowsOf(view({ approvals: loaded([approval("a2")]) }))[0];
+  assert.equal(without.provenance.correlationId ?? null, null);
+  assert.ok(!without.detail.some((line) => line.startsWith("Correlación")));
+});
+
+test("6b · la fecha de solicitud no cambia el orden (sigue por vencimiento) ni el contador, y las revisiones de pipeline no la tienen", () => {
+  const v = view({
+    approvals: loaded([
+      approval("late", { expires_at: "2026-10-17T18:00:00Z", requested_at: "2026-10-16T01:00:00Z" }),
+      approval("early", { expires_at: "2026-10-16T18:00:00Z", requested_at: "2026-10-16T11:00:00Z" }),
+    ]),
+    reviews: loaded([review("g1")]),
+  });
+  assert.deepEqual(rowsOf(v).map((r) => r.key), ["approval:early", "approval:late", "review:g1"]);
+  assert.equal(rowsOf(v)[2].meta, undefined, "una revisión de pipeline no trae fecha de solicitud");
 });

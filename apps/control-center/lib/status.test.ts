@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { overallStatus, realSignals, workerSignal, type HealthSignal, type WorkerSignal } from "./status.ts";
+import { UNREADABLE_WORKERS, overallStatus, realSignals, workerSignal, type HealthSignal, type WorkerSignal } from "./status.ts";
 
 const signal = (over: Partial<HealthSignal> = {}): HealthSignal => ({
   apiReachable: true,
@@ -66,4 +66,14 @@ test("overallStatus prioriza backend caído > base de datos > incidentes abierto
   const ok = overallStatus({ signal: signal(), openIncidents: 0 });
   assert.equal(ok.title, "Sistema operativo");
   assert.equal(ok.tone, "ok");
+});
+
+test("realSignals: un log de ejecuciones ilegible es «sin señal» y NO dice que no haya ejecuciones", () => {
+  const unreadable = realSignals(signal(), UNREADABLE_WORKERS).workers;
+  const empty = realSignals(signal(), workers({ runs: 0, failures: 0, avgDurationMs: null })).workers;
+  assert.equal(unreadable.state, "no_signal");
+  assert.match(unreadable.note, /No se pudo leer/);
+  assert.doesNotMatch(unreadable.note, /Todavía no hay|ejecuciones registradas/);
+  assert.match(empty.note, /Todavía no hay ejecuciones/);
+  assert.notEqual(unreadable.note, empty.note);
 });

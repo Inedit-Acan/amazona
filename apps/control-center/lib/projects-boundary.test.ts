@@ -310,7 +310,7 @@ test("10 · tareas, decisión, riesgos y recomendaciones del proyecto del Direct
 test("11 · `projectCodeFor` no cambia: Aprobaciones, el Panel y Auditoría lo usan", () => {
   assert.equal(projectCodeFor(0), "AMZ-0024");
   assert.equal(projectCodeFor(23), "AMZ-0001");
-  for (const file of ["app/approvals/page.tsx", "lib/dashboard-reads.ts", "lib/audit-view.ts"]) {
+  for (const file of ["lib/approvals-reads.ts", "lib/dashboard-reads.ts", "lib/audit-view.ts"]) {
     assert.ok(read(file).includes("projectCodeFor"), `${file} ya no usa projectCodeFor: revisa si el cambio le afecta`);
   }
 });

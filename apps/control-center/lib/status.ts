@@ -25,7 +25,12 @@ export interface WorkerSignal {
   failures: number;
   /** Duración media (ms) de esas ejecuciones; null si no hay ninguna. */
   avgDurationMs: number | null;
+  /** El log de ejecuciones NO se pudo leer: no es lo mismo que «cero ejecuciones» (M47, Commit 6b). */
+  unreadable?: boolean;
 }
+
+/** La señal de los workers cuando el log no se pudo leer: sin señal, y la nota no dice que «no hay ejecuciones». */
+export const UNREADABLE_WORKERS: WorkerSignal = { runs: 0, failures: 0, avgDurationMs: null, unreadable: true };
 
 export interface RealSignal {
   state: ServiceState;
@@ -71,8 +76,9 @@ export function realSignals(signal: HealthSignal, workers: WorkerSignal): Record
     workers: {
       state: workers.runs === 0 ? "no_signal" : workers.failures === workers.runs ? "down" : "operational",
       measuredMs: workers.avgDurationMs,
-      note:
-        workers.runs === 0
+      note: workers.unreadable
+        ? "No se pudo leer el log de ejecuciones de agentes."
+        : workers.runs === 0
           ? "Todavía no hay ejecuciones de agentes registradas."
           : `${workers.runs} ejecuciones registradas, ${workers.failures} fallidas.`,
     },

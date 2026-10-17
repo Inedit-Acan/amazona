@@ -26,6 +26,10 @@ export interface BlockProvenance {
   areaLabel: string;
   /** La marca de tiempo REAL que trae el dato (ISO), o `null` si el backend no la expone. */
   at: string | null;
+  /** Cuándo se pidió (`requested_at` de una aprobación), solo si el backend lo envió: nunca se deduce de la caducidad ni de «ahora». */
+  requestedAt?: string | null;
+  /** La correlación (`correlation_id`) con la decisión y la auditoría, solo si el backend la envió. */
+  correlationId?: string | null;
   /** Ninguna de las fuentes de estos bloques trae confianza en su lista: siempre `null`, nunca un 0. */
   confidence: null;
   rationale: string | null;
@@ -35,6 +39,8 @@ export interface BlockRow {
   key: string;
   title: string;
   subtitle: string;
+  /** Una línea más, solo si hay un dato real que decir («Solicitada 16 oct 2026 · 07:30 UTC»). Sin dato, no existe. */
+  meta?: string;
   /** La etiqueta de la fila. `level` solo existe cuando el backend da una severidad real. */
   tag: { text: string; level?: "low" | "medium" | "high" | "critical" };
   /** Líneas de detalle para el tooltip (motivos reales, descripción…). */

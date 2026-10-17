@@ -48,6 +48,9 @@ export const approvalsContract = (state: ReadState<Approval[]>): ReadState<Appro
     if (!isOneOf(APPROVAL_STATUSES, row.status)) return `estado desconocido (${JSON.stringify(row.status)})`;
     if (!(row.amount === null || (typeof row.amount === "number" && Number.isFinite(row.amount)))) return "importe que no es un número";
     if (!isNullableInstant(row.expires_at)) return "vencimiento que no es una fecha";
+    // Commit 6b: los dos campos son opcionales (un backend anterior al 6a no los envía) pero, si llegan, tienen que ser válidos.
+    if ("requested_at" in row && !isInstant(row.requested_at)) return "fecha de solicitud que no es una fecha";
+    if ("correlation_id" in row && !isText(row.correlation_id)) return "correlación que no es texto";
     return null;
   });
 
