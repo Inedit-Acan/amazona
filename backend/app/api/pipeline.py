@@ -114,7 +114,8 @@ class PipelineReviewOut(BaseModel):
 
 
 class PipelineReviewActionIn(BaseModel):
-    actor: str
+    # OPCIONAL, igual que en las aprobaciones: sin él el actor es el de la identidad (`actor_name`).
+    actor: str | None = None
 
 
 class KillSwitchOut(BaseModel):

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Approval } from "./api.ts";
 import { decision, project, task } from "./nexus-test-support.ts";
 import {
   engineHud,
@@ -33,6 +34,7 @@ const read = (over: Partial<MissionRead> & { id?: string } = {}): MissionRead =>
     project: project(id),
     decision: { kind: "loaded", data: decision(id) },
     tasks: { kind: "loaded", data: [task("t1", "COMPLETED"), task("t2", "PENDING")] },
+    approval: { kind: "empty" },
     ...over,
   };
 };
@@ -71,8 +73,8 @@ test("persistido válido ⇒ misión CONFIRMADA con su proyecto, su decisión y 
 });
 
 test("persistedMissionOf: proyectos vacíos ⇒ empty; error ⇒ error; unread ⇒ error (no hay lectura válida)", () => {
-  assert.deepEqual(persistedMissionOf({ projects: { kind: "empty" }, project: null, decision: { kind: "unread", reason: "x" }, tasks: { kind: "unread", reason: "x" } }), EMPTY);
-  assert.equal(persistedMissionOf({ projects: { kind: "error", message: "m" }, project: null, decision: { kind: "unread", reason: "x" }, tasks: { kind: "unread", reason: "x" } }).kind, "error");
+  assert.deepEqual(persistedMissionOf({ projects: { kind: "empty" }, project: null, decision: { kind: "unread", reason: "x" }, tasks: { kind: "unread", reason: "x" }, approval: { kind: "unread", reason: "x" } }), EMPTY);
+  assert.equal(persistedMissionOf({ projects: { kind: "error", message: "m" }, project: null, decision: { kind: "unread", reason: "x" }, tasks: { kind: "unread", reason: "x" }, approval: { kind: "unread", reason: "x" } }).kind, "error");
 });
 
 // --- Sesión ↔ persistido (las cinco reglas) ----------------------------------------------------------------------------------------
@@ -224,7 +226,8 @@ test("tasksOfView: las tareas del grafo son las de la misión persistida mostrad
 
 // --- HUD y procedencia --------------------------------------------------------------------------------------------------------------
 
-const hud = (state: EngineState, agents = { running: 0, total: 13 }, latencyMs: number | null = null) => engineHud({ view: viewOf(state), agents, latencyMs });
+const hud = (state: EngineState, agents = { running: 0, total: 13 }, latencyMs: number | null = null, now = Date.parse("2026-10-15T12:00:00Z")) =>
+  engineHud({ view: viewOf(state), agents, latencyMs, now });
 const field = (h: ReturnType<typeof hud>, label: string) => {
   const f = h.fields.find((item) => item.label === label);
   assert.ok(f, `falta el campo «${label}»`);
@@ -234,7 +237,7 @@ const CONFIRMED = () => apply([{ type: "read_requested" }, { type: "read_result"
 
 test("HUD: los rótulos aprobados — «Evidencias de la decisión» (NO «Eventos activos»), «Progreso» y «Proyecto» con nombre", () => {
   const h = hud(CONFIRMED(), { running: 0, total: 13 }, 1_000);
-  assert.deepEqual(h.fields.map((f) => f.label), ["Última misión", "Decisión", "Evidencias de la decisión", "Progreso", "Agentes activos", "Latencia media"]);
+  assert.deepEqual(h.fields.map((f) => f.label), ["Última misión", "Tipo de decisión", "Evidencias de la decisión", "Progreso", "Agentes activos", "Latencia media"]);
   assert.doesNotMatch(JSON.stringify(h), /Eventos activos/);
   assert.equal(field(h, "Última misión").text, "Misión p1");
   assert.doesNotMatch(field(h, "Última misión").text, /^p1$|^dec-/);
@@ -282,7 +285,7 @@ test("HUD: procedencia de cada dato — proyecto y decisión `recorded`; evidenc
     h.fields.map((f) => [f.label, f.provenance]),
     [
       ["Última misión", "recorded"],
-      ["Decisión", "recorded"],
+      ["Tipo de decisión", "recorded"],
       ["Evidencias de la decisión", "derived"],
       ["Progreso", "derived"],
       ["Agentes activos", "derived"],
@@ -300,10 +303,10 @@ test("HUD: ningún campo usa el coste, y ningún texto es una cifra de demostrac
 
 test("HUD: si la decisión no se pudo leer, las evidencias dicen «No disponible»; si no hay decisión registrada, «Sin dato»; nunca 0", () => {
   const err = hud(apply([{ type: "read_result", seq: 1, mission: persisted({ decision: { kind: "error", message: "m" } }) }]));
-  assert.equal(field(err, "Decisión").text, "No disponible");
+  assert.equal(field(err, "Tipo de decisión").text, "No disponible");
   assert.equal(field(err, "Evidencias de la decisión").text, "No disponible");
   const none = hud(apply([{ type: "read_result", seq: 1, mission: persisted({ decision: { kind: "empty" } }) }]));
-  assert.equal(field(none, "Decisión").text, "Sin decisión registrada");
+  assert.equal(field(none, "Tipo de decisión").text, "Sin decisión registrada");
   assert.equal(field(none, "Evidencias de la decisión").text, "Sin dato");
   for (const h of [err, none]) assert.notEqual(field(h, "Evidencias de la decisión").text, "0");
 });
@@ -345,5 +348,73 @@ test("HUD: «Agentes activos» cuenta los del registro y «Latencia media» la d
 
 test("el tipo de estado no admite una lectura `unread` como misión: `unread` ≠ vacío", () => {
   const unread: ReadState<unknown> = { kind: "unread", reason: "x" };
-  assert.equal(persistedMissionOf({ projects: unread as never, project: null, decision: unread as never, tasks: unread as never }).kind, "error");
+  assert.equal(persistedMissionOf({ projects: unread as never, project: null, decision: unread as never, tasks: unread as never, approval: unread as never }).kind, "error");
+});
+
+// --- TIPO de decisión ≠ ESTADO de aprobación (corrección tras la primera misión real) ------------------------------------------------
+
+const NOW_MS = Date.parse("2026-10-18T18:00:00Z");
+const approvalRow = (over: Partial<Approval> = {}): Approval => ({
+  id: "ap1",
+  decision_id: "dec-p1",
+  action: "simulated_external_spend",
+  amount: 1,
+  status: "PENDING",
+  expires_at: "2026-10-19T16:28:11Z",
+  resolved_at: null,
+  resolved_by: null,
+  requested_at: "2026-10-18T16:28:11Z",
+  ...over,
+});
+const humanMission = (approval: ReadState<Approval>) =>
+  apply([
+    { type: "read_requested" },
+    { type: "read_result", seq: 1, mission: persisted({ decision: { kind: "loaded", data: decision("p1", { status: "HUMAN_APPROVAL" }) }, approval }) },
+  ]);
+const hudAt = (state: EngineState, now = NOW_MS) => hud(state, { running: 0, total: 13 }, null, now);
+
+test("HUD: el tipo `HUMAN_APPROVAL` sigue siendo «Requiere aprobación humana» aunque la aprobación esté APROBADA, y es un campo aparte del estado", () => {
+  const h = hudAt(humanMission({ kind: "loaded", data: approvalRow({ status: "APPROVED", resolved_at: "2026-10-18T16:29:25Z", resolved_by: "local-development" }) }));
+  assert.equal(field(h, "Tipo de decisión").text, "Requiere aprobación humana (HUMAN_APPROVAL)");
+  assert.match(field(h, "Tipo de decisión").note ?? "", /no cambia cuando se resuelve su aprobación/);
+  assert.equal(field(h, "Aprobación").text, "Aprobada · 18 oct 2026 · 16:29 UTC");
+  assert.doesNotMatch(field(h, "Aprobación").text, /pendiente/i, "una aprobación aprobada no se presenta como pendiente");
+  assert.equal(field(h, "Aprobación").provenance, "recorded");
+});
+
+test("HUD: pendiente (con su vencimiento), rechazada, vencida y cancelada, cada una con su texto y su fecha real", () => {
+  assert.equal(field(hudAt(humanMission({ kind: "loaded", data: approvalRow() })), "Aprobación").text, "Pendiente · 19 oct 2026 · 16:28 UTC");
+  assert.equal(field(hudAt(humanMission({ kind: "loaded", data: approvalRow({ status: "REJECTED", resolved_at: "2026-10-18T17:00:00Z" }) })), "Aprobación").text, "Rechazada · 18 oct 2026 · 17:00 UTC");
+  assert.equal(field(hudAt(humanMission({ kind: "loaded", data: approvalRow({ status: "EXPIRED", resolved_at: "2026-10-19T16:30:00Z" }) })), "Aprobación").text, "Vencida · 19 oct 2026 · 16:30 UTC");
+  assert.equal(field(hudAt(humanMission({ kind: "loaded", data: approvalRow({ status: "CANCELLED" }) })), "Aprobación").text, "Cancelada");
+});
+
+test("HUD: una aprobación PENDING con el vencimiento pasado se dice «Vencida sin resolver»", () => {
+  const h = hudAt(humanMission({ kind: "loaded", data: approvalRow({ expires_at: "2026-10-18T10:00:00Z" }) }));
+  assert.equal(field(h, "Aprobación").text, "Vencida sin resolver · 18 oct 2026 · 10:00 UTC");
+});
+
+test("HUD: la fecha de solicitud, la de resolución y la de vencimiento no se confunden", () => {
+  const h = hudAt(humanMission({ kind: "loaded", data: approvalRow({ status: "APPROVED", requested_at: "2026-10-18T16:28:11Z", resolved_at: "2026-10-18T16:29:25Z", expires_at: "2026-10-19T16:28:11Z" }) }));
+  assert.match(field(h, "Aprobación").text, /16:29 UTC/);
+  assert.match(field(h, "Aprobación").note ?? "", /Solicitada 18 oct 2026 · 16:28 UTC/);
+  assert.doesNotMatch(field(h, "Aprobación").text, /19 oct/);
+});
+
+test("HUD: una aprobación que no se pudo leer es «No disponible»; una decisión que la pide y no la tiene dice «Sin aprobación registrada»", () => {
+  assert.equal(field(hudAt(humanMission({ kind: "error", message: "x" })), "Aprobación").text, "No disponible");
+  assert.equal(field(hudAt(humanMission({ kind: "unread", reason: "x" })), "Aprobación").provenance, "unavailable");
+  assert.equal(field(hudAt(humanMission({ kind: "empty" })), "Aprobación").text, "Sin aprobación registrada");
+});
+
+test("HUD: una decisión que no pide aprobación (GO, NO_GO, REVIEW) no tiene campo «Aprobación»", () => {
+  for (const status of ["GO", "NO_GO", "REVIEW"] as const) {
+    const state = apply([{ type: "read_requested" }, { type: "read_result", seq: 1, mission: persisted({ decision: { kind: "loaded", data: decision("p1", { status }) } }) }]);
+    assert.equal(hudAt(state).fields.some((f) => f.label === "Aprobación"), false, status);
+  }
+});
+
+test("la misión recién creada en esta sesión no sabe el estado de su aprobación: «Sin confirmar»", () => {
+  const session = apply([{ type: "mission_created", session: { projectId: "p1", projectName: "x", decision: decision("p1", { status: "HUMAN_APPROVAL" }) } }]);
+  assert.equal(field(hudAt(session), "Aprobación").text, "Sin confirmar");
 });

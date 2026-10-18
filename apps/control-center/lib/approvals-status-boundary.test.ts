@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -121,8 +121,62 @@ test("11 · ningún fichero de 6b lleva caracteres de control (un backspace de u
     "lib/approvals-reads.test.ts",
     "lib/status-reads.test.ts",
     "lib/approvals-status-boundary.test.ts",
+    "lib/actor-label.ts",
+    "lib/actor-label.test.ts",
+    "lib/approvals.ts",
+    "lib/approvals.test.ts",
+    "lib/ceo-decisions.ts",
+    "lib/ceo-activity.ts",
+    "lib/nexus-mission.ts",
+    "lib/nexus-engine-state.ts",
   ];
   for (const file of files) {
     assert.doesNotMatch(read(file), /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/, `${file} tiene un carácter de control`);
   }
+});
+
+// --- Corrección tras la primera misión real: ningún actor fijo y ningún texto de presupuesto que no salga del libro --------------------
+
+test("12 · la bandeja de aprobaciones NO envía un actor fijo ni ninguna dirección de correo inventada", () => {
+  for (const file of ["app/approvals/backend-inbox.tsx", "lib/approvals-inbox.ts", "lib/approvals.ts", "lib/actor-label.ts"]) {
+    const source = code(file);
+    assert.doesNotMatch(source, /[\w.-]+@[\w-]+\.[\w.-]+/, `${file} contiene un correo`);
+    assert.doesNotMatch(source, /APPROVER_ACTOR|OPERATOR_ACTOR/, `${file} fija un actor`);
+  }
+  const client = code("lib/api.ts");
+  for (const name of ["approveApproval", "rejectApproval", "approvePipelineReview", "rejectPipelineReview"]) {
+    const start = client.indexOf(`${name}: (`);
+    assert.ok(start >= 0, name);
+    const block = client.slice(start, start + 260);
+    assert.doesNotMatch(block, /actor/i, `${name} envía un actor`);
+    assert.match(block, /JSON\.stringify\(\{\}\)/, `${name} envía un cuerpo vacío`);
+  }
+});
+
+test("13 · el actor fijo `owner@amazona.local` solo queda donde NO se tocó (incidentes), y no puede crecer", () => {
+  // Deuda conocida: la creación y resolución de incidentes (`incident-card.tsx` y `incident-report-form.tsx`) siguen mandando ese actor. El
+  // formulario es de los ficheros del propietario que no se tocan. Esta lista solo puede menguar.
+  const KNOWN = ["components/incident-card.tsx", "components/incident-report-form.tsx"];
+  const found: string[] = [];
+  const walk = (directory: string) => {
+    for (const entry of readdirSync(join(ROOT, directory), { withFileTypes: true })) {
+      const relative = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (!["node_modules", ".next", "demo"].includes(entry.name)) walk(relative);
+      } else if (/\.tsx?$/.test(entry.name) && !entry.name.endsWith(".test.ts")) {
+        if (/owner@amazona\.local/.test(code(relative))) found.push(relative);
+      }
+    }
+  };
+  for (const directory of ["app", "components", "lib"]) walk(directory);
+  assert.deepEqual(found.sort(), KNOWN);
+});
+
+test("14 · el texto de presupuesto solo sale de `budget_effect` (el libro), nunca de tener un importe", () => {
+  const impact = code("lib/approvals.ts");
+  assert.match(impact, /approval\.budget_effect/);
+  const withoutLedger = impact.replace(/approveMoney = \["El importe reservado[^;]*;/, "");
+  assert.doesNotMatch(withoutLedger, /pasa de reservado a comprometido/, "la frase falsa del texto antiguo no puede volver");
+  assert.doesNotMatch(code("lib/ceo-decisions.ts"), /el importe está reservado en el presupuesto hasta que se resuelva\.",?\s*\n\s*\.\.\.\(approval\.amount/, "la frase fija del bloque de decisiones no puede volver");
+  assert.match(code("lib/ceo-decisions.ts"), /case "reserved":/);
 });

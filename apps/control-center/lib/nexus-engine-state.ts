@@ -1,4 +1,4 @@
-import type { Decision, DecisionStatus, Project, Task } from "./api.ts";
+import type { Approval, Decision, DecisionStatus, Project, Task } from "./api.ts";
 import { formatUtcDateTime } from "./ceo-block-view.ts";
 import { parseUtc } from "./dates.ts";
 import { formatDuration } from "./format.ts";
@@ -26,7 +26,7 @@ export type Provenance = "recorded" | "derived" | "unavailable";
 export type PersistedMission =
   | { kind: "empty" }
   | { kind: "error"; message: string }
-  | { kind: "loaded"; project: Project; projectIds: string[]; decision: ReadState<Decision>; tasks: ReadState<Task[]> };
+  | { kind: "loaded"; project: Project; projectIds: string[]; decision: ReadState<Decision>; tasks: ReadState<Task[]>; approval: ReadState<Approval> };
 
 /** La misión que se acaba de crear en esta sesión: lo único que se sabe sin releer. */
 export interface SessionMission {
@@ -48,7 +48,7 @@ export function persistedMissionOf(read: MissionRead): PersistedMission {
   if (read.projects.kind !== "loaded" || read.project === null) {
     return { kind: "error", message: read.projects.kind === "error" ? read.projects.message : "No se pudo leer la última misión." };
   }
-  return { kind: "loaded", project: read.project, projectIds: read.projects.data.map((item) => item.id), decision: read.decision, tasks: read.tasks };
+  return { kind: "loaded", project: read.project, projectIds: read.projects.data.map((item) => item.id), decision: read.decision, tasks: read.tasks, approval: read.approval };
 }
 
 export interface EngineState {
@@ -102,6 +102,13 @@ export type DecisionView =
   | { kind: "loaded"; status: DecisionStatus; statusText: string; evidenceCount: number }
   | { kind: "unavailable"; text: "No disponible" | "Sin decisión registrada" };
 
+/** El ESTADO de la aprobación de la decisión, aparte del TIPO de decisión (`HUMAN_APPROVAL` es el resultado del motor y no cambia al resolver). */
+export type ApprovalView =
+  | { kind: "not_applicable" }
+  | { kind: "loaded"; status: Approval["status"]; requestedAt: string | null; resolvedAt: string | null; expiresAt: string | null; resolvedBy: string | null }
+  | { kind: "absent" }
+  | { kind: "unavailable"; text: string };
+
 export type TasksView =
   | { kind: "loaded"; tasks: Task[]; progress: TaskProgress | null }
   | { kind: "none" }
@@ -119,6 +126,7 @@ export type EngineView =
       reason: "reading" | "stale" | "error" | null;
       project: { name: string; createdAt: string | null };
       decision: DecisionView;
+      approval: ApprovalView;
       tasks: TasksView;
     };
 
@@ -132,6 +140,24 @@ const decisionView = (decision: Decision): DecisionView => ({
 function decisionOf(state: ReadState<Decision>): DecisionView {
   if (state.kind === "loaded") return decisionView(state.data);
   return { kind: "unavailable", text: state.kind === "empty" ? "Sin decisión registrada" : "No disponible" };
+}
+
+/** La aprobación solo se enseña si la decisión la pide (`HUMAN_APPROVAL`). Una aprobación que no se pudo leer es «No disponible», nunca «sin aprobación». */
+function approvalOf(decision: DecisionView, state: ReadState<Approval>): ApprovalView {
+  if (decision.kind !== "loaded" || decision.status !== "HUMAN_APPROVAL") return { kind: "not_applicable" };
+  if (state.kind === "loaded") {
+    const a = state.data;
+    return {
+      kind: "loaded",
+      status: a.status,
+      requestedAt: a.requested_at ?? null,
+      resolvedAt: a.resolved_at,
+      expiresAt: a.expires_at,
+      resolvedBy: a.resolved_by,
+    };
+  }
+  if (state.kind === "empty") return { kind: "absent" };
+  return { kind: "unavailable", text: "No disponible" };
 }
 
 function tasksOf(state: ReadState<Task[]>): TasksView {
@@ -150,6 +176,11 @@ export function engineView(state: EngineState): EngineView {
       reason: state.sessionOutcome === "pending" ? "reading" : state.sessionOutcome,
       project: { name: session.projectName, createdAt: null },
       decision: session.decision === null ? { kind: "unavailable", text: "No disponible" } : decisionView(session.decision),
+      // La aprobación solo existe en lo persistido: sin confirmar no se sabe su estado.
+      approval:
+        session.decision !== null && session.decision.status === "HUMAN_APPROVAL"
+          ? { kind: "unavailable", text: "Sin confirmar" }
+          : { kind: "not_applicable" },
       // Las tareas solo existen en lo persistido: sin confirmar no hay progreso.
       tasks: { kind: "unavailable", text: "No disponible" },
     };
@@ -164,6 +195,7 @@ export function engineView(state: EngineState): EngineView {
     reason: null,
     project: { name: persisted.project.name, createdAt: persisted.project.created_at },
     decision: decisionOf(persisted.decision),
+    approval: approvalOf(decisionOf(persisted.decision), persisted.approval),
     tasks: tasksOf(persisted.tasks),
   };
 }
@@ -205,13 +237,43 @@ function noticeOf(view: EngineView): EngineHud["notice"] {
   return { tone: "info", text: "Resultado de esta sesión, pendiente de confirmar con lo guardado." };
 }
 
-export function engineHud(input: { view: EngineView; agents: { running: number; total: number }; latencyMs: number | null }): EngineHud {
-  const { view, agents, latencyMs } = input;
+const APPROVAL_STATUS_TEXT: Record<string, string> = {
+  PENDING: "Pendiente",
+  APPROVED: "Aprobada",
+  REJECTED: "Rechazada",
+  EXPIRED: "Vencida",
+  CANCELLED: "Cancelada",
+};
+
+/** «Aprobación»: el estado REAL de la aprobación de la decisión, con la fecha que corresponde a ese estado (resolución o vencimiento). Una
+ * aprobación PENDING con el vencimiento pasado se dice «Vencida sin resolver» (el backend ya no la deja resolver). */
+function approvalField(view: ApprovalView, now: number): HudField | null {
+  if (view.kind === "not_applicable") return null;
+  if (view.kind === "absent") {
+    return { label: "Aprobación", text: "Sin aprobación registrada", provenance: "recorded", note: "La decisión pide aprobación humana y el backend no tiene ninguna para ella." };
+  }
+  if (view.kind === "unavailable") return { label: "Aprobación", text: view.text, provenance: "unavailable" };
+  const expiresMs = view.expiresAt === null ? null : parseUtc(view.expiresAt);
+  const lapsed = view.status === "PENDING" && expiresMs !== null && expiresMs <= now;
+  const base = lapsed ? "Vencida sin resolver" : (APPROVAL_STATUS_TEXT[view.status] ?? view.status);
+  const dateMs = view.status === "PENDING" ? expiresMs : view.resolvedAt === null ? null : parseUtc(view.resolvedAt);
+  const verb = lapsed ? "venció" : view.status === "PENDING" ? "vence" : "resuelta";
+  const text = dateMs === null ? base : `${base} · ${formatUtcDateTime(dateMs)}`;
+  const notes = [
+    `Estado de la aprobación (approvals.status); ${dateMs === null ? "sin fecha registrada" : `${verb} ${formatUtcDateTime(dateMs)}`}.`,
+    view.requestedAt === null ? null : `Solicitada ${formatUtcDateTime(parseUtc(view.requestedAt))}.`,
+  ].filter((line): line is string => line !== null);
+  return { label: "Aprobación", text, provenance: "recorded", note: notes.join(" ") };
+}
+
+export function engineHud(input: { view: EngineView; agents: { running: number; total: number }; latencyMs: number | null; now: number }): EngineHud {
+  const { view, agents, latencyMs, now } = input;
   const missing = view.kind === "reading" ? READING : view.kind === "error" ? NOT_AVAILABLE : NO_DATA;
   const unavailable = (label: string): HudField => ({ label, text: missing, provenance: "unavailable" });
 
   let project: HudField;
   let decision: HudField;
+  let approval: HudField | null = null;
   let evidence: HudField;
   let progress: HudField;
   let fraction: number | null = null;
@@ -221,7 +283,7 @@ export function engineHud(input: { view: EngineView; agents: { running: number; 
       view.kind === "none"
         ? { label: "Última misión", text: "Sin misiones", provenance: "recorded", note: "El backend respondió y no hay ninguna misión registrada." }
         : unavailable("Última misión");
-    decision = unavailable("Decisión");
+    decision = unavailable("Tipo de decisión");
     evidence = unavailable("Evidencias de la decisión");
     progress = unavailable("Progreso");
   } else {
@@ -231,10 +293,17 @@ export function engineHud(input: { view: EngineView; agents: { running: number; 
       provenance: "recorded",
       note: view.project.createdAt === null ? "Misión creada en esta sesión." : `Creada ${formatUtcDateTime(parseUtc(view.project.createdAt))}`,
     };
+    // El TIPO de decisión es el resultado del motor: no cambia al resolver su aprobación (ese estado es otro campo, «Aprobación»).
     decision =
       view.decision.kind === "loaded"
-        ? { label: "Decisión", text: view.decision.statusText, provenance: "recorded" }
-        : { label: "Decisión", text: view.decision.text, provenance: "unavailable" };
+        ? {
+            label: "Tipo de decisión",
+            text: view.decision.statusText,
+            provenance: "recorded",
+            note: "Resultado del motor de decisiones. No es un estado de flujo: no cambia cuando se resuelve su aprobación.",
+          }
+        : { label: "Tipo de decisión", text: view.decision.text, provenance: "unavailable" };
+    approval = approvalField(view.approval, now);
     evidence =
       view.decision.kind === "loaded"
         ? { label: "Evidencias de la decisión", text: String(view.decision.evidenceCount), provenance: "derived", note: "Número de evidencias que trae la decisión (evidence.length)." }
@@ -259,6 +328,7 @@ export function engineHud(input: { view: EngineView; agents: { running: number; 
     fields: [
       project,
       decision,
+      ...(approval === null ? [] : [approval]),
       evidence,
       progress,
       { label: "Agentes activos", text: `${agents.running} / ${agents.total}`, provenance: "derived", note: "Agentes que el registro da por ocupados (BUSY)." },

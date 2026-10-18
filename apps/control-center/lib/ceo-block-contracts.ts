@@ -10,6 +10,7 @@ import type { ReadState } from "./read-state.ts";
 // bloque afectado, no un `console.warn`.
 
 const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED", "EXPIRED", "CANCELLED"] as const;
+const BUDGET_EFFECTS = ["none", "reserved", "committed", "released"] as const;
 const REVIEW_KINDS = ["POST_HOC", "ACTION_GATE"] as const;
 const REVIEW_STATUSES = ["PENDING", "APPROVED", "REJECTED", "CONSUMED"] as const;
 const PRODUCT_STATUSES = ["CANDIDATE"] as const;
@@ -51,6 +52,8 @@ export const approvalsContract = (state: ReadState<Approval[]>): ReadState<Appro
     // Commit 6b: los dos campos son opcionales (un backend anterior al 6a no los envía) pero, si llegan, tienen que ser válidos.
     if ("requested_at" in row && !isInstant(row.requested_at)) return "fecha de solicitud que no es una fecha";
     if ("correlation_id" in row && !isText(row.correlation_id)) return "correlación que no es texto";
+    // Corrección tras la primera misión real: el efecto en el libro del presupuesto, opcional (backend anterior) pero válido si llega.
+    if ("budget_effect" in row && !isOneOf(BUDGET_EFFECTS, row.budget_effect)) return `efecto en el presupuesto desconocido (${JSON.stringify(row.budget_effect)})`;
     return null;
   });
 

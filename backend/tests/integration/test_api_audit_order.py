@@ -25,7 +25,8 @@ from app.main import app
 
 UTC = datetime.UTC
 T0 = datetime.datetime(2026, 10, 1, 12, 0, 0, tzinfo=UTC)
-FIELDS = {"id", "actor", "action", "resource", "before", "after", "correlation_id", "created_at"}
+#: Los campos antiguos más `actor_source` (de dónde salió el nombre del actor), AÑADIDO después, aditivo y nullable.
+FIELDS = {"id", "actor", "action", "resource", "before", "after", "correlation_id", "created_at", "actor_source"}
 
 
 @pytest.fixture(scope="module", params=["sqlite", "postgres"])

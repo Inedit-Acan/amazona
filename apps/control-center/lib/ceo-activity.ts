@@ -1,3 +1,4 @@
+import { LOCAL_ACTOR, actorLabel } from "./actor-label.ts";
 import type { Agent, AuditEntry } from "./api.ts";
 import { eventCategory, isErrorAction, type EventCategory } from "./audit.ts";
 import { strictDomainOfRole } from "./ceo-area-executions.ts";
@@ -98,16 +99,20 @@ function isNewestFirst(items: readonly Dated[]): boolean {
   return items.every((item, index) => index === 0 || recency(items[index - 1], item) > 0);
 }
 
-function actorOf(actor: string, registry: ReadonlyMap<string, Agent> | null): { text: string; kind: ActorKind; agent: Agent | null } {
+/** Quién actuó, SIN hacer pasar por identidad comprobada a un nombre que no lo es: si el backend dice que el actor es `declared` (lo escribió
+ * quien llamó) se enseña «sin autenticar» y no su nombre; el actor local sin autenticar tampoco se enseña como un usuario; un correo nunca. */
+function actorOf(entry: AuditEntry, registry: ReadonlyMap<string, Agent> | null): { text: string; kind: ActorKind; agent: Agent | null } {
+  const actor = entry.actor;
   const agent = registry?.get(actor) ?? null;
   if (agent !== null) return { text: agent.name, kind: "agent", agent };
   if (actor === "ceo") return { text: "Orquestador", kind: "orchestrator", agent: null };
-  if (actor.includes("@")) return { text: "Persona", kind: "person", agent: null };
+  if (entry.actor_source === "declared" || actor === LOCAL_ACTOR) return { text: actorLabel(actor, "declared"), kind: "other", agent: null };
+  if (actor.includes("@") || entry.actor_source === "token") return { text: "Persona", kind: "person", agent: null };
   return { text: actor, kind: "other", agent: null };
 }
 
 function rowOf({ entry, ms }: Dated, registry: ReadonlyMap<string, Agent> | null): ActivityRow {
-  const actor = actorOf(entry.actor, registry);
+  const actor = actorOf(entry, registry);
   return {
     key: `audit:${entry.id}`,
     at: entry.created_at,

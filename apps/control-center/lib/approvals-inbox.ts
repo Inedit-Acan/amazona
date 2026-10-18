@@ -1,5 +1,6 @@
-import type { Approval, PipelineReview } from "./api.ts";
-import { actionLabel, decisionImpact } from "./approvals.ts";
+import { actorLabel } from "./actor-label.ts";
+import type { Approval, BudgetEffect, PipelineReview } from "./api.ts";
+import { actionLabel, decisionImpact, resolvedImpact } from "./approvals.ts";
 import { PIPELINE_STEP_LABELS, SIDE_EFFECT_LABELS } from "./approval-labels.ts";
 import { formatUtcDateTime } from "./ceo-block-view.ts";
 import { parseUtc } from "./dates.ts";
@@ -34,9 +35,16 @@ export interface RealRequest {
   /** PENDING con el vencimiento ya pasado: el backend ya no la deja resolver. No cambia `status`. */
   expired: boolean;
   correlationId: string | null;
+  /** Lo que la aprobación hizo en el LIBRO del presupuesto; `null` si el backend no lo envió (una revisión de pipeline no mueve presupuesto). */
+  budgetEffect: BudgetEffect | null;
+  /** `resolved_at` en ms, o `null` (sigue pendiente o el backend no lo envió). */
+  resolvedAt: number | null;
   fields: { label: string; value: string }[];
+  /** Lo que PASARÍA al aprobar / rechazar (solo tiene sentido si sigue pendiente y no ha vencido). */
   approveImpact: string[];
   rejectImpact: string[];
+  /** Lo que PASÓ, si ya está resuelta (aprobada, rechazada…): vacío mientras está pendiente. */
+  resolution: string[];
 }
 
 export type SourceNotice = { kind: "error" | "unread"; text: string };
@@ -63,6 +71,8 @@ export function realRequestFromApproval(approval: Approval, now: number): RealRe
   const requestedAt = instantOf(approval.requested_at);
   const expiresAt = instantOf(approval.expires_at);
   const impact = decisionImpact(approval);
+  const resolvedAt = instantOf(approval.resolved_at);
+  const pending = approval.status === "PENDING" && !(expiresAt !== null && expiresAt <= now);
   return {
     id: approval.id,
     code: `APR-${approval.id.slice(0, 5).toUpperCase()}`,
@@ -75,6 +85,8 @@ export function realRequestFromApproval(approval: Approval, now: number): RealRe
     status: approval.status,
     expired: approval.status === "PENDING" && expiresAt !== null && expiresAt <= now,
     correlationId: approval.correlation_id ?? null,
+    budgetEffect: approval.budget_effect ?? null,
+    resolvedAt,
     fields: [
       { label: "Acción", value: approval.action },
       { label: "Importe", value: approval.amount === null ? "Sin importe" : `${formatAmount(approval.amount)} (el backend no indica la moneda)` },
@@ -82,12 +94,27 @@ export function realRequestFromApproval(approval: Approval, now: number): RealRe
       { label: "Solicitada", value: requestedAt === null ? "Sin fecha de solicitud (el backend no la envió)" : dateText(requestedAt) },
       { label: "Vence", value: expiresAt === null ? "Sin vencimiento" : dateText(expiresAt) },
       ...(approval.resolved_at === null ? [] : [{ label: "Resuelta", value: dateText(parseUtc(approval.resolved_at)) }]),
-      ...(approval.resolved_by === null ? [] : [{ label: "Resuelta por", value: approval.resolved_by }]),
+      ...(approval.resolved_by === null ? [] : [{ label: "Resuelta por", value: actorLabel(approval.resolved_by) }]),
       ...(approval.correlation_id === undefined ? [] : [{ label: "Correlación", value: approval.correlation_id }]),
     ],
     approveImpact: impact.approve,
     rejectImpact: impact.reject,
+    resolution: pending ? [] : resolutionLines(approval),
   };
+}
+
+/** Lo que consta de una aprobación que ya no está pendiente: cómo terminó y qué pasó con el presupuesto, sin suponer nada. */
+function resolutionLines(approval: Approval): string[] {
+  const outcome: Record<string, string> = {
+    APPROVED: "Aprobada: la acción quedó autorizada (una sola vez).",
+    REJECTED: "Rechazada: la acción no se ejecuta.",
+    EXPIRED: "Venció sin resolverse: ya no se puede aprobar ni rechazar.",
+    CANCELLED: "Cancelada.",
+    CONSUMED: "Consumida: su autorización ya se usó.",
+  };
+  const headline =
+    approval.status === "PENDING" ? "Venció sin resolverse: ya no se puede aprobar ni rechazar." : (outcome[approval.status] ?? `Estado: ${approval.status}.`);
+  return [headline, ...resolvedImpact(approval)];
 }
 
 export function realRequestFromReview(review: PipelineReview): RealRequest {
@@ -106,12 +133,15 @@ export function realRequestFromReview(review: PipelineReview): RealRequest {
     status: review.status,
     expired: false,
     correlationId: review.correlation_id ?? null,
+    budgetEffect: null,
+    resolvedAt: instantOf(review.resolved_at),
     fields: [
       { label: "Ejecución", value: review.pipeline_run_id },
       ...(step === null ? [] : [{ label: "Paso", value: step }]),
       { label: "Estado", value: review.status },
       { label: "Solicitada", value: "Sin fecha de solicitud (el backend no la guarda)" },
       { label: "Motivos", value: review.reasons.length === 0 ? "Ninguno" : review.reasons.join("; ") },
+      ...(review.resolved_by === null ? [] : [{ label: "Resuelta por", value: actorLabel(review.resolved_by) }]),
     ],
     approveImpact: isGate
       ? [`Se ejecuta «${action ?? "la acción"}» y la ejecución continúa por ese paso.`, "Queda registrada en la auditoría."]
@@ -119,6 +149,7 @@ export function realRequestFromReview(review: PipelineReview): RealRequest {
     rejectImpact: isGate
       ? [`No se ejecuta «${action ?? "la acción"}»: ese paso queda denegado.`, "El resto de la cadena sigue: lo que solo analiza no se detiene."]
       : ["La ejecución del pipeline no continúa.", "Queda registrada en la auditoría."],
+    resolution: review.status === "PENDING" ? [] : [review.status === "APPROVED" ? "Aprobada." : review.status === "REJECTED" ? "Rechazada." : `Estado: ${review.status}.`],
   };
 }
 

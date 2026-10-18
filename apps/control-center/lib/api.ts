@@ -217,7 +217,12 @@ export interface Approval {
   requested_at?: string;
   /** La correlación de la ejecución del CEO que la pidió: la misma de su decisión, su auditoría y su log. Desde el Commit 6a. */
   correlation_id?: string;
+  /** Lo que esta aprobación hizo en el LIBRO del presupuesto (`financial_events`): `none` (ningún movimiento), `reserved` (reservado, sin
+   * liquidar), `committed` o `released`. Lo envía el backend desde la corrección tras la primera misión real; uno anterior no lo trae. */
+  budget_effect?: BudgetEffect;
 }
+
+export type BudgetEffect = "none" | "reserved" | "committed" | "released";
 
 export interface AuditEntry {
   id: string;
@@ -228,6 +233,8 @@ export interface AuditEntry {
   after: Record<string, unknown> | null;
   correlation_id: string;
   created_at: string;
+  /** De dónde salió el nombre del actor: `token` (verificado), `declared` (sin comprobar), `cli`, `system`; `null` si la fila no lo guardó. */
+  actor_source?: string | null;
 }
 
 export interface AgentExecution {
@@ -1595,15 +1602,17 @@ export const api = {
   getDecision: (decisionId: string) => request<Decision>(`/api/decisions/${decisionId}`),
   listDecisionsForProject: (projectId: string) => request<Decision[]>(`/api/decisions?project_id=${projectId}`),
   listApprovals: () => request<Approval[]>("/api/approvals"),
-  approveApproval: (approvalId: string, actor: string) =>
+  // Sin actor en el cuerpo: lo decide el backend (la identidad verificada, o `local-development` sin autenticar). Un nombre fijo escrito
+  // aquí acabaría en la auditoría como si fuera de alguien.
+  approveApproval: (approvalId: string) =>
     request<Approval>(`/api/approvals/${approvalId}/approve`, {
       method: "POST",
-      body: JSON.stringify({ actor }),
+      body: JSON.stringify({}),
     }),
-  rejectApproval: (approvalId: string, actor: string) =>
+  rejectApproval: (approvalId: string) =>
     request<Approval>(`/api/approvals/${approvalId}/reject`, {
       method: "POST",
-      body: JSON.stringify({ actor }),
+      body: JSON.stringify({}),
     }),
   // Sin opciones, la petición de siempre; con ellas (`{ order: "desc", limit: 5 }`) el contrato del micro-commit 5A. Un texto es el
   // `correlationId` (la firma antigua).
@@ -1828,15 +1837,15 @@ export const api = {
   listApiUsage: () => request<ApiProviderUsage[]>("/api/costs/api-usage"),
   listPipelineRuns: () => request<PipelineRun[]>("/api/pipeline/runs"),
   listPipelineReviews: () => request<PipelineReview[]>("/api/pipeline/reviews"),
-  approvePipelineReview: (reviewId: string, actor: string) =>
+  approvePipelineReview: (reviewId: string) =>
     request<PipelineReview>(`/api/pipeline/reviews/${reviewId}/approve`, {
       method: "POST",
-      body: JSON.stringify({ actor }),
+      body: JSON.stringify({}),
     }),
-  rejectPipelineReview: (reviewId: string, actor: string) =>
+  rejectPipelineReview: (reviewId: string) =>
     request<PipelineReview>(`/api/pipeline/reviews/${reviewId}/reject`, {
       method: "POST",
-      body: JSON.stringify({ actor }),
+      body: JSON.stringify({}),
     }),
   getPipelineKillSwitch: () => request<PipelineKillSwitchState>("/api/pipeline/kill-switch"),
   setPipelineKillSwitch: (payload: { enabled: boolean; reason?: string; actor: string }) =>

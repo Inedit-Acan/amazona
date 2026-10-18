@@ -263,3 +263,33 @@ test("procedencia: fecha, actor, acción y recurso son registrados; categoría, 
   assert.equal(row.provenance.id, "a1");
   assert.doesNotMatch(JSON.stringify(row), /Verificad/);
 });
+
+// --- Corrección tras la primera misión real: el actor declarado no se presenta como una identidad ------------------------------------
+
+const actorRow = (over: Partial<AuditEntry>) => asLoaded(view([entry("a0001", over)])).visible[0];
+
+test("un actor `declared` (lo escribió quien llamó) se enseña «sin autenticar»: ni su nombre, ni su correo, ni «Persona»", () => {
+  for (const actor of ["owner@amazona.local", "local-development", "someone"]) {
+    const row = actorRow({ actor, actor_source: "declared" });
+    assert.match(row.actor.text, /sin autenticar/);
+    assert.doesNotMatch(JSON.stringify(row), /@|owner|propietario/i);
+    assert.notEqual(row.actor.kind, "person", actor);
+  }
+});
+
+test("el actor local sin autenticar tampoco se enseña como un usuario aunque el backend no mande la fuente", () => {
+  assert.equal(actorRow({ actor: "local-development" }).actor.text, "Operador local (sin autenticar)");
+});
+
+test("un actor verificado (`token`) es «Persona», sin correo; los agentes y el orquestador no cambian", () => {
+  const verified = actorRow({ actor: "ana@example.com", actor_source: "token" });
+  assert.equal(verified.actor.text, "Persona");
+  assert.doesNotMatch(JSON.stringify(verified), /@/);
+  assert.equal(actorRow({ actor: "ceo" }).actor.text, "Orquestador");
+  assert.equal(actorRow({ actor: "ceo", actor_source: "declared" }).actor.text, "Orquestador");
+});
+
+test("una fila sin fuente (agentes, historial anterior) no se inventa una: se conserva el comportamiento de siempre", () => {
+  assert.equal(actorRow({ actor: "owner@amazona.local", actor_source: null }).actor.text, "Persona");
+  assert.equal(actorRow({ actor: "memory" }).actor.text, "memory");
+});

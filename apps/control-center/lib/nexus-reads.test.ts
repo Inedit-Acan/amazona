@@ -18,6 +18,7 @@ const source = (agents: () => Promise<unknown>, executions: () => Promise<unknow
   listProjects: async () => [],
   listDecisionsForProject: async () => [],
   listTasks: async () => [],
+  listApprovals: async () => [],
   ...over,
 });
 

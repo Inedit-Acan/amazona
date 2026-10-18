@@ -1,4 +1,5 @@
-import type { Agent, Decision, Project, Task } from "./api.ts";
+import type { Agent, Approval, Decision, Project, Task } from "./api.ts";
+import { approvalsContract } from "./ceo-block-contracts.ts";
 import { parseUtc } from "./dates.ts";
 import { DOMAINS, domainOfRole, type DomainKey } from "./nexus-domains.ts";
 import { readList, type ReadState } from "./read-state.ts";
@@ -161,6 +162,8 @@ export interface MissionSource {
   listProjects(): Promise<Project[]>;
   listDecisionsForProject(projectId: string): Promise<Decision[]>;
   listTasks(projectId: string): Promise<Task[]>;
+  /** Las aprobaciones: de ellas sale el ESTADO de aprobación de la decisión (la decisión `HUMAN_APPROVAL` es una clasificación del motor). */
+  listApprovals(): Promise<Approval[]>;
 }
 
 export interface MissionRead {
@@ -170,6 +173,9 @@ export interface MissionRead {
   /** La decisión de ESA misión: `loaded` con una, `empty` si no tiene (un hecho), `error` si falló o si hay más de una. */
   decision: ReadState<Decision>;
   tasks: ReadState<Task[]>;
+  /** La aprobación de ESA decisión (`approvals.decision_id`): `loaded` con una, `empty` si no tiene (o si la decisión no la pide), `error` si
+   * falló o si hay más de una. Es el ESTADO de la aprobación; el estado de la decisión (`HUMAN_APPROVAL`) es otra cosa y no cambia al resolverla. */
+  approval: ReadState<Approval>;
 }
 
 const NOT_READ = "No se leyó: antes hace falta la lista de misiones.";
@@ -180,11 +186,18 @@ export async function readMission(source: MissionSource): Promise<MissionRead> {
   const projects = projectsContract(await readList(() => source.listProjects(), "las misiones"));
   const project = projects.kind === "loaded" ? latestProject(projects.data) : null;
   if (project === null) {
-    return { projects, project: null, decision: { kind: "unread", reason: NOT_READ }, tasks: { kind: "unread", reason: NOT_READ } };
+    return {
+      projects,
+      project: null,
+      decision: { kind: "unread", reason: NOT_READ },
+      tasks: { kind: "unread", reason: NOT_READ },
+      approval: { kind: "unread", reason: NOT_READ },
+    };
   }
-  const [decisions, tasks] = await Promise.all([
+  const [decisions, tasks, approvals] = await Promise.all([
     readList(() => source.listDecisionsForProject(project.id), "la decisión de la última misión"),
     readList(() => source.listTasks(project.id), "las tareas de la última misión"),
+    readList(() => source.listApprovals(), "las aprobaciones"),
   ]);
   const checked = decisionsContract(decisions);
   const decision: ReadState<Decision> =
@@ -195,5 +208,16 @@ export async function readMission(source: MissionSource): Promise<MissionRead> {
       : checked.kind === "empty"
         ? { kind: "empty" }
         : checked;
-  return { projects, project, decision, tasks: tasksContract(tasks) };
+  return { projects, project, decision, tasks: tasksContract(tasks), approval: approvalOfDecision(decision, approvalsContract(approvals)) };
+}
+
+/** La aprobación de la decisión: solo existe para una decisión que la pide. Un fallo de lectura es `error`, nunca «sin aprobación». */
+export function approvalOfDecision(decision: ReadState<Decision>, approvals: ReadState<Approval[]>): ReadState<Approval> {
+  if (decision.kind !== "loaded") return { kind: "unread", reason: "No se leyó: antes hace falta la decisión." };
+  if (decision.data.status !== "HUMAN_APPROVAL") return { kind: "empty" };
+  if (approvals.kind === "error" || approvals.kind === "unread") return approvals;
+  const mine = approvals.kind === "loaded" ? approvals.data.filter((item) => item.decision_id === decision.data.id) : [];
+  if (mine.length === 0) return { kind: "empty" };
+  if (mine.length > 1) return { kind: "error", message: "La decisión tiene más de una aprobación: no se sabe cuál enseñar." };
+  return { kind: "loaded", data: mine[0] };
 }

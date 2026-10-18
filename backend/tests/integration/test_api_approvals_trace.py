@@ -34,6 +34,8 @@ UTC = datetime.UTC
 T0 = datetime.datetime(2026, 10, 1, 12, 0, 0, 123456, tzinfo=UTC)
 OLD_FIELDS = {"id", "decision_id", "action", "amount", "status", "expires_at", "resolved_at", "resolved_by"}
 NEW_FIELDS = {"requested_at", "correlation_id"}
+#: Añadido después (corrección tras la primera misión real): el efecto de la aprobación en el libro del presupuesto.
+LEDGER_FIELD = {"budget_effect"}
 
 
 class OldClientApproval(BaseModel):
@@ -193,7 +195,7 @@ def test_the_old_fields_are_all_still_there_with_the_same_values(client, seed):
     assert {row["action"] for row in rows} == {"refund", "x"}
     assert {row["amount"] for row in rows} == {15.5, None}
     assert {row["status"] for row in rows} == {"PENDING", "REJECTED"}
-    assert all(set(row) == OLD_FIELDS | NEW_FIELDS for row in rows), "ni un campo más ni uno menos"
+    assert all(set(row) == OLD_FIELDS | NEW_FIELDS | LEDGER_FIELD for row in rows), "ni un campo más ni uno menos"
 
 
 def test_an_old_client_that_only_knows_the_old_fields_still_parses_the_response(client, seed):
@@ -251,7 +253,7 @@ def test_resolving_returns_the_two_fields_and_does_not_touch_them(client, seed, 
     response = client.post(f"/api/approvals/{approval_id}/{verb}", json={"actor": "owner@amazona.local"})
     assert response.status_code == 200, response.text
     body = response.json()
-    assert set(body) == OLD_FIELDS | NEW_FIELDS
+    assert set(body) == OLD_FIELDS | NEW_FIELDS | LEDGER_FIELD
     assert body["correlation_id"] == corr
     assert instant(body["requested_at"]) == T0
     assert body["status"] == ("APPROVED" if verb == "approve" else "REJECTED")

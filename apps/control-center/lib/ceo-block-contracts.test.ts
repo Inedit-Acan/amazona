@@ -116,3 +116,14 @@ test("6b · un `requested_at` que no es una fecha, o un `correlation_id` que no 
     assert.match(state.kind === "error" ? state.message : "", /aprobaciones/);
   }
 });
+
+test("aprobaciones: `budget_effect` es opcional (backend anterior) pero, si llega, tiene que ser uno de los cuatro valores del libro", () => {
+  for (const value of ["none", "reserved", "committed", "released"] as const) {
+    assert.equal(approvalsContract(asLoaded([approval("a1", { budget_effect: value })])).kind, "loaded", value);
+  }
+  assert.equal(approvalsContract(asLoaded([approval("a1")])).kind, "loaded");
+  for (const value of ["spent", "", null, 3, true]) {
+    const message = bad(approvalsContract(asLoaded([approval("a1", { budget_effect: value as never })])));
+    assert.match(message, /efecto en el presupuesto desconocido/, String(value));
+  }
+});

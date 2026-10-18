@@ -25,7 +25,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-const APPROVER_ACTOR = "owner@amazona.local";
 const NOT_AVAILABLE = "No disponible";
 
 const STATUS_LABEL: Record<string, { text: string; tone: LevelTone }> = {
@@ -68,10 +67,10 @@ export function BackendInboxPanel({ inbox }: { inbox: RealInbox }) {
     setPendingAction(action);
     try {
       if (selected.source === "approval") {
-        if (action === "approve") await api.approveApproval(selected.id, APPROVER_ACTOR);
-        else await api.rejectApproval(selected.id, APPROVER_ACTOR);
-      } else if (action === "approve") await api.approvePipelineReview(selected.id, APPROVER_ACTOR);
-      else await api.rejectPipelineReview(selected.id, APPROVER_ACTOR);
+        if (action === "approve") await api.approveApproval(selected.id);
+        else await api.rejectApproval(selected.id);
+      } else if (action === "approve") await api.approvePipelineReview(selected.id);
+      else await api.rejectPipelineReview(selected.id);
       router.refresh();
     } catch (err) {
       setError(
@@ -235,24 +234,35 @@ export function BackendInboxPanel({ inbox }: { inbox: RealInbox }) {
                         </div>
                       ))}
                     </dl>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <p className="text-xs font-medium">Si se aprueba</p>
+                    {selected.resolution.length > 0 ? (
+                      <div data-section="resolution">
+                        <p className="text-xs font-medium">Resultado</p>
                         <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
-                          {selected.approveImpact.map((line) => (
+                          {selected.resolution.map((line) => (
                             <li key={line}>{line}</li>
                           ))}
                         </ul>
                       </div>
-                      <div>
-                        <p className="text-xs font-medium">Si se rechaza</p>
-                        <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
-                          {selected.rejectImpact.map((line) => (
-                            <li key={line}>{line}</li>
-                          ))}
-                        </ul>
+                    ) : (
+                      <div className="grid gap-3 sm:grid-cols-2" data-section="impact">
+                        <div>
+                          <p className="text-xs font-medium">Si se aprueba</p>
+                          <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                            {selected.approveImpact.map((line) => (
+                              <li key={line}>{line}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium">Si se rechaza</p>
+                          <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
+                            {selected.rejectImpact.map((line) => (
+                              <li key={line}>{line}</li>
+                            ))}
+                          </ul>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
                 <div className="flex flex-wrap items-center justify-end gap-2">

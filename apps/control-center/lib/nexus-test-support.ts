@@ -1,4 +1,4 @@
-import type { Agent, Decision, Project, Task, TaskStatus } from "./api.ts";
+import type { Agent, Approval, Decision, Project, Task, TaskStatus } from "./api.ts";
 import type { MissionSource } from "./nexus-mission.ts";
 
 // Apoyo común de las pruebas de la capa de datos del Decision Engine (M47, Commit 4). No es una prueba: no acaba en `.test.ts`.
@@ -57,10 +57,10 @@ export const agent = (id: string, capabilities: string[], role = "product", stat
 
 /** Una fuente de la misión que cuenta sus llamadas. */
 export function fakeMissionSource(
-  data: { projects?: Project[]; decisions?: Record<string, Decision[]>; tasks?: Record<string, Task[]> } = {},
-  fail: Partial<Record<"listProjects" | "listDecisionsForProject" | "listTasks", () => Error>> = {},
+  data: { projects?: Project[]; decisions?: Record<string, Decision[]>; tasks?: Record<string, Task[]>; approvals?: Approval[] } = {},
+  fail: Partial<Record<"listProjects" | "listDecisionsForProject" | "listTasks" | "listApprovals", () => Error>> = {},
 ): MissionSource & { calls: Record<string, number>; args: Record<string, string[]> } {
-  const calls: Record<string, number> = { listProjects: 0, listDecisionsForProject: 0, listTasks: 0 };
+  const calls: Record<string, number> = { listProjects: 0, listDecisionsForProject: 0, listTasks: 0, listApprovals: 0 };
   const args: Record<string, string[]> = { listDecisionsForProject: [], listTasks: [] };
   return {
     calls,
@@ -81,6 +81,11 @@ export function fakeMissionSource(
       args.listTasks.push(projectId);
       if (fail.listTasks) throw fail.listTasks();
       return data.tasks?.[projectId] ?? [];
+    },
+    async listApprovals() {
+      calls.listApprovals += 1;
+      if (fail.listApprovals) throw fail.listApprovals();
+      return data.approvals ?? [];
     },
   };
 }

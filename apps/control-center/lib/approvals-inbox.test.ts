@@ -180,3 +180,75 @@ test("una aprobación sin importe tiene importe NULL (no 0): el backend no lo gu
   assert.equal(request.amount, null);
   assert.match(request.fields.find((field) => field.label === "Importe")?.value ?? "", /Sin importe/);
 });
+
+// --- Corrección tras la primera misión real: efecto en el presupuesto, resultado y actor ---------------------------------------
+
+const textOf = (request: { approveImpact: string[]; rejectImpact: string[]; resolution: string[] }) =>
+  [...request.approveImpact, ...request.rejectImpact, ...request.resolution].join(" | ");
+
+test("una aprobación PENDIENTE sin reserva en el libro: no afirma reserva ni compromiso, y no tiene «resultado»", () => {
+  const request = realRequestFromApproval(approval("a1", { amount: 1, budget_effect: "none", expires_at: iso(NOW + 5 * HOUR) }), NOW);
+  assert.equal(request.budgetEffect, "none");
+  assert.deepEqual(request.resolution, []);
+  assert.doesNotMatch(textOf(request), /pasa de reservado|pasa a comprometido|Se libera la reserva de/);
+  assert.ok(request.approveImpact.some((line) => /no reserva ni compromete fondos/.test(line)));
+});
+
+test("una aprobación PENDIENTE con reserva real sí habla de reservado → comprometido", () => {
+  const request = realRequestFromApproval(approval("a1", { amount: 150, budget_effect: "reserved", expires_at: iso(NOW + 5 * HOUR) }), NOW);
+  assert.ok(request.approveImpact.some((line) => /pasa a comprometido/.test(line)));
+  assert.ok(request.rejectImpact.some((line) => /Se libera la reserva de/.test(line)));
+});
+
+test("una aprobación APROBADA no se presenta como pendiente: tiene «resultado» (en pasado) y su efecto real en el presupuesto", () => {
+  const request = realRequestFromApproval(
+    approval("a1", { status: "APPROVED", amount: 1, budget_effect: "none", resolved_at: iso(NOW - HOUR), resolved_by: "local-development", requested_at: iso(NOW - 3 * HOUR) }),
+    NOW,
+  );
+  assert.equal(request.status, "APPROVED");
+  assert.equal(request.expired, false);
+  assert.match(request.resolution[0], /^Aprobada/);
+  assert.match(request.resolution.join(" "), /No hubo movimiento en el presupuesto/);
+  assert.doesNotMatch(request.resolution.join(" "), /pendiente|Si se aprueba/i);
+  assert.equal(request.resolvedAt, NOW - HOUR);
+  assert.equal(request.requestedAt, NOW - 3 * HOUR, "la fecha de solicitud no es la de resolución");
+});
+
+test("aprobada con reserva liquidada: «pasó a comprometida»; rechazada: «se liberó»", () => {
+  const approved = realRequestFromApproval(approval("a1", { status: "APPROVED", amount: 150, budget_effect: "committed", resolved_at: iso(NOW) }), NOW);
+  assert.match(approved.resolution.join(" "), /pasó a comprometida/);
+  const rejected = realRequestFromApproval(approval("a2", { status: "REJECTED", amount: 150, budget_effect: "released", resolved_at: iso(NOW) }), NOW);
+  assert.match(rejected.resolution[0], /^Rechazada/);
+  assert.match(rejected.resolution.join(" "), /se liberó/);
+});
+
+test("una aprobación PENDING vencida dice que venció; una antigua sin el dato del libro dice «no disponible» y no asume presupuesto", () => {
+  const expired = realRequestFromApproval(approval("a1", { amount: 150, expires_at: iso(NOW - HOUR) }), NOW);
+  assert.match(expired.resolution[0], /Venció/);
+  assert.match(expired.resolution.join(" "), /Impacto financiero no disponible/);
+  assert.doesNotMatch(textOf(expired), /pasó a comprometida|se liberó|reservado/);
+  assert.equal(expired.budgetEffect, null);
+});
+
+test("quién resolvió: ni un correo ni «propietario»; el actor local se dice sin autenticar", () => {
+  const field = (resolvedBy: string) =>
+    realRequestFromApproval(approval("a1", { status: "APPROVED", resolved_at: iso(NOW), resolved_by: resolvedBy }), NOW).fields.find((f) => f.label === "Resuelta por")?.value;
+  assert.equal(field("local-development"), "Operador local (sin autenticar)");
+  assert.equal(field("owner@amazona.local"), "Persona (correo no mostrado)");
+  assert.doesNotMatch(String(field("owner@amazona.local")), /@|owner|propietario/i);
+});
+
+test("requested_at, correlation_id y resolved_at son tres cosas distintas y se conservan al resolver", () => {
+  const request = realRequestFromApproval(
+    approval("a1", { status: "APPROVED", requested_at: iso(NOW - 3 * HOUR), resolved_at: iso(NOW - HOUR), expires_at: iso(NOW + 21 * HOUR), correlation_id: "c".repeat(36) }),
+    NOW,
+  );
+  assert.deepEqual([request.requestedAt, request.resolvedAt, request.expiresAt, request.correlationId], [NOW - 3 * HOUR, NOW - HOUR, NOW + 21 * HOUR, "c".repeat(36)]);
+});
+
+test("una revisión de pipeline resuelta dice su resultado y quién la resolvió sin correo", () => {
+  const request = realRequestFromReview(review("g1", { status: "APPROVED", resolved_at: iso(NOW), resolved_by: "owner@amazona.local" }));
+  assert.deepEqual(request.resolution, ["Aprobada."]);
+  assert.equal(request.fields.find((f) => f.label === "Resuelta por")?.value, "Persona (correo no mostrado)");
+  assert.equal(request.budgetEffect, null);
+});

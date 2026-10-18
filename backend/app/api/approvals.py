@@ -1,5 +1,5 @@
 import datetime
-from typing import cast
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -15,6 +15,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import NotFoundError
 from app.db.models.approval import Approval as ApprovalModel
 from app.db.models.audit import AuditLog as AuditLogModel
+from app.db.models.budget import FinancialEvent
 from app.db.session import get_db
 from app.permissions.policies import ApiAction
 
@@ -37,6 +38,11 @@ class ApprovalOut(BaseModel):
     # decisión, de su auditoría y de su log de ejecuciones.
     requested_at: datetime.datetime
     correlation_id: str
+    # Corrección tras la primera misión real: lo que esta aprobación hizo en el LIBRO del presupuesto
+    # (`financial_events`, por la referencia `approval:<id>`), no lo que se supone por tener un importe.
+    # `none`: ningún movimiento (sin presupuesto autorizado en un despliegue simulado, importe cero o
+    # desconocido…); `reserved`: reservado y sin liquidar; `committed` / `released`: ya liquidado.
+    budget_effect: Literal["none", "reserved", "committed", "released"] = "none"
 
     @field_validator("requested_at")
     @classmethod
@@ -47,12 +53,42 @@ class ApprovalOut(BaseModel):
 
 
 class ApprovalActionIn(BaseModel):
-    actor: str
+    # OPCIONAL: sin él el actor es el de la identidad (el verificado con token; `local-development` sin
+    # autenticar). Un nombre declarado solo se acepta fuera de staging y production (`actor_name`) y se
+    # guarda como `declared`.
+    actor: str | None = None
+
+
+def _budget_effects(db: Session) -> dict[str, str]:
+    """El efecto de cada aprobación en el libro: `approval_id` → `committed` | `released` | `reserved`.
+
+    Las que no tienen ningún movimiento no aparecen (su efecto es `none`). Una referencia se reserva una vez y se
+    liquida una vez (ADR 0026)."""
+    kinds: dict[str, set[str]] = {}
+    query = db.query(FinancialEvent.reference, FinancialEvent.type)
+    rows = query.filter(FinancialEvent.reference.like("approval:%")).all()
+    for reference, kind in rows:
+        kinds.setdefault(reference.removeprefix("approval:"), set()).add(kind)
+    effects: dict[str, str] = {}
+    for approval_id, seen in kinds.items():
+        if "COMMIT" in seen:
+            effects[approval_id] = "committed"
+        elif "RELEASE" in seen:
+            effects[approval_id] = "released"
+        elif "RESERVE" in seen:
+            effects[approval_id] = "reserved"
+    return effects
+
+
+def _out(approval: ApprovalModel, effects: dict[str, str]) -> ApprovalOut:
+    out = ApprovalOut.model_validate(approval)
+    return out.model_copy(update={"budget_effect": effects.get(approval.id, "none")})
 
 
 @router.get("", response_model=list[ApprovalOut])
-def list_approvals(db: Session = Depends(get_db)) -> list[ApprovalModel]:
-    return db.query(ApprovalModel).all()
+def list_approvals(db: Session = Depends(get_db)) -> list[ApprovalOut]:
+    effects = _budget_effects(db)
+    return [_out(approval, effects) for approval in db.query(ApprovalModel).all()]
 
 
 @router.post("/{approval_id}/approve", response_model=ApprovalOut)
@@ -62,8 +98,9 @@ def approve_approval(
     db: Session = Depends(get_db),
     identity: Actor = Depends(authorize(ApiAction.APPROVAL_RESOLVE)),
     settings: Settings = Depends(get_settings),
-) -> ApprovalModel:
-    return _resolve(approval_id, "APPROVED", db, identity, payload.actor, settings)
+) -> ApprovalOut:
+    approval = _resolve(approval_id, "APPROVED", db, identity, payload.actor, settings)
+    return _out(approval, _budget_effects(db))
 
 
 @router.post("/{approval_id}/reject", response_model=ApprovalOut)
@@ -73,8 +110,9 @@ def reject_approval(
     db: Session = Depends(get_db),
     identity: Actor = Depends(authorize(ApiAction.APPROVAL_RESOLVE)),
     settings: Settings = Depends(get_settings),
-) -> ApprovalModel:
-    return _resolve(approval_id, "REJECTED", db, identity, payload.actor, settings)
+) -> ApprovalOut:
+    approval = _resolve(approval_id, "REJECTED", db, identity, payload.actor, settings)
+    return _out(approval, _budget_effects(db))
 
 
 def _as_aware_utc(value: datetime.datetime) -> datetime.datetime:

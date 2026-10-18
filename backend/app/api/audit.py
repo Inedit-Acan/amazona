@@ -31,6 +31,9 @@ class AuditEntryOut(BaseModel):
     after: dict | None
     correlation_id: str
     created_at: datetime.datetime
+    #: De dónde salió el nombre del actor (`token` verificado, `declared` sin comprobar, `cli`, `system`);
+    #: `None` en las filas que no lo guardaron (agentes, orquestador, historial anterior). Nunca se inventa.
+    actor_source: str | None = None
 
 
 def _parse_instant(text: str, name: str) -> datetime.datetime:

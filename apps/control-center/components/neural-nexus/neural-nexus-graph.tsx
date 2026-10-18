@@ -195,8 +195,9 @@ export function NeuralNexusGraph({
       view: missionView,
       agents: { running: agentNodes.filter((node) => node.status === "running").length, total: agentNodes.length },
       latencyMs: meanLatencyMs(lists?.executions ?? null),
+      now,
     });
-  }, [nodes, missionView, lists]);
+  }, [nodes, missionView, lists, now]);
   const counts = useMemo(() => {
     const totals = { ...EMPTY_COUNTS };
     for (const node of nodes) if (node.type === "agent") totals[node.status] += 1;

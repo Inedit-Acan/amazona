@@ -54,6 +54,20 @@ const PIPELINE_STEP_LABELS: Record<string, string> = {
 const EMPTY_TEXT = "Ninguna decisión pendiente.";
 const NO_ROWS_TEXT = "Ninguna decisión accionable.";
 
+/** Qué se puede decir del presupuesto de una aprobación: SOLO lo que el libro registró (`budget_effect`), nunca lo que se supone por tener
+ * un importe. Sin importe (o cero) no hay nada que decir; sin el dato (backend anterior) se dice «no disponible». */
+function budgetLines(approval: Approval): string[] {
+  if (approval.amount === null || approval.amount <= 0) return [];
+  switch (approval.budget_effect) {
+    case "reserved":
+      return ["El importe está reservado en el presupuesto hasta que se resuelva."];
+    case "none":
+      return ["Sin presupuesto reservado: esta aprobación no reserva ni compromete fondos."];
+    default:
+      return ["Impacto financiero no disponible."];
+  }
+}
+
 function approvalRow(approval: Approval): BlockRow {
   const amount = approval.amount === null ? "Sin importe" : `Importe ${formatAmount(approval.amount)}`;
   const expiry = approval.expires_at === null ? "Sin vencimiento" : `vence ${formatUtcDateTime(parseUtc(approval.expires_at))}`;
@@ -67,7 +81,8 @@ function approvalRow(approval: Approval): BlockRow {
     detail: [
       `Acción: ${approval.action}`,
       ...(approval.correlation_id === undefined ? [] : [`Correlación: ${approval.correlation_id}`]),
-      "Autorización de una decisión del CEO; el importe está reservado en el presupuesto hasta que se resuelva.",
+      "Autorización de una decisión del CEO.",
+      ...budgetLines(approval),
       ...(approval.amount === null ? [] : ["El backend no indica la moneda del importe."]),
     ],
     provenance: {

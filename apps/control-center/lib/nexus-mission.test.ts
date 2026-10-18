@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { TaskStatus } from "./api.ts";
+import { approval } from "./ceo-block-test-support.ts";
 import { agent, decision, fakeMissionSource, project, task } from "./nexus-test-support.ts";
 import {
+  approvalOfDecision,
   decisionsContract,
   latestProject,
   projectsContract,
@@ -204,7 +206,7 @@ test("readMission: lee los proyectos y, del ÚLTIMO, su decisión y sus tareas, 
     tasks: { new: [task("t1", "COMPLETED")], old: [task("t0", "COMPLETED")] },
   });
   const read = await readMission(source);
-  assert.deepEqual(source.calls, { listProjects: 1, listDecisionsForProject: 1, listTasks: 1 });
+  assert.deepEqual(source.calls, { listProjects: 1, listDecisionsForProject: 1, listTasks: 1, listApprovals: 1 });
   assert.deepEqual(source.args, { listDecisionsForProject: ["new"], listTasks: ["new"] });
   assert.equal(read.project?.id, "new");
   assert.equal(read.decision.kind, "loaded");
@@ -216,7 +218,7 @@ test("readMission: sin proyectos ⇒ `empty` y no se lee nada más", async () =>
   const read = await readMission(source);
   assert.equal(read.projects.kind, "empty");
   assert.equal(read.project, null);
-  assert.deepEqual(source.calls, { listProjects: 1, listDecisionsForProject: 0, listTasks: 0 });
+  assert.deepEqual(source.calls, { listProjects: 1, listDecisionsForProject: 0, listTasks: 0, listApprovals: 0 });
 });
 
 test("readMission: un fallo de proyectos es `error` (jamás «sin misiones») y no se lee nada más", async () => {
@@ -262,4 +264,53 @@ test("readMission: contrato roto en una tarea ⇒ error de tareas; en un proyect
   assert.equal(brokenTask.tasks.kind, "error");
   const brokenProject = await readMission(fakeMissionSource({ projects: [project("p1", 5, { name: "" })] }));
   assert.equal(brokenProject.projects.kind, "error");
+});
+
+// --- La aprobación de la decisión (corrección tras la primera misión real) ----------------------------------------------------------
+
+const humanDecision = (projectId: string, id = "d1") => decision(projectId, { id, status: "HUMAN_APPROVAL" });
+
+test("readMission: la aprobación de la decisión `HUMAN_APPROVAL` es SU aprobación (por `decision_id`), no la de otra misión", async () => {
+  const read = await readMission(
+    fakeMissionSource({
+      projects: [project("p1")],
+      decisions: { p1: [humanDecision("p1", "d1")] },
+      approvals: [approval("other", { decision_id: "d-other", status: "APPROVED" }), approval("mine", { decision_id: "d1", status: "APPROVED", resolved_at: "2026-10-18T16:29:25Z" })],
+    }),
+  );
+  assert.equal(read.approval.kind, "loaded");
+  if (read.approval.kind === "loaded") assert.equal(read.approval.data.id, "mine");
+});
+
+test("readMission: una decisión que no pide aprobación no tiene aprobación (`empty`); una que la pide y no la tiene, también (un hecho)", async () => {
+  const go = await readMission(fakeMissionSource({ projects: [project("p1")], decisions: { p1: [decision("p1", { status: "GO" })] }, approvals: [approval("x", { decision_id: decision("p1").id })] }));
+  assert.equal(go.approval.kind, "empty");
+  const none = await readMission(fakeMissionSource({ projects: [project("p1")], decisions: { p1: [humanDecision("p1")] }, approvals: [] }));
+  assert.equal(none.approval.kind, "empty");
+});
+
+test("readMission: un fallo al leer las aprobaciones es `error` (jamás «sin aprobación») y no rompe la decisión ni las tareas", async () => {
+  for (const [name, make] of Object.entries(FAILURES)) {
+    const read = await readMission(
+      fakeMissionSource({ projects: [project("p1")], decisions: { p1: [humanDecision("p1")] }, tasks: { p1: [task("t1", "COMPLETED")] } }, { listApprovals: make }),
+    );
+    assert.equal(read.approval.kind, "error", name);
+    assert.equal(read.decision.kind, "loaded", name);
+    assert.equal(read.tasks.kind, "loaded", name);
+  }
+});
+
+test("readMission: dos aprobaciones para la misma decisión ⇒ `error`; una fila de aprobación rota ⇒ `error`", async () => {
+  const many = await readMission(
+    fakeMissionSource({ projects: [project("p1")], decisions: { p1: [humanDecision("p1")] }, approvals: [approval("a", { decision_id: "d1" }), approval("b", { decision_id: "d1" })] }),
+  );
+  assert.equal(many.approval.kind, "error");
+  const broken = await readMission(
+    fakeMissionSource({ projects: [project("p1")], decisions: { p1: [humanDecision("p1")] }, approvals: [approval("a", { decision_id: "d1", status: "PAUSED" as never })] }),
+  );
+  assert.equal(broken.approval.kind, "error");
+});
+
+test("approvalOfDecision: sin decisión leída no hay aprobación que leer (`unread`)", () => {
+  assert.equal(approvalOfDecision({ kind: "error", message: "x" }, { kind: "empty" }).kind, "unread");
 });

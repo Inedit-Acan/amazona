@@ -255,3 +255,33 @@ test("6b · la fecha de solicitud no cambia el orden (sigue por vencimiento) ni 
   assert.deepEqual(rowsOf(v).map((r) => r.key), ["approval:early", "approval:late", "review:g1"]);
   assert.equal(rowsOf(v)[2].meta, undefined, "una revisión de pipeline no trae fecha de solicitud");
 });
+
+// --- Corrección tras la primera misión real: el presupuesto de una aprobación sale del libro, no del importe -------------------------
+
+const detailOf = (over: Parameters<typeof approval>[1]) => (rowsOf(view({ approvals: loaded([approval("a1", over)]) }))[0].detail ?? []).join(" | ");
+
+test("una aprobación SIN reserva en el libro no dice que el importe esté reservado", () => {
+  const detail = detailOf({ amount: 1, budget_effect: "none" });
+  assert.doesNotMatch(detail, /está reservado en el presupuesto/);
+  assert.match(detail, /Sin presupuesto reservado: esta aprobación no reserva ni compromete fondos\./);
+});
+
+test("una aprobación CON reserva real sí dice que está reservada hasta que se resuelva", () => {
+  assert.match(detailOf({ amount: 150, budget_effect: "reserved" }), /El importe está reservado en el presupuesto hasta que se resuelva\./);
+});
+
+test("sin el dato del libro (backend anterior) no se afirma ni reserva ni ausencia de reserva: «Impacto financiero no disponible»", () => {
+  const detail = detailOf({ amount: 150 });
+  assert.match(detail, /Impacto financiero no disponible\./);
+  assert.doesNotMatch(detail, /reserv|compromete/i);
+});
+
+test("sin importe (o con importe 0) no se finge ningún impacto financiero, con ningún efecto", () => {
+  for (const amount of [null, 0]) for (const effect of [undefined, "none", "reserved"] as const) assert.doesNotMatch(detailOf({ amount, budget_effect: effect }), /reserv|presupuesto|financiero/i, `${amount}/${effect}`);
+});
+
+test("el efecto en el presupuesto no cambia la fecha de solicitud ni la correlación de la fila", () => {
+  const row = rowsOf(view({ approvals: loaded([approval("a1", { amount: 1, budget_effect: "none", requested_at: "2026-10-16T09:30:00+02:00", correlation_id: "c".repeat(36) })]) }))[0];
+  assert.equal(row.meta, "Solicitada 16 oct 2026 · 07:30 UTC");
+  assert.equal(row.provenance.correlationId, "c".repeat(36));
+});

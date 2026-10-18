@@ -200,3 +200,18 @@ def test_the_two_inboxes_have_different_states_and_only_one_expires():
 
     assert hasattr(Approval, "expires_at") and not hasattr(PipelineReview, "expires_at")
     assert "EXPIRED" in approval_states and "CONSUMED" not in approval_states
+
+
+def test_a_pipeline_review_may_be_resolved_without_a_declared_actor(client: TestClient, db: Session):
+    """El cuerpo `{"actor": …}` es opcional también aquí: sin él, el actor es el de la identidad, no un correo
+    inventado."""
+    run = gated_run(db)
+    review = pending_gate(db, run)
+
+    response = client.post(f"/api/pipeline/reviews/{review.id}/approve", json={})
+
+    assert response.status_code == 200
+    assert response.json()["resolved_by"] == "local-development"
+    db.expire_all()
+    entry = db.query(AuditLog).filter_by(action="pipeline_review.approve").one()
+    assert (entry.actor, entry.actor_source) == ("local-development", "declared")
