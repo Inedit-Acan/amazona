@@ -169,7 +169,7 @@ def test_an_unknown_approval_is_still_not_found(db: Session):
 
 
 def test_the_ledger_writes_relative_arithmetic_never_a_total_computed_in_python(engine, db: Session):
-    approval = pending_approval(db)
+    approval = pending_approval(db, amount=30.0)  # el libro liquida exactamente lo reservado
     statements: list[str] = []
 
     @event.listens_for(engine, "before_cursor_execute")
@@ -191,7 +191,7 @@ def test_the_ledger_arithmetic_is_unchanged(db: Session):
     ledger.reserve(amount=150.0, reference="a:1")
     ledger.reserve(amount=50.0, reference="a:2")
     ledger.record_commit(amount=150.0, reference="a:1")
-    ledger.record_release(amount=500.0, reference="a:2")  # más de lo reservado: nunca negativo
+    ledger.record_release(amount=50.0, reference="a:2")  # exactamente lo reservado (otro importe se rechaza)
     db.commit()
 
     row = allocation(db)

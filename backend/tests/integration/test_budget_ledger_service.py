@@ -227,12 +227,16 @@ def test_record_release_reduces_reserved_without_touching_committed_or_spent(db_
     assert allocation.spent == 0.0
 
 
-def test_release_never_drives_reserved_negative(db_session: Session):
+def test_releasing_more_than_was_reserved_is_refused_and_never_drives_reserved_negative(db_session: Session):
+    """Antes se liberaba «lo que fuera» y `reserved` se quedaba en cero (el agregado se comía lo de otras operaciones).
+    Ahora una reserva se liquida por EXACTAMENTE lo reservado: otro importe es un error y no escribe nada."""
     ledger = authorised(db_session)
     ledger.reserve(amount=50.0, reference="approval:1")
-
-    ledger.record_release(amount=999.0, reference="approval:1")
     db_session.commit()
 
+    with pytest.raises(ValidationError):
+        ledger.record_release(amount=999.0, reference="approval:1")
+    db_session.rollback()
+
     allocation = db_session.query(BudgetAllocation).one()
-    assert allocation.reserved == 0.0
+    assert allocation.reserved == 50.0

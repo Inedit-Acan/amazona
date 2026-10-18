@@ -175,30 +175,51 @@ class BudgetLedgerService:
         return True
 
     def record_commit(self, *, amount: float, reference: str) -> bool:
-        """La reserva pasa a comprometida y gastada. False si no hay presupuesto autorizado:
-        entonces no se reservó nada en el libro (fue una simulación declarada) y no hay nada
-        que mover."""
+        """La reserva VIVA de `reference` pasa a comprometida y gastada. Devuelve `True` si la comprometió.
+
+        `False` y **no escribe nada** si no hay presupuesto autorizado, si esa referencia no tiene una reserva viva
+        (nunca se reservó, o ya se comprometió o se liberó) o si otra operación la liquidó mientras tanto: sin reserva
+        no hay nada que comprometer. `ValidationError` si `amount` no es exactamente lo reservado (ver `_move`)."""
         return self._move(amount, reference, "COMMIT")
 
     def record_release(self, *, amount: float, reference: str) -> bool:
-        """La reserva se libera, sin tocar lo comprometido ni lo gastado. Mismo criterio que
-        `record_commit` si no hay presupuesto."""
+        """La reserva VIVA de `reference` se libera, sin tocar lo comprometido ni lo gastado. Mismo contrato que
+        `record_commit`: sin reserva viva de esa referencia, no escribe nada y devuelve `False`."""
         return self._move(amount, reference, "RELEASE")
 
     def _move(self, amount: float, reference: str, kind: str) -> bool:
+        """Liquida (compromete o libera) la reserva viva de `reference`.
+
+        **La invariante vive aquí**, en el libro, y no en quien llama: se liquida SOLO lo reservado de ESA
+        referencia, una sola vez y por su importe exacto.
+
+        - Sin presupuesto autorizado, o sin reserva viva de la referencia (`outstanding == 0`: nunca reservada, o ya
+          liquidada): no se escribe ningún evento ni se toca el saldo, y se devuelve `False`. Un `COMMIT`/`RELEASE`
+          huérfano antes sumaba dinero que nadie reservó, o restaba del agregado la reserva de OTRA operación.
+        - Con reserva viva, `amount` tiene que ser exactamente `outstanding(reference)`: la restricción única de la base
+          (ADR 0026) admite UNA liquidación por referencia, así que una parcial dejaría un resto vivo que nadie puede
+          cerrar, y una mayor comprometería dinero no reservado. Otro importe es un `ValidationError` y no escribe nada.
+        - Dos liquidaciones de la misma referencia a la vez se ordenan con un lock por referencia (PostgreSQL): la
+          segunda ve la reserva ya liquidada y no hace nada. La restricción única sigue siendo el respaldo."""
         budget = self.find_budget()
         if budget is None:
             return False
-        allocation = self._allocation(budget)
         delta = Decimal(str(amount))
-        # Nunca negativo: liberar más de lo reservado deja cero. Aritmética de la base de
-        # datos, no «leer el total, sumar en Python y escribir»: con dos peticiones a la vez la
-        # segunda habría pisado la suma de la primera. La fila queda bloqueada por el UPDATE
-        # hasta el commit, así que las peticiones concurrentes se ordenan solas.
-        values: dict[str, object] = {
-            "reserved": case(
-                (BudgetAllocation.reserved - delta > 0, BudgetAllocation.reserved - delta), else_=0
+        self._serialise(f"settle:{reference}")
+        live = self.outstanding(reference)
+        if live <= 0:
+            return False
+        if delta != live:
+            raise ValidationError(
+                f"{reference}: cannot {kind.lower()} {delta}; the live reservation is {live} and a reservation is "
+                "settled once, for exactly what was reserved"
             )
+        allocation = self._allocation(budget)
+        # Aritmética de la base de datos, no «leer el total, sumar en Python y escribir»: con dos peticiones a la vez
+        # la segunda habría pisado la suma de la primera. La fila queda bloqueada por el UPDATE hasta el commit, así que
+        # las peticiones concurrentes se ordenan solas. Nunca negativo: respaldo por si el saldo ya viniera desajustado.
+        values: dict[str, object] = {
+            "reserved": case((BudgetAllocation.reserved - delta > 0, BudgetAllocation.reserved - delta), else_=0)
         }
         if kind == "COMMIT":
             values["committed"] = BudgetAllocation.committed + delta

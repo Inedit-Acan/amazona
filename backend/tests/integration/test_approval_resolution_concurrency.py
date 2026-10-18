@@ -182,6 +182,8 @@ def test_a_ledger_write_waits_for_a_concurrent_one_instead_of_overwriting_it():
             ledger = BudgetLedgerService(seed)
             ledger.authorise_budget(hard_limit=1_000_000.0, actor="owner@amazona.local")
             assert ledger.reserve(amount=1000.0, reference="seed")
+            assert ledger.reserve(amount=100.0, reference="A")  # el libro solo liquida lo reservado
+            assert ledger.reserve(amount=200.0, reference="B")
             seed.commit()
 
         a = Session(engine)
@@ -199,7 +201,7 @@ def test_a_ledger_write_waits_for_a_concurrent_one_instead_of_overwriting_it():
         a.close()
         thread.join(timeout=30)
 
-        assert allocation(engine) == (700.0, 300.0, 300.0)
+        assert allocation(engine) == (1000.0, 300.0, 300.0)
 
 
 # --- Revisiones del pipeline --------------------------------------------------------

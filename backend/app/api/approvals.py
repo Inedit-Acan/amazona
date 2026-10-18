@@ -88,6 +88,22 @@ def _budget_effects(db: Session) -> dict[str, str]:
     return _effects_from_events((reference, kind) for reference, kind in rows)
 
 
+def _settle_reservation(ledger: BudgetLedgerService, approval: ApprovalModel, *, commit: bool) -> None:
+    """Compromete o libera lo que ESTA aprobación tiene reservado en el libro, y nada más.
+
+    Sin reserva viva (se pidió sin presupuesto autorizado en un despliegue simulado, o su importe es 0) no hay
+    movimiento financiero: la aprobación se resuelve igual (`PENDING → APPROVED | REJECTED | EXPIRED`) y el libro no se
+    toca. Liquidar a ciegas habría comprometido dinero que nadie reservó o liberado la reserva de OTRA aprobación."""
+    reference = f"approval:{approval.id}"
+    live = ledger.outstanding(reference)
+    if live <= 0:
+        return
+    if commit:
+        ledger.record_commit(amount=float(live), reference=reference)
+    else:
+        ledger.record_release(amount=float(live), reference=reference)
+
+
 def _out(approval: ApprovalModel, effects: dict[str, str]) -> ApprovalOut:
     out = ApprovalOut.model_validate(approval)
     return out.model_copy(update={"budget_effect": effects.get(approval.id, "none")})
@@ -176,8 +192,7 @@ def _resolve(
         # Caducar es también una resolución: solo una petición la hace, y solo ella
         # libera la reserva. Si otra ya resolvió, esa es la que manda.
         if _claim(db, approval_id, to_status="EXPIRED", now=now, resolved_by=None):
-            if approval.amount:
-                budget_ledger.record_release(amount=approval.amount, reference=f"approval:{approval.id}")
+            _settle_reservation(budget_ledger, approval, commit=False)
             db.add(
                 AuditLogModel(
                     actor="system",
@@ -201,11 +216,7 @@ def _resolve(
         raise _not_pending(db, approval)
 
     before_status = "PENDING"
-    if approval.amount:
-        if new_status == "APPROVED":
-            budget_ledger.record_commit(amount=approval.amount, reference=f"approval:{approval.id}")
-        else:
-            budget_ledger.record_release(amount=approval.amount, reference=f"approval:{approval.id}")
+    _settle_reservation(budget_ledger, approval, commit=new_status == "APPROVED")
     action_verb = "approve" if new_status == "APPROVED" else "reject"
     db.add(
         AuditLogModel(

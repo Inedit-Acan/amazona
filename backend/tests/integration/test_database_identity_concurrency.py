@@ -9,7 +9,6 @@ import threading
 
 from pg_test_support import ephemeral_postgres
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.budgets.service import BudgetLedgerService
@@ -114,8 +113,9 @@ def test_twelve_executors_opening_the_same_question_leave_one_pending_review():
 
 
 def test_eight_simultaneous_settlements_of_one_reservation_move_the_money_once():
-    """El respaldo de la base de datos: aunque algo se saltara los guardias del servicio, una reserva no se liquida dos
-    veces. Las demás liquidaciones fallan y su aritmética se deshace con la transacción."""
+    """Una reserva no se liquida dos veces. El libro ordena las liquidaciones de la misma referencia (lock por
+    referencia): la primera la liquida y las demás ven que ya no hay reserva viva y no hacen nada. El respaldo de la
+    base de datos (índice único de liquidación) lo prueba `test_budget_ledger_reserve_guard`."""
     with ephemeral_postgres() as engine:
         with Session(engine) as db:
             ledger = BudgetLedgerService(db)
@@ -124,14 +124,14 @@ def test_eight_simultaneous_settlements_of_one_reservation_move_the_money_once()
             db.commit()
 
         def settle(session: Session):
-            BudgetLedgerService(session).record_commit(amount=100.0, reference="approval:1")
+            settled = BudgetLedgerService(session).record_commit(amount=100.0, reference="approval:1")
             session.commit()
-            return "settled"
+            return "settled" if settled else "no-op"
 
         results = run_together(engine, [settle] * 8)
 
         assert results.count("settled") == 1
-        assert all(isinstance(r, IntegrityError) for r in results if r != "settled")
+        assert results.count("no-op") == 7
         assert scalar(engine, "select count(*) from financial_events where type = 'COMMIT'") == 1
         assert float(scalar(engine, "select committed from budget_allocations")) == 100.0
         assert float(scalar(engine, "select reserved from budget_allocations")) == 0.0
