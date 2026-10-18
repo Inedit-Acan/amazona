@@ -369,3 +369,49 @@ def test_rejecting_without_an_actor_is_also_the_unverified_local_one(client, see
     with session_factory() as session:
         entry = session.query(AuditLog).filter_by(action="approval.reject").one()
         assert (entry.actor, entry.actor_source) == (LOCAL_SUBJECT, "declared")
+
+
+# --- La referencia del libro es NULLABLE: la rama «sin referencia» ----------------------------------------------------
+# `financial_events.reference` admite NULL (un movimiento sin referencia). Ningún movimiento SIN referencia pertenece
+# a una aprobación, así que se ignora de forma explícita; la consulta ya lo excluye (`NULL LIKE …` no es verdadero),
+# pero el tipo de la columna es `str | None` y el contrato se maneja a la vista, no se supone.
+
+
+def test_events_without_a_reference_are_ignored_and_those_with_one_are_read():
+    from app.api.approvals import _effects_from_events
+
+    events = [
+        (None, "RESERVE"),
+        ("approval:a", "RESERVE"),
+        (None, "COMMIT"),
+        ("approval:b", "RESERVE"),
+        ("approval:b", "COMMIT"),
+        (None, "RELEASE"),
+        ("approval:c", "RESERVE"),
+        ("approval:c", "RELEASE"),
+    ]
+    assert _effects_from_events(events) == {"a": "reserved", "b": "committed", "c": "released"}
+
+
+def test_only_events_without_a_reference_give_no_effect_at_all():
+    from app.api.approvals import _effects_from_events
+
+    assert _effects_from_events([(None, "RESERVE"), (None, "COMMIT"), (None, "RELEASE")]) == {}
+    assert _effects_from_events([]) == {}
+
+
+def test_a_ledger_event_with_a_null_reference_does_not_change_any_approval(client, seed, session_factory):
+    ids = seed()
+    with session_factory() as session:
+        session.add(FinancialEvent(type="COMMIT", amount=1.0, reference=None))
+        session.commit()
+    assert effect_of(client, ids["approval"]) == "none"
+
+
+def test_a_null_reference_event_does_not_hide_a_real_reservation(client, seed, authorise, session_factory):
+    ids = seed()
+    authorise(ids)
+    with session_factory() as session:
+        session.add(FinancialEvent(type="RELEASE", amount=1.0, reference=None))
+        session.commit()
+    assert effect_of(client, ids["approval"]) == "reserved"

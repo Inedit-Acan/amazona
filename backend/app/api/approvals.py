@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Iterable
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends
@@ -59,15 +60,16 @@ class ApprovalActionIn(BaseModel):
     actor: str | None = None
 
 
-def _budget_effects(db: Session) -> dict[str, str]:
+def _effects_from_events(events: Iterable[tuple[str | None, str]]) -> dict[str, str]:
     """El efecto de cada aprobación en el libro: `approval_id` → `committed` | `released` | `reserved`.
 
     Las que no tienen ningún movimiento no aparecen (su efecto es `none`). Una referencia se reserva una vez y se
-    liquida una vez (ADR 0026)."""
+    liquida una vez (ADR 0026). `financial_events.reference` admite NULL: un movimiento sin referencia no pertenece
+    a ninguna aprobación y se ignora de forma explícita."""
     kinds: dict[str, set[str]] = {}
-    query = db.query(FinancialEvent.reference, FinancialEvent.type)
-    rows = query.filter(FinancialEvent.reference.like("approval:%")).all()
-    for reference, kind in rows:
+    for reference, kind in events:
+        if reference is None:
+            continue
         kinds.setdefault(reference.removeprefix("approval:"), set()).add(kind)
     effects: dict[str, str] = {}
     for approval_id, seen in kinds.items():
@@ -78,6 +80,12 @@ def _budget_effects(db: Session) -> dict[str, str]:
         elif "RESERVE" in seen:
             effects[approval_id] = "reserved"
     return effects
+
+
+def _budget_effects(db: Session) -> dict[str, str]:
+    query = db.query(FinancialEvent.reference, FinancialEvent.type)
+    rows = query.filter(FinancialEvent.reference.like("approval:%")).all()
+    return _effects_from_events((reference, kind) for reference, kind in rows)
 
 
 def _out(approval: ApprovalModel, effects: dict[str, str]) -> ApprovalOut:
