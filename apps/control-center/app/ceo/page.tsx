@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { AgentNetworkCard } from "@/components/ceo/agent-network-card";
 import { AssistantDrawer } from "@/components/ceo/assistant-drawer";
 import { BottomRow } from "@/components/ceo/bottom-row";
+import { BudgetBlock, BudgetSkeleton } from "@/components/ceo/budget-block";
 import { CeoAssistantPanel } from "@/components/ceo/ceo-assistant-panel";
 import { CeoProvider } from "@/components/ceo/ceo-context";
 import { CeoHeader } from "@/components/ceo/ceo-header";
@@ -26,6 +27,9 @@ export default async function CeoPage({ searchParams }: PageProps<"/ceo">) {
       <CeoHeader />
       <CeoLayout panel={<CeoAssistantPanel />}>
         <KpiRow window={window} days={days} />
+        <Suspense fallback={<BudgetSkeleton />}>
+          <BudgetBlock />
+        </Suspense>
         <DecisionTriptych />
         <AgentNetworkCard />
         <BottomRow />

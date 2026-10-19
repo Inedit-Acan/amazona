@@ -1138,6 +1138,32 @@ export interface OperationsRecord {
   } | null;
 }
 
+/** El presupuesto operativo tal como lo lee `GET /api/budget` (M47): lo autorizado y su saldo, solo lectura. Los importes son texto
+ * decimal exacto, como los de los ingresos. `currency` NO es una columna de `budgets`: es la moneda contable del contrato, y
+ * `currency_source` dice que lo es; sin esa procedencia la pantalla no da la moneda por buena. `remaining` es
+ * `hard_limit − reserved − committed` (lo que el motor llama disponible); `spent` no se resta, porque ya está dentro de `committed`. */
+export interface BudgetFigures {
+  name: string;
+  /** Una etiqueta que declara la fila (`monthly`): el sistema no reinicia el saldo al cambiar de periodo. */
+  period: string;
+  currency: string;
+  currency_source: "accounting_currency";
+  hard_limit: DecimalText;
+  soft_limit: DecimalText | null;
+  reserved: DecimalText;
+  committed: DecimalText;
+  spent: DecimalText;
+  remaining: DecimalText;
+}
+
+/** `authorised = false` es un hecho (el propietario no ha autorizado ningún presupuesto), no un fallo: `budget` es entonces `null`. */
+export interface BudgetRead {
+  authorised: boolean;
+  budget: BudgetFigures | null;
+  /** El instante, en UTC, en que el servidor leyó las filas. */
+  read_at: string;
+}
+
 export interface CFOReport {
   correlation_id: string;
   financial_health_status: "HEALTHY" | "AT_RISK" | "CRITICAL" | "NEEDS_REVIEW";
@@ -1821,6 +1847,9 @@ export const api = {
   createCFORun: () => request<CFOReport>("/api/cfo/runs", { method: "POST" }),
   getCFORun: (correlationId: string) => request<CFOReport>(`/api/cfo/runs/${correlationId}`),
   listCFORuns: () => request<CFOReport[]>("/api/cfo/runs"),
+  // El presupuesto operativo (M47): solo `GET`, sin escritura ni clave de idempotencia. Una única lectura que comparten `/ceo` y `/cfo`
+  // (`lib/budget-view.ts`); la respuesta se comprueba allí, y un contrato roto es un error visible, nunca un presupuesto a cero.
+  getBudget: () => request<BudgetRead>("/api/budget"),
   createPipelineRun: (payload: {
     category: string;
     sale_price: number;

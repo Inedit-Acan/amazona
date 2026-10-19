@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from decimal import Decimal
 
 from sqlalchemy import case, select, text, update
@@ -18,6 +19,28 @@ DEFAULT_BUDGET_NAME = "orchestrator-default"
 #: propietario. Subirlo es un cambio de código revisado, no un parámetro.
 MAX_HARD_LIMIT = Decimal("10000000.00")
 _CENT = Decimal("0.01")
+
+
+@dataclass(frozen=True)
+class BudgetSummary:
+    """El presupuesto autorizado y su saldo, tal como están ahora, para **enseñarlos** (`GET /api/budget`). Solo
+    lectura.
+
+    Todo sale de las filas: `name`, `period`, `hard_limit` y `soft_limit` de `budgets`; `reserved`, `committed` y
+    `spent` de `budget_allocations`. La moneda no es una columna: es la moneda contable que ya usa la autorización
+    (`_describe`). `remaining` es lo que el motor llama «disponible»: `hard_limit − reserved − committed` (la misma
+    cuenta de la sentencia que reserva). `spent` NO se resta: un `COMMIT` ya lo suma a `committed`, y restarlo otra
+    vez contaría el gasto dos veces."""
+
+    name: str
+    period: str
+    currency: str
+    hard_limit: Decimal
+    soft_limit: Decimal | None
+    reserved: Decimal
+    committed: Decimal
+    spent: Decimal
+    remaining: Decimal
 
 
 class BudgetLedgerService:
@@ -65,6 +88,29 @@ class BudgetLedgerService:
             reserved=float(allocation.reserved) if allocation else 0.0,
             committed=float(allocation.committed) if allocation else 0.0,
             spent=float(allocation.spent) if allocation else 0.0,
+        )
+
+    def summary(self) -> BudgetSummary | None:
+        """El presupuesto autorizado con su saldo, o `None` si el propietario no ha autorizado ninguno. Solo lee: no
+        crea el presupuesto ni su saldo (un presupuesto sin fila de saldo es «nada movido», como lo lee `snapshot`)."""
+        budget = self.find_budget()
+        if budget is None:
+            return None
+        allocation = self._db.query(BudgetAllocation).filter_by(budget_id=budget.id).first()
+        hard_limit = _money(budget.hard_limit)
+        reserved = _money(allocation.reserved) if allocation else Decimal("0.00")
+        committed = _money(allocation.committed) if allocation else Decimal("0.00")
+        spent = _money(allocation.spent) if allocation else Decimal("0.00")
+        return BudgetSummary(
+            name=budget.name,
+            period=budget.period,
+            currency=self._describe(budget)["currency"],
+            hard_limit=hard_limit,
+            soft_limit=_money(budget.soft_limit) if budget.soft_limit is not None else None,
+            reserved=reserved,
+            committed=committed,
+            spent=spent,
+            remaining=hard_limit - reserved - committed,
         )
 
     def assess(self, amount: float | None, *, simulated: bool) -> BudgetAssessment:
@@ -288,6 +334,11 @@ def _amount(value: float, what: str) -> Decimal:
     if not in_cents:
         raise ValidationError(f"{what} cannot have more than two decimals")
     return amount
+
+
+def _money(value) -> Decimal:
+    """Un importe de la base de datos, en céntimos exactos (las columnas son `Numeric(12, 2)`)."""
+    return Decimal(str(value)).quantize(_CENT)
 
 
 def _as_float(value) -> float | None:

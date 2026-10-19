@@ -7,10 +7,12 @@ import {
   type RevenueEntry,
   type RevenueSummary,
 } from "@/lib/api";
+import { readBudget } from "@/lib/budget-view";
 import { parseRevenueDays, revenueWindow, type RevenueWindow } from "@/lib/revenue-query";
 import { settle } from "@/lib/revenue-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
+import { BudgetSection } from "./budget-section";
 import { CFO_DESCRIPTION, CFO_TITLE } from "./copy";
 import { CfoWorkspace } from "./cfo-workspace";
 
@@ -78,10 +80,12 @@ export default async function CFOPage({ searchParams }: PageProps<"/cfo">) {
   const days = parseRevenueDays(params.dias);
   // Igual que el Panel: el instante se fija aquí, en el servidor, y la ventana sale de él.
   const span = revenueWindow(new Date().getTime(), days);
-  const [summary, entries, orders] = await Promise.all([
+  // El presupuesto operativo se lee UNA vez con `readBudget`, la misma función que `/ceo`: una vista, dos pantallas.
+  const [summary, entries, orders, budget] = await Promise.all([
     settle<RevenueSummary>(() => api.revenueSummary(span)),
     settle<EntriesRead>(() => readEntries(span)),
     settle<OrdersRead>(() => readOrders()),
+    readBudget(api),
   ]);
 
   // La proyección (PLAN) sale de los análisis económicos y el veredicto del agente CFO. Ambos son opcionales: sin
@@ -106,6 +110,10 @@ export default async function CFOPage({ searchParams }: PageProps<"/cfo">) {
       <div>
         <PageHeader title={CFO_TITLE} description={CFO_DESCRIPTION} />
         <ApiErrorAlert message={error} />
+        {/* El presupuesto tiene su propia lectura: si funciona se enseña, y si no dice «No disponible» (nunca un cero ni «Agotado»). */}
+        <div className="mt-4">
+          <BudgetSection view={budget} />
+        </div>
       </div>
     );
   }
@@ -116,6 +124,7 @@ export default async function CFOPage({ searchParams }: PageProps<"/cfo">) {
       summary={summary}
       entries={entries}
       orders={orders}
+      budget={budget}
       products={products.slice(0, PRODUCT_LIMIT)}
       analyses={analyses}
       planUnread={planUnread}

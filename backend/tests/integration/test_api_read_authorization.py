@@ -48,6 +48,9 @@ BUSINESS_ROUTES = [
     "/api/agents",
     "/api/agent-executions",
     "/api/approvals",
+    # M47: el presupuesto operativo (techo, reservado, comprometido, gastado, disponible) es dato de negocio; solo
+    # lectura.
+    "/api/budget",
     "/api/cfo/runs",
     "/api/cfo/runs/cid-1",
     "/api/decisions?project_id=proj-1",
@@ -235,6 +238,7 @@ def test_the_inventory_covers_every_read_route():
         "/api/agents",
         "/api/agent-executions",
         "/api/approvals",
+        "/api/budget",
         "/api/cfo/runs",
         "/api/cfo/runs/{correlation_id}",
         "/api/decisions",

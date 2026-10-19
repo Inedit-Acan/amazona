@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { CFOReport, EconomicAnalysis, Product, RevenueSummary } from "@/lib/api";
+import type { BudgetView } from "@/lib/budget-view";
 import { marginSummary } from "@/lib/cfo-margin";
 import { planView } from "@/lib/cfo-plan";
 import { verdictView } from "@/lib/cfo-verdict";
@@ -9,6 +10,7 @@ import { periodLabel, type Settled } from "@/lib/revenue-view";
 import { PeriodSelect } from "@/components/period-select";
 import { PageHeader } from "@/components/page-header";
 import type { EntriesRead, OrdersRead } from "./page";
+import { BudgetSection } from "./budget-section";
 import { CFO_DESCRIPTION, CFO_TITLE } from "./copy";
 import {
   CannotComputeCard,
@@ -39,6 +41,7 @@ export function CfoWorkspace({
   summary,
   entries,
   orders,
+  budget,
   products,
   analyses,
   planUnread,
@@ -49,6 +52,7 @@ export function CfoWorkspace({
   summary: Settled<RevenueSummary>;
   entries: Settled<EntriesRead>;
   orders: Settled<OrdersRead>;
+  budget: BudgetView;
   products: Product[];
   analyses: [string, EconomicAnalysis][];
   planUnread: number;
@@ -113,6 +117,8 @@ export function CfoWorkspace({
         </ZoneHeading>
         <PlanCard plan={plan} />
       </section>
+
+      <BudgetSection view={budget} />
 
       <section className="space-y-3" aria-label="Evaluación del agente CFO">
         <div className="border-t pt-4">

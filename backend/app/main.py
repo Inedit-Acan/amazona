@@ -10,6 +10,7 @@ from app.api import (
     agents,
     approvals,
     audit,
+    budget,
     cfo,
     costs,
     decisions,
@@ -276,6 +277,7 @@ app.include_router(ecommerce.router, dependencies=BUSINESS)
 app.include_router(marketplace.router, dependencies=BUSINESS)
 app.include_router(marketing.router, dependencies=BUSINESS)
 app.include_router(operations.router, dependencies=BUSINESS)
+app.include_router(budget.router, dependencies=BUSINESS)
 app.include_router(cfo.router, dependencies=BUSINESS)
 app.include_router(pipeline.router, dependencies=BUSINESS)
 app.include_router(incidents.router, dependencies=BUSINESS)
