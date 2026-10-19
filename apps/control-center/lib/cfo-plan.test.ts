@@ -163,7 +163,9 @@ test("los datos que usó se enseñan tal como los dio", () => {
   assert.equal(inputs.get("Productos analizados"), "10");
   assert.equal(inputs.get("GO / REVIEW / NO_GO"), "7 / 2 / 1");
   assert.equal(inputs.get("Proporción NO_GO"), "10 %");
-  assert.equal(inputs.get("Uso del presupuesto"), "42 %");
+  // El uso del presupuesto del informe es de una foto antigua (y su fórmula contaba lo gastado dos veces): ya no se enseña como dato del
+  // agente. El presupuesto vigente es el bloque «Presupuesto operativo» (`lib/cfo-verdict-budget.test.ts`).
+  assert.equal(inputs.get("Uso del presupuesto"), undefined);
 });
 
 test("sin informe no hay veredicto neutro inventado", () => {

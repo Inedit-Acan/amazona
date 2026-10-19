@@ -2,11 +2,18 @@ import type { CFOReport } from "./api.ts";
 
 // La evaluación del agente CFO (M45, Commit 10).
 //
-// Es un VEREDICTO sobre los análisis del catálogo y las reservas del BudgetEngine, no un hecho contable: no sale del
-// registro de pagos ni de ninguna contabilidad. Por eso vive en su propio bloque, separado de las magnitudes
-// financieras, y por eso el título dice siempre con cuánta información se emitió.
+// Es un VEREDICTO sobre los análisis del catálogo, no un hecho contable: no sale del registro de pagos ni de ninguna contabilidad.
+// Por eso vive en su propio bloque, separado de las magnitudes financieras, y por eso el título dice siempre con cuánta información se
+// emitió.
 //
 // Si le faltan datos esenciales, lo dice: «Evaluación CFO — información parcial», nunca «rentabilidad confirmada».
+//
+// NO HABLA DEL PRESUPUESTO (M47). El informe del agente es una FOTO de cuando se emitió; el presupuesto operativo es el estado de ahora
+// (`GET /api/budget`, el bloque «Presupuesto operativo» de esta misma pantalla). Mezclar las dos cosas dejó a `/cfo` diciendo «el
+// presupuesto no está cerca de su límite» justo debajo de «Agotado · Usado 100 %»: el texto era fijo, y el uso del informe (que además
+// calculaba `reservado + comprometido + gastado`, contando lo gastado dos veces) venía de una foto sin presupuesto. Aquí no se lee
+// ninguno de los campos de presupuesto del informe, y la única frase sobre el presupuesto que puede salir es una nota marcada como
+// histórica, para un «En riesgo» que los NO_GO no explican.
 
 export type InformationLevel = "complete" | "partial" | "insufficient";
 
@@ -31,12 +38,13 @@ export interface VerdictView {
 const STATUS: Record<CFOReport["financial_health_status"], { status: string; detail: string; tone: VerdictView["tone"] }> = {
   HEALTHY: {
     status: "Saludable",
-    detail: "Pocas decisiones NO_GO y el presupuesto no está cerca de su límite.",
+    detail: "Pocas decisiones NO_GO entre los productos analizados.",
     tone: "ok",
   },
+  // El detalle de «En riesgo» lo decide `atRiskDetail`: depende de si los NO_GO lo explican.
   AT_RISK: {
     status: "En riesgo",
-    detail: "Hay una proporción elevada de decisiones NO_GO o el presupuesto está cerca de agotarse.",
+    detail: "",
     tone: "warn",
   },
   CRITICAL: {
@@ -58,8 +66,22 @@ const LEVEL_LABEL: Record<InformationLevel, string> = {
 };
 
 export const VERDICT_SOURCE =
-  "Evaluación del agente CFO sobre los análisis económicos del catálogo y las reservas del presupuesto. " +
-  "No procede del registro financiero: no es contabilidad y no confirma rentabilidad.";
+  "Evaluación del agente CFO sobre los análisis económicos del catálogo. " +
+  "No procede del registro financiero ni del presupuesto: no es contabilidad y no confirma rentabilidad.";
+
+/** La proporción de NO_GO por encima de la cual el agente marca «En riesgo» (su regla: `no_go_ratio > 0.2`). Solo sirve para saber si los
+ * NO_GO explican un «En riesgo»; si no lo explican, lo que lo marcó fue un dato de presupuesto de cuando emitió la evaluación. */
+const ELEVATED_NO_GO_RATIO = 0.2;
+
+const AT_RISK_BY_NO_GO = "Hay una proporción elevada de decisiones NO_GO entre los productos analizados.";
+export const AT_RISK_HISTORICAL_TEXT =
+  "El agente la marcó «En riesgo» con un dato de presupuesto de cuando emitió la evaluación. " +
+  "No es el estado actual: el presupuesto vigente está en «Presupuesto operativo».";
+
+function atRiskDetail(report: CFOReport): string {
+  const ratio = report.data?.no_go_ratio ?? null;
+  return ratio !== null && ratio > ELEVATED_NO_GO_RATIO ? AT_RISK_BY_NO_GO : AT_RISK_HISTORICAL_TEXT;
+}
 
 /** Lo que al agente le falta para que su veredicto sea más que una orientación. */
 function missingOf(report: CFOReport): string[] {
@@ -70,8 +92,8 @@ function missingOf(report: CFOReport): string[] {
   }
   if (data.total_products_analyzed === 0) missing.push("Ningún producto analizado.");
   if (data.no_go_ratio === null) missing.push("Proporción de decisiones NO_GO no calculada.");
-  if (data.budget_utilization === null) missing.push("Uso del presupuesto no calculado.");
   // Lo que el agente nunca ve, y conviene decir en voz alta junto a su veredicto.
+  missing.push("No evalúa el presupuesto: el estado vigente está en «Presupuesto operativo».");
   missing.push("No ve el registro de pagos: su veredicto no incluye ingresos ni reembolsos verificados.");
   missing.push("No ve costes efectivamente pagados, impuestos, caja ni comisiones.");
   return missing;
@@ -80,7 +102,6 @@ function missingOf(report: CFOReport): string[] {
 function levelOf(report: CFOReport): InformationLevel {
   const data = report.data;
   if (data === null || data.total_products_analyzed === 0) return "insufficient";
-  if (data.no_go_ratio === null || data.budget_utilization === null) return "partial";
   return "partial"; // nunca «completa»: el agente no ve el registro de pagos ni los costes efectivamente pagados
 }
 
@@ -95,14 +116,13 @@ export function verdictView(report: CFOReport): VerdictView {
     inputs.push({ label: "Productos analizados", value: String(data.total_products_analyzed) });
     inputs.push({ label: "GO / REVIEW / NO_GO", value: `${data.go_count} / ${data.review_count} / ${data.no_go_count}` });
     if (data.no_go_ratio !== null) inputs.push({ label: "Proporción NO_GO", value: percent(data.no_go_ratio) });
-    if (data.budget_utilization !== null) inputs.push({ label: "Uso del presupuesto", value: percent(data.budget_utilization) });
     inputs.push({ label: "Campañas activas", value: `${data.active_campaigns} de ${data.total_campaigns}` });
   }
   return {
     title: `Evaluación CFO — ${LEVEL_LABEL[level]}`,
     level,
     status: status.status,
-    detail: status.detail,
+    detail: report.financial_health_status === "AT_RISK" ? atRiskDetail(report) : status.detail,
     tone: status.tone,
     confidence: report.confidence,
     inputs,
