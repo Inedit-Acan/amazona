@@ -88,27 +88,32 @@ export function NexusDetails({
 
       <div className="space-y-1.5 border-t border-white/10 pt-2.5">
         {node.registry ? <Field label="Estado del registro" value={agentStatusText(node.registry)} /> : null}
-        {node.relatedTasks ? (
-          <div data-section="tareas-relacionadas" data-provenance="derived" className="space-y-1">
-            <p
-              className="text-[11px] text-muted-foreground"
-              title="El backend no registra qué agente ejecutó cada tarea: se emparejan por capacidad."
-            >
-              {node.relatedTasks.length === 1 ? "Tarea relacionada" : "Tareas relacionadas"} (por capacidad)
+        {node.agentTasks ? (
+          <div data-section="tareas-del-agente" data-provenance="recorded" className="space-y-1">
+            <p className="text-[11px] text-muted-foreground" title="La relación la registra el backend: la asignación y las ejecuciones de cada tarea.">
+              {node.agentTasks.length === 1 ? "Tarea de este agente" : "Tareas de este agente"}
             </p>
-            {node.relatedTasks.map((item) => (
-              <div key={item.id} className="space-y-0.5">
-                <Field label={item.name} value={item.statusText} />
-                {item.failed ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    Existe una tarea FAILED relacionada con esta capacidad{item.error ? `: ${item.error}` : ""}. No es un fallo demostrado de este agente.
-                  </p>
-                ) : null}
+            {node.agentTasks.map((item) => (
+              <div key={item.id} className="space-y-0.5" data-relation={item.relation}>
+                <Field label={item.name} value={item.state} />
+                <p className="text-[11px] text-muted-foreground">
+                  {item.assigned && item.executed ? "Asignada y ejecutada" : item.assigned ? "Asignada" : "Ejecutada"}
+                  {item.note ? ` · ${item.note}` : ""}
+                </p>
+                {item.failed ? <p className="text-[11px] text-muted-foreground">Tarea FAILED{item.error ? `: ${item.error}` : ""}.</p> : null}
               </div>
             ))}
-            <p className="text-[10px] text-muted-foreground">
-              No registra qué agente ejecutó la tarea: es una correlación por capacidad, no una asignación.
-            </p>
+          </div>
+        ) : null}
+        {node.missionTasks ? (
+          <div data-section="tareas-de-la-mision" data-provenance="recorded" className="space-y-1">
+            <p className="text-[11px] text-muted-foreground">Tareas de la misión · agente asignado</p>
+            {node.missionTasks.map((row) => (
+              <div key={row.taskId} data-relation={row.status}>
+                <Field label={row.taskName} value={row.assigned.label} />
+                <p className="text-[11px] text-muted-foreground">{row.state}</p>
+              </div>
+            ))}
           </div>
         ) : null}
         {node.lastActivityAt ? <Field label="Última actividad" value={relativeTime(node.lastActivityAt, now)} /> : null}
@@ -165,7 +170,7 @@ export function NexusDetails({
           <DataProvenanceBadge
             status="recorded"
             compact
-            tooltip="Agente del registro de agentes (registrado). Las ejecuciones se derivan del log de ejecuciones y las tareas relacionadas se emparejan por capacidad (derivado)."
+            tooltip="Agente del registro de agentes (registrado). Las ejecuciones se derivan del log de ejecuciones y las tareas de cada agente son las que el backend registra como asignadas o ejecutadas por él."
           />
         ) : (
           <span className="text-[11px] text-muted-foreground">Nodo estructural del grafo</span>

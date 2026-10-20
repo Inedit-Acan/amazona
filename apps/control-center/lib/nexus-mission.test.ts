@@ -9,7 +9,6 @@ import {
   latestProject,
   projectsContract,
   readMission,
-  relatedTasks,
   taskDependencyEdges,
   taskProgress,
   tasksContract,
@@ -121,21 +120,6 @@ test("progreso: la confianza de la decisión NO interviene: misma lista de tarea
   const tasks = [task("a", "COMPLETED"), task("b", "PENDING"), task("c", "PENDING"), task("d", "RUNNING")];
   assert.equal(taskProgress(tasks)?.fraction, 0.25);
   assert.equal(taskProgress.length, 1, "taskProgress solo recibe tareas");
-});
-
-// --- Tareas relacionadas por capacidad (NO asignadas) -------------------------------------------------------------------------
-
-test("relatedTasks: empareja por capacidad exacta y SOLO por capacidad", () => {
-  const a = agent("a-product", ["market_validation"]);
-  const tasks = [task("t1", "COMPLETED", "market_validation"), task("t2", "FAILED", "legal_validation"), task("t3", "PENDING", "market_validation_extra")];
-  assert.deepEqual(relatedTasks(a, tasks).map((t) => t.id), ["t1"]);
-  assert.deepEqual(relatedTasks(agent("x", []), tasks), []);
-});
-
-test("relatedTasks: el resultado no se llama «asignada»: la tarea no trae ningún agente y la función no lo inventa", () => {
-  const t = task("t1", "COMPLETED", "market_validation");
-  assert.equal("assigned_agent_id" in t, false);
-  assert.equal(relatedTasks(agent("a", ["market_validation"]), [t])[0], t);
 });
 
 // --- Dependencias reales (D-4-4) ------------------------------------------------------------------------------------------------

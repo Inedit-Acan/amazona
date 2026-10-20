@@ -3,6 +3,7 @@ import { ApiError, type DetailedHealth } from "@/lib/api";
 import { listOf } from "@/lib/read-state";
 import type { HealthSignal } from "@/lib/status";
 import { readStatusPage, statusFailures } from "@/lib/status-reads";
+import { readMissionTaskAgents, taskAgentPanel } from "@/lib/task-agent-reads";
 import { StatusWorkspace } from "./status-workspace";
 
 /** La comprobación de salud se mide desde el servidor del frontend: una sola medida, no un percentil. */
@@ -26,7 +27,7 @@ async function fetchHealth(): Promise<HealthSignal & { migration: string | null 
 }
 
 export default async function StatusPage() {
-  const [health, reads] = await Promise.all([fetchHealth(), readStatusPage(api)]);
+  const [health, reads, missionTasks] = await Promise.all([fetchHealth(), readStatusPage(api), readMissionTaskAgents(api)]);
   const { migration, ...signal } = health;
 
   // El instante se fija en el servidor: las colas, las series de 24 h y los «hace
@@ -45,6 +46,7 @@ export default async function StatusPage() {
       pipelineRuns={listOf(reads.pipelineRuns)}
       apiUsage={listOf(reads.apiUsage)}
       failures={statusFailures(reads)}
+      taskAgents={taskAgentPanel(missionTasks, listOf(reads.agents))}
       now={now}
     />
   );

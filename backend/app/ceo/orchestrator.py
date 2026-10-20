@@ -12,9 +12,8 @@ from app.ceo.planner import plan_product_validation
 from app.ceo.schemas import DecisionStatus
 from app.ceo.schemas import Objective as ObjectiveSchema
 from app.core.config import Settings, get_settings
-from app.core.errors import NotFoundError
+from app.core.errors import NoAgentAvailableError, NotFoundError
 from app.core.ids import new_correlation_id, new_id
-from app.db.models.agent_execution_log import AgentExecutionLog as AgentExecutionLogModel
 from app.db.models.approval import Approval as ApprovalModel
 from app.db.models.audit import AuditLog as AuditLogModel
 from app.db.models.decision import Decision as DecisionModel
@@ -28,6 +27,7 @@ from app.events.schemas import Event
 from app.memory.service import MemoryService
 from app.permissions.engine import PermissionEngine
 from app.permissions.policies import ActionType, PermissionResult
+from app.tasks.assignment import ORCHESTRATOR_CAPABILITIES, TaskAssignmentService
 from app.tasks.schemas import TaskStatus
 from app.tasks.service import TaskService
 
@@ -77,6 +77,9 @@ class CEOOrchestrator:
         self._budget_ledger = budget_ledger or BudgetLedgerService(db)
         self._settings = settings or get_settings()
         self._memory = MemoryService(db)
+        # La asignación y la ejecución de cada tarea las registra el servicio de asignación: UNA sola implementación
+        # (M48, Commit 7).
+        self._assignments = TaskAssignmentService(db, agent_manager.agent_ids())
 
     def run_objective(self, objective_id: str) -> DecisionModel:
         correlation_id = new_correlation_id()
@@ -148,6 +151,7 @@ class CEOOrchestrator:
             self._db.add(db_task)
             self._db.flush()
             name_to_db_id[spec.name] = db_task.id
+            self._assign_at_creation(db_task, domain_task, correlation_id)
 
         for spec in plan.tasks:
             for dep_name in spec.depends_on:
@@ -167,6 +171,53 @@ class CEOOrchestrator:
             correlation_id=correlation_id,
         )
         return task_service, name_to_domain_id, name_to_db_id
+
+    def _assign_at_creation(self, db_task: TaskModel, domain_task, correlation_id: str) -> None:
+        """Asigna la tarea al agente que el REGISTRO elige para su capacidad. Las del orquestador no se asignan a ningún
+        agente. Si ahora no hay ningún agente disponible, la tarea queda SIN asignar: no se rellena por la capacidad
+        ni por el nombre (la ejecución fallará como siempre)."""
+        if db_task.capability in ORCHESTRATOR_CAPABILITIES:
+            return
+        try:
+            agent = self._agent_manager.select_agent(db_task.capability)
+        except NoAgentAvailableError:
+            return
+        self._assignments.assign(
+            db_task,
+            agent.id,
+            actor="ceo",
+            reason="selected by capability when the task was created",
+            correlation_id=correlation_id,
+        )
+        domain_task.assigned_agent_id = agent.id
+
+    def _agent_for_attempt(self, db_task: TaskModel, domain_task, correlation_id: str) -> str:
+        """El agente que ejecuta ESTE intento: el asignado, si sigue pudiendo. Si no (ya no está disponible), o si la
+        tarea no tenía asignación, se elige otro por la capacidad y se deja EXPLÍCITO y auditado (`task.assigned` /
+        `task.reassigned`): la ejecución nunca ocurre sin una asignación detrás ni con otro agente sin que conste."""
+        capability = domain_task.capability
+        assigned = db_task.assigned_agent_id
+        if assigned is not None and self._agent_manager.is_routable(assigned, capability):
+            return assigned
+        selected = self._agent_manager.select_agent(capability)
+        if assigned is None:
+            self._assignments.assign(
+                db_task,
+                selected.id,
+                actor="ceo",
+                reason="no assignment when the task was executed; selected by capability",
+                correlation_id=correlation_id,
+            )
+        else:
+            self._assignments.reassign(
+                db_task,
+                selected.id,
+                actor="ceo",
+                reason=f"assigned agent {assigned} is not routable for {capability}; selected by capability",
+                correlation_id=correlation_id,
+            )
+        domain_task.assigned_agent_id = selected.id
+        return selected.id
 
     def _execute_tasks(
         self,
@@ -193,18 +244,19 @@ class CEOOrchestrator:
                     db_task.output = {"synthesized": True}
                     continue
 
-                agent = self._agent_manager.select_agent(domain_task.capability)
+                agent_id = self._agent_for_attempt(db_task, domain_task, correlation_id)
+                logged_before = len(self._agent_manager.execution_log)
                 try:
-                    result = self._agent_manager.execute(agent.id, domain_task)
+                    result = self._agent_manager.execute(agent_id, domain_task)
                 except Exception as exc:  # noqa: BLE001 - any agent failure is retried/audited, never silent
-                    self._record_execution_log(correlation_id)
+                    self._record_execution(db_task, domain_task, logged_before, correlation_id)
                     retried_task = task_service.mark_failed(
                         domain_task.id, error=str(exc), max_retries=self._max_task_retries
                     )
                     db_task.status = retried_task.status.value
                     db_task.error = retried_task.error
                     self._audit(
-                        actor=agent.id,
+                        actor=agent_id,
                         action="task.retried" if retried_task.status == TaskStatus.PENDING else "task.failed",
                         resource=f"task:{db_task.id}",
                         before=None,
@@ -213,13 +265,13 @@ class CEOOrchestrator:
                     )
                     continue
 
-                self._record_execution_log(correlation_id)
+                self._record_execution(db_task, domain_task, logged_before, correlation_id)
                 task_service.mark_completed(domain_task.id, output=result.model_dump())
                 db_task.status = TaskStatus.COMPLETED.value
                 db_task.output = result.model_dump()
 
                 self._audit(
-                    actor=agent.id,
+                    actor=agent_id,
                     action="task.completed",
                     resource=f"task:{db_task.id}",
                     before=None,
@@ -401,19 +453,23 @@ class CEOOrchestrator:
             )
         )
 
-    def _record_execution_log(self, correlation_id: str) -> None:
-        """Persist the most recent AgentManager.execute() call's measured
-        duration/outcome, turning the descriptive latency_profile/
-        cost_profile fields on AgentDescriptor into real measurements."""
-        if not self._agent_manager.execution_log:
+    def _record_execution(
+        self, db_task: TaskModel, domain_task, logged_before: int, correlation_id: str
+    ) -> None:
+        """Persiste la medición de la ejecución que acaba de hacer `AgentManager.execute()`, vinculada a SU tarea (con
+        la foto de la asignación, el intento y las horas). Si la llamada no llegó a ejecutar nada (no hay ejecutor), no
+        hay nada que registrar: no se reutiliza la entrada de otra ejecución."""
+        log = self._agent_manager.execution_log
+        if len(log) <= logged_before:
             return
-        entry = self._agent_manager.execution_log[-1]
-        self._db.add(
-            AgentExecutionLogModel(
-                agent_id=entry["agent_id"],
-                capability=entry["capability"],
-                duration_ms=entry["duration_ms"],
-                success=entry["success"],
-                correlation_id=correlation_id,
-            )
+        entry = log[-1]
+        self._assignments.record_execution(
+            db_task,
+            executing_agent_id=entry["agent_id"],
+            success=entry["success"],
+            duration_ms=entry["duration_ms"],
+            started_at=entry.get("started_at"),
+            completed_at=entry.get("completed_at"),
+            attempt=domain_task.retry_count + 1,
+            correlation_id=correlation_id,
         )

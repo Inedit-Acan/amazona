@@ -5,7 +5,7 @@ import { DOMAINS, domainOfRole, type DomainKey } from "./nexus-domains.ts";
 import { readList, type ReadState } from "./read-state.ts";
 
 // LA ÚLTIMA MISIÓN REGISTRADA del Director ejecutivo y sus tareas (M47, Commit 4). Capa pura de datos: contratos de lectura, criterio de
-// «última», progreso, tareas relacionadas por capacidad y dependencias reales. No hay nada de demostración ni se escribe en el backend.
+// «última», progreso y dependencias reales. No hay nada de demostración ni se escribe en el backend.
 //
 // CRITERIO DE «ÚLTIMA MISIÓN» (verificado en el backend, sin metadatos inventados):
 //   · El ÚNICO sitio que crea un `Project` es `CEOOrchestrator.run_objective`, y solo se invoca desde `POST /api/objectives/{id}/run`.
@@ -110,14 +110,6 @@ export function taskProgress(tasks: Task[]): TaskProgress | null {
   if (relevant.length === 0) return null;
   const completed = relevant.filter((item) => item.status === "COMPLETED").length;
   return { total: relevant.length, completed, fraction: completed / relevant.length };
-}
-
-// --- Tareas relacionadas por capacidad (NO asignadas) -------------------------------------------------------------------------
-
-/** Las tareas cuya capacidad es una de las del agente. El backend NO expone qué agente ejecutó cada tarea (`Task` no trae `agent_id`): esto
- * es una CORRELACIÓN por capacidad, no una asignación, y así se rotula allí donde se enseña. */
-export function relatedTasks(agent: Agent, tasks: Task[]): Task[] {
-  return tasks.filter((item) => agent.capabilities.includes(item.capability));
 }
 
 // --- Dependencias reales (D-4-4) ----------------------------------------------------------------------------------------------

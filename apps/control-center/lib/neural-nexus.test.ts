@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Agent, AgentExecution } from "./api.ts";
+import type { Agent, AgentExecution, AgentRelation, Task } from "./api.ts";
 import { readAgentStatus } from "./agent-status.ts";
 import { CEO_ANCHOR, zoneAnchor } from "./decision-engine.ts";
 import { DOMAINS } from "./nexus-domains.ts";
@@ -178,20 +178,75 @@ test("buildGraph: una tarea FAILED NO marca a ningún agente como FAILED ni BLOQ
   assert.equal(nodes.find((n) => n.id === CORE_ID)?.status, "available");
 });
 
-test("buildGraph: la tarea se enseña como «relacionada por capacidad» en los agentes que tienen esa capacidad, con su procedencia derivada", () => {
-  const { nodes } = build({ tasks: [task("t", "FAILED", "financial_validation", { error: "boom" }), task("u", "COMPLETED", "market_validation")] });
-  const finance = nodes.find((n) => n.id === "a-finance")!;
-  assert.deepEqual(finance.relatedTasks?.map((t) => [t.name, t.status, t.error]), [["tarea t", "FAILED", "boom"]]);
-  assert.equal(finance.relatedBasis, "capability");
-  assert.equal(nodes.find((n) => n.id === "a-marketing")?.relatedTasks, undefined, "un agente sin capacidad en común no tiene tareas relacionadas");
-  assert.equal(nodes.find((n) => n.id === "a-product")?.relatedTasks?.[0].status, "COMPLETED");
+const withRelation = (item: Task, relation: AgentRelation): Task => ({ ...item, agent_relation: relation });
+const relationOf = (status: AgentRelation["status"], over: Partial<AgentRelation> = {}): AgentRelation => ({
+  status,
+  assigned_agent_id: null,
+  assigned_agent_known: null,
+  executed_by_agent_id: null,
+  reassigned: false,
+  executions: [],
+  ...over,
+});
+const ranBy = (agentId: string, assignedTo: string | null): AgentRelation["executions"][number] => ({
+  source: "execution_log",
+  execution_id: `e-${agentId}`,
+  agent_id: agentId,
+  agent_known: true,
+  success: true,
+  attempt: 1,
+  assigned_agent_id: assignedTo,
+  started_at: null,
+  completed_at: null,
+  created_at: "2026-10-20T10:00:00Z",
 });
 
-test("buildGraph: sin tareas leídas, ningún agente lleva tareas relacionadas (ni una lista vacía que parezca un hecho)", () => {
+test("buildGraph: un agente lleva las tareas que el backend le ASIGNÓ o que EJECUTÓ; compartir capacidad no basta", () => {
+  const assigned = withRelation(
+    task("t", "PENDING", "financial_validation"),
+    relationOf("ASSIGNED", { assigned_agent_id: "a-finance", assigned_agent_known: true }),
+  );
+  const sameCapabilityNoRelation = task("u", "COMPLETED", "financial_validation");
+  const { nodes } = build({ tasks: [assigned, sameCapabilityNoRelation] });
+
+  assert.deepEqual(nodes.find((n) => n.id === "a-finance")?.agentTasks?.map((t) => [t.id, t.assigned, t.executed]), [["t", true, false]]);
+  assert.equal(nodes.find((n) => n.id === "a-product")?.agentTasks, undefined);
+  assert.equal(nodes.find((n) => n.id === "a-marketing")?.agentTasks, undefined);
+});
+
+test("buildGraph: una desviación aparece en el agente que ejecutó y en el asignado, y la tarea FAILED no marca al agente", () => {
+  const deviated = withRelation(
+    task("t", "FAILED", "financial_validation", { error: "boom" }),
+    relationOf("MISMATCH", {
+      assigned_agent_id: "a-finance",
+      assigned_agent_known: true,
+      executed_by_agent_id: "a-product",
+      executions: [ranBy("a-product", "a-finance")],
+    }),
+  );
+  const { nodes } = build({ tasks: [deviated] });
+  const finance = nodes.find((n) => n.id === "a-finance")!;
+  const product = nodes.find((n) => n.id === "a-product")!;
+
+  assert.deepEqual([finance.agentTasks?.[0].deviation, finance.agentTasks?.[0].assigned, finance.agentTasks?.[0].executed], [true, true, false]);
+  assert.deepEqual([product.agentTasks?.[0].deviation, product.agentTasks?.[0].assigned, product.agentTasks?.[0].executed], [true, false, true]);
+  assert.equal(finance.agentTasks?.[0].state, "Desviación");
+  assert.equal(finance.agentTasks?.[0].error, "boom");
+  assert.equal(finance.status, "available");
+});
+
+test("buildGraph: sin tareas leídas, ningún agente lleva tareas (ni una lista vacía que parezca un hecho) y el núcleo no lleva las de la misión", () => {
   for (const tasks of [null, []]) {
     const { nodes } = build({ tasks });
-    for (const node of nodes.filter((n) => n.type === "agent")) assert.equal(node.relatedTasks, undefined, String(tasks));
+    for (const node of nodes.filter((n) => n.type === "agent")) assert.equal(node.agentTasks, undefined, String(tasks));
+    assert.equal(nodes.find((n) => n.id === CORE_ID)?.missionTasks, undefined, String(tasks));
   }
+});
+
+test("buildGraph: sin la relación del backend (un backend anterior) ningún agente recibe la tarea: ni por capacidad ni «sin asignar»", () => {
+  const { nodes } = build({ tasks: [task("t", "COMPLETED", "financial_validation")] });
+  for (const node of nodes.filter((n) => n.type === "agent")) assert.equal(node.agentTasks, undefined, node.id);
+  assert.equal(nodes.find((n) => n.id === CORE_ID)?.missionTasks?.[0].status, "UNAVAILABLE");
 });
 
 test("buildGraph: ningún nodo lleva campos de demostración (tarea, progreso, proyecto, coste, evaluación, isDemo)", () => {

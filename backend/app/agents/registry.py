@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from app.agents.base import AgentDescriptor, AgentStatus
@@ -44,6 +45,20 @@ class AgentRegistry:
         if agent is None:
             raise NotFoundError(f"agent {agent_id} not found")
         return agent
+
+
+@lru_cache
+def default_agent_registry() -> AgentRegistry:
+    """El registro de agentes del sistema, construido una vez y al primer uso (no al importar: ver `app/api/agents.py`).
+
+    Es la ÚNICA fuente de qué agentes existen: la lista de `/api/agents`, la validación de una asignación de tarea y
+    la lectura de la relación tarea ↔ agente salen de aquí. La tabla `agents` de la base de datos no es el registro."""
+    registry, _ = build_default_agent_manager()
+    return registry
+
+
+def known_agent_ids() -> frozenset[str]:
+    return frozenset(agent.id for agent in default_agent_registry().list_all())
 
 
 def build_default_agent_manager() -> tuple[AgentRegistry, AgentManager]:

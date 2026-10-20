@@ -350,7 +350,7 @@ export function NeuralNexusGraph({
           ? "Arrastra para orbitar, rueda para hacer zoom y haz clic en un nodo para ver su detalle."
           : "Haz clic en un nodo para ver su detalle. La vista 2D usa los mismos datos que la 3D."}{" "}
         Del backend: los {total} agentes del registro con su estado, su log de ejecuciones y la última misión registrada (proyecto, decisión y
-        tareas). Las tareas se enseñan como «relacionadas por capacidad»: el backend no registra qué agente ejecutó cada una.
+        tareas). Cada tarea se enseña con su agente asignado y el que la ejecutó, tal como lo registra el backend.
       </p>
     </div>
   );

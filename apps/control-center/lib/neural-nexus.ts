@@ -10,7 +10,8 @@ import {
   domainOfRole,
   type DomainKey,
 } from "./nexus-domains.ts";
-import { isFailedTask, relatedTasks, taskDependencyEdges, taskStatusText, type DomainDependency } from "./nexus-mission.ts";
+import { isFailedTask, taskDependencyEdges, type DomainDependency } from "./nexus-mission.ts";
+import { agentTaskRows, taskAgentRows, type TaskAgentRow } from "./task-agent.ts";
 
 // Modelo del grafo de agentes del Director ejecutivo («Neural Nexus»,
 // docs/design/KOVA_Neural_Nexus_especificacion_Claude_Code.md). Cuatro niveles:
@@ -21,8 +22,8 @@ import { isFailedTask, relatedTasks, taskDependencyEdges, taskStatusText, type D
 // Real: los agentes del registro con su estado, su log de ejecuciones y las tareas de la última misión registrada.
 //
 // M47 · Commit 4: nada de este grafo es de demostración y NINGÚN estado se infiere. El estado de un agente sale SOLO del registro
-// (`readAgentStatus`): ni una decisión ni una tarea FAILED lo cambian, porque el backend no registra qué agente ejecutó cada tarea (`Task`
-// no trae `agent_id`). Las tareas se enseñan como «relacionadas por capacidad» (una correlación, no una asignación). Las únicas aristas de
+// (`readAgentStatus`): ni una decisión ni una tarea FAILED lo cambian. M48 · Commit 7: las tareas de un agente son las que el backend dice que
+// tiene ASIGNADAS o que EJECUTÓ (`Task.agent_relation`, ver lib/task-agent.ts); ya no se emparejan por capacidad. Las únicas aristas de
 // dependencia son las de `Task.depends_on` de tareas reales. No hay coste por agente: el backend no lo registra.
 //
 // M47 · Commit 1: sin registro de agentes no hay agentes; sin ejecuciones leídas no hay métricas de ejecución; y un estado de registro que
@@ -64,16 +65,24 @@ export interface NodeMetrics {
   runs?: number;
 }
 
-/** Una tarea de la última misión cuya capacidad coincide con una de las del agente. */
-export interface RelatedTask {
+/** Una tarea de la última misión que ESTE agente tiene asignada o ejecutó, según la relación explícita del backend (`Task.agent_relation`). */
+export interface AgentTask {
   id: string;
   name: string;
   status: TaskStatus;
-  /** El estado de la tarea escrito para el usuario. */
-  statusText: string;
+  /** El estado escrito para el usuario: el de la tarea, o «Desviación», «Agente desconocido», «sin asignación registrada»… */
+  state: string;
+  relation: TaskAgentRow["status"];
+  tone: TaskAgentRow["tone"];
+  /** El agente la tiene asignada (la asignación vigente). */
+  assigned: boolean;
+  /** El agente la ejecutó (al menos una vez). */
+  executed: boolean;
+  deviation: boolean;
   /** La tarea está FAILED (un hecho de la tarea, no del agente). */
   failed: boolean;
   error: string | null;
+  note: string | null;
 }
 
 export interface GraphNode {
@@ -92,10 +101,11 @@ export interface GraphNode {
   metrics?: NodeMetrics;
   /** Lo que dice el registro de este agente, sin traducir (solo agentes). */
   registry?: AgentStatusReading;
-  /** Tareas de la última misión que comparten capacidad con el agente. CORRELACIÓN, no asignación: el backend no dice qué agente ejecutó cada
-   * tarea. Solo existe si hay alguna. */
-  relatedTasks?: RelatedTask[];
-  relatedBasis?: "capability";
+  /** Tareas de la última misión asignadas a este agente o ejecutadas por él (relación EXPLÍCITA del backend; nunca por capacidad). Solo
+   * existe si hay alguna. */
+  agentTasks?: AgentTask[];
+  /** Solo el núcleo: la relación tarea ↔ agente de TODAS las tareas de la última misión (si se leyeron). */
+  missionTasks?: TaskAgentRow[];
 }
 
 export interface GraphEdge {
@@ -254,6 +264,8 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     byAgent.set(execution.agent_id, [...(byAgent.get(execution.agent_id) ?? []), execution]);
   }
 
+  const taskRows = tasks === null ? null : taskAgentRows(tasks, agents);
+  const tasksById = new Map((tasks ?? []).map((item) => [item.id, item]));
   const agentNodes: GraphNode[] = [];
   const domainStatuses = new Map<DomainKey, NodeStatus[]>();
 
@@ -265,7 +277,7 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
       const runs = byAgent.get(slot.id) ?? [];
       const failures = runs.filter((run) => !run.success).length;
       const lastAt = runs.length > 0 ? Math.max(...runs.map((run) => parseUtc(run.created_at))) : undefined;
-      const related = tasks === null ? [] : relatedTasks(slot.agent, tasks);
+      const ownTasks = agentTaskRows(slot.id, taskRows ?? []);
       agentNodes.push({
         id: slot.id,
         type: "agent",
@@ -286,17 +298,25 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
                 latencyMs: runs.length > 0 ? runs.reduce((sum, run) => sum + run.duration_ms, 0) / runs.length : undefined,
               },
         registry,
-        ...(related.length > 0
+        ...(ownTasks.length > 0
           ? {
-              relatedTasks: related.map((item) => ({
-                id: item.id,
-                name: item.name,
-                status: item.status,
-                statusText: taskStatusText(item.status),
-                failed: isFailedTask(item),
-                error: item.error,
-              })),
-              relatedBasis: "capability" as const,
+              agentTasks: ownTasks.map((row) => {
+                const item = tasksById.get(row.taskId);
+                return {
+                  id: row.taskId,
+                  name: row.taskName,
+                  status: (item?.status ?? row.taskStatus) as TaskStatus,
+                  state: row.state,
+                  relation: row.status,
+                  tone: row.tone,
+                  assigned: row.assigned.id === slot.id,
+                  executed: row.executedBy?.id === slot.id,
+                  deviation: row.deviation,
+                  failed: item !== undefined && isFailedTask(item),
+                  error: item?.error ?? null,
+                  note: row.note,
+                };
+              }),
             }
           : {}),
       });
@@ -328,6 +348,7 @@ export function buildGraph(input: NexusInput): { nodes: GraphNode[]; edges: Grap
     icon: "core",
     // Solo lo que existe: la latencia media de las ejecuciones leídas.
     metrics: latencyMs === null ? undefined : { latencyMs },
+    ...(taskRows !== null && taskRows.length > 0 ? { missionTasks: taskRows } : {}),
   };
 
   const ceo: GraphNode = {

@@ -164,6 +164,49 @@ export interface Task {
   error: string | null;
   /** Los ids de las tareas de las que depende (las aristas reales del plan del CEO). El backend siempre los envía; la lectura del grafo lo exige. */
   depends_on?: string[];
+  /** La asignación VIGENTE (M48, Commit 7): el agente que debe ejecutar la tarea. `null` = sin asignar o del orquestador. NO es quién la ejecutó. */
+  assigned_agent_id?: string | null;
+  /** La relación tarea ↔ agente que calcula el backend: asignación, ejecuciones y qué decir de ellas. Ausente en un backend anterior. */
+  agent_relation?: AgentRelation;
+}
+
+/** ORCHESTRATOR (la resuelve el orquestador) · UNASSIGNED · ASSIGNED · MATCH (la ejecutó el asignado) · MISMATCH (otro agente: desviación) ·
+ * EXECUTED_UNASSIGNED (ejecutada sin asignación registrada, anterior al vínculo) · UNKNOWN_AGENT (el registro no conoce al agente) ·
+ * INCONSISTENT (los datos no cuadran). */
+export type AssignmentStatus =
+  | "ORCHESTRATOR"
+  | "UNASSIGNED"
+  | "ASSIGNED"
+  | "MATCH"
+  | "MISMATCH"
+  | "EXECUTED_UNASSIGNED"
+  | "UNKNOWN_AGENT"
+  | "INCONSISTENT";
+
+export interface ExecutionTrace {
+  /** `execution_log` (con vínculo explícito a la tarea) o `audit` (el evento `task.completed` de una misión anterior al vínculo). */
+  source: "execution_log" | "audit";
+  execution_id: string | null;
+  agent_id: string;
+  /** `false` = el registro de agentes no conoce a este agente. */
+  agent_known: boolean;
+  success: boolean | null;
+  attempt: number | null;
+  /** La asignación vigente cuando se ejecutó (la foto). */
+  assigned_agent_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface AgentRelation {
+  status: AssignmentStatus;
+  assigned_agent_id: string | null;
+  /** `null` sin asignación; `false` si el registro no conoce al agente asignado. */
+  assigned_agent_known: boolean | null;
+  executed_by_agent_id: string | null;
+  reassigned: boolean;
+  executions: ExecutionTrace[];
 }
 
 export interface Agent {
@@ -245,6 +288,12 @@ export interface AgentExecution {
   success: boolean;
   correlation_id: string;
   created_at: string;
+  /** El vínculo EXPLÍCITO con la tarea (M48, Commit 7), la foto de la asignación al ejecutar, el intento y las horas. `null` en lo anterior. */
+  task_id?: string | null;
+  assigned_agent_id?: string | null;
+  attempt?: number | null;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 /** De dónde salen los datos de un dominio externo (Milestone 30). `mock` son

@@ -61,21 +61,22 @@ test("el estado del nodo NO se infiere de una decisión ni de una tarea: el mode
   assert.match(model, /readAgentStatus\(/);
 });
 
-test("una tarea emparejada por capacidad NUNCA se rotula «asignada» ni «actual de <agente>»; se llama «relacionada» y dice por qué", () => {
+test("una tarea NUNCA se empareja con un agente por capacidad ni se rotula «Tarea actual»: la relación sale SOLO de `agent_relation` del backend", () => {
   for (const file of LAYER) {
     const source = code(file);
-    assert.doesNotMatch(source, /asignad[oa]s?|Tarea actual|tarea actual|assigned_agent/i, `${file} habla de asignación o de «tarea actual»`);
+    assert.doesNotMatch(source, /Tarea actual|tarea actual|relatedTasks|relatedBasis|por capacidad|relacionadas? con esta capacidad/i, `${file} vuelve a emparejar por capacidad`);
   }
-  const details = code(DETAILS);
-  assert.match(details, /Tarea[s]? relacionada[s]?/);
-  assert.match(details, /capacidad/i);
-  assert.match(details, /No registra qué agente|no registra qué agente/);
+  const model = code(MODEL);
+  assert.match(model, /agentTaskRows\(/);
+  assert.match(model, /taskAgentRows\(/);
+  assert.doesNotMatch(model, /\.capabilities\.includes\(/, "el modelo del grafo vuelve a comparar capacidades con tareas");
+  assert.match(code(DETAILS), /Tareas? de este agente/);
 });
 
-test("una tarea FAILED no marca a un agente: `relatedTasks`/`relatedBasis` informan, y ningún lugar traduce tareas a `status:` de nodo", () => {
+test("una tarea FAILED no marca a un agente: `agentTasks` informa, y ningún lugar traduce tareas a `status:` de nodo", () => {
   const model = code(MODEL);
-  assert.match(model, /relatedBasis: "capability"/);
-  assert.doesNotMatch(model, /\bstatus\b[^\n]*\brelated(Tasks)?\b/, "el estado de un nodo no se calcula con tareas relacionadas");
+  assert.match(model, /agentTasks/);
+  assert.doesNotMatch(model, /status.*agentTasks/, "el estado de un nodo no se calcula con las tareas del agente");
 });
 
 test("la confianza de la decisión NO alimenta el progreso: ni el núcleo de misión ni el estado ni el HUD la nombran", () => {

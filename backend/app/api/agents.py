@@ -3,7 +3,7 @@ from functools import lru_cache
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.agents.registry import AgentRegistry, build_default_agent_manager
+from app.agents.registry import AgentRegistry, default_agent_registry
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -18,8 +18,7 @@ def _agent_registry() -> AgentRegistry:
     whichever agent happened to be built first instead of the one the startup
     check gives (Milestone 30).
     """
-    registry, _ = build_default_agent_manager()
-    return registry
+    return default_agent_registry()
 
 
 class AgentOut(BaseModel):

@@ -1,3 +1,4 @@
+import datetime
 import time
 
 from pydantic import ValidationError
@@ -41,11 +42,25 @@ class AgentManager:
         candidates.sort(key=lambda agent: (-agent.reliability_score, _simulated_cost(agent), agent.id))
         return candidates[0]
 
+    def agent_ids(self) -> frozenset[str]:
+        """Los agentes que el registro conoce (existan o no puedan ejecutar ahora)."""
+        return frozenset(agent.id for agent in self._registry.list_all())
+
+    def is_routable(self, agent_id: str, capability: str) -> bool:
+        """¿Puede `agent_id` ejecutar `capability` ahora? La misma regla que `select_agent`: está en el registro, tiene
+        la capacidad y está disponible. Sirve para comprobar que el agente ASIGNADO a una tarea sigue pudiendo
+        ejecutarla antes de reintentar con él."""
+        return any(
+            agent.id == agent_id and agent.status == AgentStatus.AVAILABLE
+            for agent in self._registry.find_by_capability(capability)
+        )
+
     def execute(self, agent_id: str, task: Task) -> AgentResult:
         executor = self._executors.get(agent_id)
         if executor is None:
             raise NotFoundError(f"no executor registered for agent {agent_id}")
 
+        started_at = datetime.datetime.now(datetime.UTC)
         start = time.perf_counter()
         success = False
         try:
@@ -76,5 +91,7 @@ class AgentManager:
                     "capability": task.capability,
                     "duration_ms": (time.perf_counter() - start) * 1000,
                     "success": success,
+                    "started_at": started_at,
+                    "completed_at": datetime.datetime.now(datetime.UTC),
                 }
             )

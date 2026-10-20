@@ -23,6 +23,8 @@ import {
   serviceSummary,
   statusKpis,
 } from "@/lib/status-view";
+import type { TaskAgentPanel } from "@/lib/task-agent-reads";
+import { TaskAgentCard } from "@/components/task-agent-list";
 import { DataProvenanceBadge } from "@/components/data-provenance-badge";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
@@ -75,6 +77,7 @@ export function StatusWorkspace({
   pipelineRuns,
   apiUsage,
   failures,
+  taskAgents,
   now,
 }: {
   signal: HealthSignal;
@@ -92,6 +95,8 @@ export function StatusWorkspace({
   apiUsage: ApiProviderUsage[] | null;
   /** Un aviso por cada lectura que falló (vacío = todas leídas). */
   failures: string[];
+  /** La relación tarea ↔ agente de la última misión (una lectura aparte: su fallo se dice en su tarjeta, no es «sin tareas»). */
+  taskAgents: TaskAgentPanel;
   now: number;
 }) {
   // El runtime y el coste de agentes solo se enseñan si se LEYERON los agentes y su log. Con una lectura caída no hay ni cifras ni demostración.
@@ -235,6 +240,10 @@ export function StatusWorkspace({
           <JobRuntimeCard jobs={jobs} now={now} />
           <PipelineRunsCard runs={pipelineRuns} />
         </div>
+      </section>
+
+      <section aria-label="Tareas y agentes de la última misión">
+        <TaskAgentCard panel={taskAgents} />
       </section>
 
       <section className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-12" aria-label="Métricas, integraciones y base de datos">
