@@ -40,9 +40,12 @@ class CFOAgent(Agent):
         evidence: list[str] = []
 
         if params.total_budget_hard_limit > 0:
-            budget_utilization = (
-                params.total_reserved + params.total_committed + params.total_spent
-            ) / params.total_budget_hard_limit
+            # Uso = reservado + comprometido, sobre el techo: la misma cuenta del motor (`disponible = techo - reservado
+            # - comprometido`) y de `GET /api/budget`. Lo gastado NO se suma: un COMMIT ya lo mueve a `committed` y a
+            # `spent` a la vez, y sumarlo otra vez contaba el gasto dos veces (un comprometido de 50 sobre un techo de
+            # 100 daba 1,00).
+            used = params.total_reserved + params.total_committed
+            budget_utilization = used / params.total_budget_hard_limit
         else:
             budget_utilization = None
             risks.append(

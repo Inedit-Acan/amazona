@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.budgets.service import BudgetLedgerService
 from app.cfo.service import CFOService
 from app.db.base import Base
 from app.db.models.audit import AuditLog
@@ -171,7 +172,73 @@ def test_aggregates_campaigns_and_budgets(db_session: Session):
     assert report.data["active_campaigns"] == 1
     assert report.data["total_daily_budget"] == 25.0
     assert report.data["total_budget_hard_limit"] == 1000.0
-    assert report.data["budget_utilization"] == pytest.approx(0.175)
+    # Uso = reservado + comprometido = 100 + 50 = 150 de 1000. Lo gastado (25) se informa aparte y no se suma.
+    assert report.data["budget_utilization"] == pytest.approx(0.15)
+    assert report.data["total_spent"] == 25.0
+
+
+def _allocation(db_session: Session, *, hard_limit: float, reserved: float, committed: float, spent: float) -> None:
+    budget = Budget(name="orchestrator-default", hard_limit=hard_limit, period="monthly")
+    db_session.add(budget)
+    db_session.commit()
+    db_session.add(BudgetAllocation(budget_id=budget.id, reserved=reserved, committed=committed, spent=spent))
+    db_session.commit()
+
+
+@pytest.mark.parametrize("spent", [0.0, 7.0, 40.0, 999.0])
+def test_a_report_does_not_change_its_budget_utilization_when_only_spent_changes(db_session: Session, spent: float):
+    _allocation(db_session, hard_limit=100.0, reserved=25.0, committed=40.0, spent=spent)
+
+    report = CFOService(db_session).run_generation(correlation_id=f"corr-cfo-spent-{spent}")
+
+    assert report.data["budget_utilization"] == pytest.approx(0.65)
+    assert report.data["total_spent"] == spent
+
+
+def test_the_report_uses_the_same_used_amount_as_the_live_budget_summary(db_session: Session):
+    """El informe y `GET /api/budget` (`BudgetLedgerService.summary()`) dicen lo mismo: uso = techo − disponible."""
+    ledger = BudgetLedgerService(db_session)
+    ledger.authorise_budget(hard_limit=100.0, actor="test")
+    assert ledger.reserve(amount=40.0, reference="approval:a")
+    assert ledger.record_commit(amount=40.0, reference="approval:a")
+    assert ledger.reserve(amount=25.0, reference="approval:b")
+    db_session.commit()
+
+    summary = ledger.summary()
+    report = CFOService(db_session).run_generation(correlation_id="corr-cfo-live")
+
+    assert summary is not None
+    assert summary.remaining == 35
+    used = summary.hard_limit - summary.remaining
+    assert report.data["budget_utilization"] == pytest.approx(float(used / summary.hard_limit))
+    assert report.data["budget_utilization"] == pytest.approx(0.65)  # y no 1,05
+
+
+def test_the_real_budget_after_the_second_mission_is_fully_used_not_twice_used(db_session: Session):
+    """Techo 1,00, reservado 0, comprometido 1,00, gastado 1,00 (el presupuesto real de Supabase): uso 1,00, no 2,00."""
+    ledger = BudgetLedgerService(db_session)
+    ledger.authorise_budget(hard_limit=1.0, actor="test")
+    assert ledger.reserve(amount=1.0, reference="approval:a")
+    assert ledger.record_commit(amount=1.0, reference="approval:a")
+    db_session.commit()
+
+    report = CFOService(db_session).run_generation(correlation_id="corr-cfo-real")
+
+    assert report.data["budget_utilization"] == pytest.approx(1.0)
+    assert report.data["total_committed"] == 1.0
+    assert report.data["total_spent"] == 1.0
+
+
+def test_half_the_budget_committed_does_not_make_the_report_at_risk(db_session: Session):
+    product = _make_product(db_session)
+    quote = _make_quote(db_session, product)
+    _make_economic_analysis(db_session, product, quote, "GO", "corr-econ-half")
+    _allocation(db_session, hard_limit=100.0, reserved=0.0, committed=50.0, spent=50.0)
+
+    report = CFOService(db_session).run_generation(correlation_id="corr-cfo-half")
+
+    assert report.data["budget_utilization"] == pytest.approx(0.5)
+    assert report.financial_health_status == "HEALTHY"
 
 
 def test_run_generation_audits_the_run(db_session: Session):

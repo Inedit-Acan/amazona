@@ -129,6 +129,7 @@ def test_cfo_report_reflects_real_budget_utilization_after_approval(app_fixture)
     assert cfo_report["data"]["total_budget_hard_limit"] == 100_000.0
     assert cfo_report["data"]["total_committed"] == 150.0
     assert cfo_report["data"]["total_spent"] == 150.0
-    # CFOAgent sums reserved + committed + spent; record_commit mirrors
-    # BudgetEngine.commit(), which moves the amount into both simultaneously.
-    assert cfo_report["data"]["budget_utilization"] == pytest.approx((150.0 + 150.0) / 100_000.0)
+    # Uso = reservado + comprometido (0 + 150) sobre el techo. record_commit refleja BudgetEngine.commit(), que mueve el
+    # importe a `committed` y a `spent` a la vez: sumar `spent` otra vez contaba el gasto dos veces (antes:
+    # 300 / 100 000).
+    assert cfo_report["data"]["budget_utilization"] == pytest.approx(150.0 / 100_000.0)
