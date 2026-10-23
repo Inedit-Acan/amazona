@@ -1,3 +1,5 @@
+import time
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -41,6 +43,7 @@ from app.api.validation_body import safe_validation_errors
 from app.approvals.service import ApprovalNotPendingError
 from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
+from app.core.db_health import log_db_health_failure
 from app.core.errors import (
     ConflictError,
     IdempotencyConflictError,
@@ -195,9 +198,12 @@ def health_ready(db: Session = Depends(get_db)) -> JSONResponse:
     nothing else — no version, no environment, no providers. It exists so that
     /health/detailed could stop being public without leaving the infrastructure
     without a probe."""
+    started = time.perf_counter()
     try:
         db.execute(text("SELECT 1"))
-    except Exception:  # noqa: BLE001 - unreachable database is the whole question here
+    except Exception as exc:  # noqa: BLE001 - unreachable database is the whole question here
+        # El cliente recibe el mismo 503 genérico; el motivo queda solo en el log, sin secretos (core/db_health.py).
+        log_db_health_failure("GET /health/ready", exc, started)
         return JSONResponse(status_code=503, content={"status": "degraded"})
     return JSONResponse(content={"status": "ok"})
 
@@ -214,9 +220,11 @@ def health_detailed(
     environment and the list of simulated domains describe the deployment —
     including where its data is invented — closely enough that it should not be
     readable by anyone who can reach the port. Use /health/ready for probes."""
+    started = time.perf_counter()
     try:
         db.execute(text("SELECT 1"))
-    except Exception:  # noqa: BLE001 - only a failure to reach the DB at all means "database unreachable"
+    except Exception as exc:  # noqa: BLE001 - only a failure to reach the DB at all means "database unreachable"
+        log_db_health_failure("GET /health/detailed", exc, started)
         return JSONResponse(
             status_code=503,
             content={"database": "error", "migration": None, "supabase_configured": settings.is_supabase_configured},
