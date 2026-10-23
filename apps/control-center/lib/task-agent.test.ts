@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Agent, AgentRelation, AssignmentStatus, ExecutionTrace, Task } from "./api.ts";
-import { agentTaskRows, taskAgentRows, TASK_AGENT_UNAVAILABLE_LABEL, UNKNOWN_AGENT_LABEL } from "./task-agent.ts";
+import type { Agent, AgentRelation, AssignmentStatus, ExecutionTrace, RecoveryKind, Task, TaskRecovery } from "./api.ts";
+import { agentTaskRows, recoveryOf, taskAgentRows, TASK_AGENT_UNAVAILABLE_LABEL, UNKNOWN_AGENT_LABEL } from "./task-agent.ts";
 
 // La relación TAREA ↔ AGENTE en pantalla (M48, Commit 7). La relación la calcula el backend (`agent_relation`); aquí solo se escribe. Lo que
 // estas pruebas fijan: asignación ≠ ejecución (nunca se funden), un agente que el registro no conoce se dice «Agente desconocido» (nunca
@@ -320,4 +320,116 @@ test("un agente que ejecutó una tarea ASIGNADA a otro también la ve: la desvia
 test("el orden de las filas es el de las tareas que llegan: no se reordena por agente ni por nombre", () => {
   const rows = taskAgentRows([task("z"), task("a"), task("m")], AGENTS);
   assert.deepEqual(rows.map((row) => row.taskId), ["z", "a", "m"]);
+});
+
+// --- M49 · Commit 8: fallo, reintento, bloqueo y reasignación ------------------------------------------------------------------------
+
+const recovery = (kind: RecoveryKind, over: Partial<TaskRecovery> = {}): TaskRecovery => ({
+  kind,
+  can_retry: kind === "recoverable",
+  attempts_current_assignment: 1,
+  max_attempts_per_assignment: 3,
+  attempts_total: 1,
+  max_attempts_per_task: 6,
+  next_attempt: 2,
+  ...over,
+});
+
+const failedTrace = (attempt: number, agentId = "agent-product-1") =>
+  trace(agentId, { attempt, success: false, assigned_agent_id: agentId, execution_id: `e-${attempt}` });
+
+const MATCHED = (executions: ExecutionTrace[], over: Partial<AgentRelation> = {}) =>
+  relation("MATCH", { assigned_agent_id: "agent-product-1", assigned_agent_known: true, executions, ...over });
+
+test("M49 · una tarea fallida con intentos disponibles dice «Fallida · reintento posible» y se pinta en rojo", () => {
+  const row = rowOf(task("t", { status: "FAILED", assigned_agent_id: "agent-product-1", agent_relation: MATCHED([failedTrace(1)]), recovery: recovery("recoverable") }));
+  assert.equal(row.state, "Fallida · reintento posible");
+  assert.equal(row.tone, "bad");
+  assert.equal(row.recoveryKind, "recoverable");
+  assert.equal(row.failedAttempts, 1);
+});
+
+test("M49 · un agente que gastó sus intentos pide reasignación y un fallo definitivo se dice definitivo (no se pide reintentar)", () => {
+  const executions = [failedTrace(1), failedTrace(2), failedTrace(3)];
+  const base = { status: "FAILED" as const, assigned_agent_id: "agent-product-1", agent_relation: MATCHED(executions) };
+  assert.equal(rowOf(task("a", { ...base, recovery: recovery("reassign_required") })).state, "Fallida · requiere reasignación");
+  assert.equal(rowOf(task("b", { ...base, recovery: recovery("definitive") })).state, "Fallida · definitiva");
+});
+
+test("M49 · una tarea fallida de un backend que aún no envía `recovery` sigue diciendo solo «Fallida»", () => {
+  const row = rowOf(task("t", { status: "FAILED", agent_relation: MATCHED([failedTrace(1)]) }));
+  assert.equal(row.state, "Fallida");
+  assert.equal(row.recoveryKind, null);
+});
+
+test("M49 · una tarea pendiente que ya tuvo un intento fallido es «Reintentando»; una que nunca se ejecutó, «Pendiente»", () => {
+  const retrying = rowOf(task("a", { status: "PENDING", agent_relation: MATCHED([failedTrace(1)]) }));
+  assert.equal(retrying.state, "Reintentando");
+  const waiting = rowOf(task("b", { status: "PENDING", agent_relation: relation("ASSIGNED", { assigned_agent_id: "agent-product-1", assigned_agent_known: true }) }));
+  assert.equal(waiting.state, "Pendiente");
+});
+
+test("M49 · una tarea bloqueada dice «Bloqueada» (no «Pendiente») y se pinta en ámbar; el agente desconocido manda sobre el bloqueo", () => {
+  const blocked = rowOf(
+    task("a", {
+      status: "BLOCKED",
+      agent_relation: relation("ASSIGNED", { assigned_agent_id: "agent-supplier-1", assigned_agent_known: true }),
+      recovery: recovery("blocked", { attempts_current_assignment: 0, attempts_total: 0, next_attempt: 1 }),
+    }),
+  );
+  assert.equal(blocked.state, "Bloqueada");
+  assert.equal(blocked.tone, "warn");
+  const unknown = rowOf(
+    task("b", {
+      status: "BLOCKED",
+      assigned_agent_id: "agent-ghost-9",
+      agent_relation: relation("UNKNOWN_AGENT", { assigned_agent_id: "agent-ghost-9", assigned_agent_known: false }),
+      recovery: recovery("unknown_agent"),
+    }),
+  );
+  assert.equal(unknown.state, UNKNOWN_AGENT_LABEL);
+  assert.equal(unknown.tone, "bad");
+});
+
+test("M49 · tras una reasignación el agente asignado es el nuevo, el que ejecutó sigue siendo el anterior, y se dice «Reasignada»", () => {
+  const row = rowOf(
+    task("t", {
+      status: "FAILED",
+      assigned_agent_id: "agent-supplier-1",
+      agent_relation: relation("ASSIGNED", {
+        assigned_agent_id: "agent-supplier-1",
+        assigned_agent_known: true,
+        reassigned: true,
+        executions: [failedTrace(1), failedTrace(2)],
+      }),
+      recovery: recovery("recoverable", { attempts_current_assignment: 0, attempts_total: 2, next_attempt: 3 }),
+    }),
+  );
+  assert.equal(row.assigned.label, "Supplier Sourcing Agent");
+  assert.equal(row.executedBy?.label, "Product Validation Agent");
+  assert.match(row.note ?? "", /Reasignada/);
+  assert.match(row.note ?? "", /2 intentos \(2 fallidos\)/);
+  assert.equal(row.deviation, false);
+});
+
+test("M49 · una desviación sigue diciendo «Desviación» aunque la tarea haya fallado", () => {
+  const deviant = trace("agent-supplier-1", { attempt: 1, success: false, assigned_agent_id: "agent-product-1" });
+  const row = rowOf(task("t", { status: "FAILED", assigned_agent_id: "agent-product-1", agent_relation: relation("MISMATCH", { assigned_agent_id: "agent-product-1", assigned_agent_known: true, executions: [deviant] }), recovery: recovery("mismatch") }));
+  assert.equal(row.state, "Desviación");
+  assert.equal(row.deviation, true);
+});
+
+test("M49 · `recoveryOf` solo acepta el contrato completo: un tipo desconocido, un recuento negativo o un campo que falta es «sin dato»", () => {
+  assert.equal(recoveryOf(task("a", { recovery: recovery("recoverable") }))?.kind, "recoverable");
+  assert.equal(recoveryOf(task("b")), null);
+  assert.equal(recoveryOf(task("c", { recovery: { ...recovery("recoverable"), kind: "retry_now" as never } })), null);
+  assert.equal(recoveryOf(task("d", { recovery: { ...recovery("recoverable"), attempts_total: -1 } })), null);
+  assert.equal(recoveryOf(task("e", { recovery: { ...recovery("recoverable"), can_retry: "yes" as never } })), null);
+  assert.equal(recoveryOf(task("f", { recovery: { kind: "none" } as never })), null);
+});
+
+test("M49 · la fila no inventa un reintento ni una reasignación: sin `recovery` válido solo cuenta lo que dice la relación", () => {
+  const row = rowOf(task("t", { status: "FAILED", recovery: { ...recovery("recoverable"), kind: "retry_now" as never }, agent_relation: MATCHED([failedTrace(1)]) }));
+  assert.equal(row.state, "Fallida");
+  assert.equal(row.recoveryKind, null);
 });

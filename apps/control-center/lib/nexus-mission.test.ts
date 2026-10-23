@@ -11,6 +11,7 @@ import {
   readMission,
   taskDependencyEdges,
   taskProgress,
+  taskStatusText,
   tasksContract,
 } from "./nexus-mission.ts";
 import type { ReadState } from "./read-state.ts";
@@ -69,11 +70,19 @@ test("decisiones: estado desconocido o evidencias que no son una lista rompen la
   assert.equal(decisionsContract(asLoaded([decision("p1")])).kind, "loaded");
 });
 
-test("tareas: estado desconocido (incluido BLOCKED, que el backend no envía), capacidad vacía o `depends_on` que no es una lista rompen la lectura", () => {
-  for (const over of [{ status: "BLOCKED" as never }, { status: "DONE" as never }, { capability: "" }, { depends_on: "x" as never }, { depends_on: undefined as never }, { id: "" }]) {
+test("tareas: un estado desconocido, una capacidad vacía o un `depends_on` que no es una lista rompen la lectura", () => {
+  for (const over of [{ status: "DONE" as never }, { status: "ASSIGNED" as never }, { capability: "" }, { depends_on: "x" as never }, { depends_on: undefined as never }, { id: "" }]) {
     assert.match(bad(tasksContract(asLoaded([task("t1", "COMPLETED"), task("t2", "PENDING", "x", over)]))), /tareas/, JSON.stringify(over));
   }
   assert.equal(tasksContract(asLoaded([task("t1", "COMPLETED")])).kind, "loaded");
+});
+
+test("tareas: BLOCKED es un estado que el backend SÍ envía (M49): se lee, y se llama «Bloqueada»", () => {
+  // Si el contrato lo rechazase, una sola tarea bloqueada convertiría toda la lista de la misión en un error.
+  const state = tasksContract(asLoaded([task("t1", "FAILED"), task("t2", "BLOCKED"), task("t3", "BLOCKED")]));
+  assert.equal(state.kind, "loaded");
+  assert.equal(taskStatusText("BLOCKED"), "Bloqueada");
+  assert.equal(taskStatusText("FAILED"), "Fallida");
 });
 
 // --- Progreso (D-4-2) ------------------------------------------------------------------------------------------------------
@@ -244,7 +253,7 @@ test("readMission: proyecto sin decisión ⇒ `empty` de la decisión (un hecho)
 });
 
 test("readMission: contrato roto en una tarea ⇒ error de tareas; en un proyecto ⇒ error de proyectos", async () => {
-  const brokenTask = await readMission(fakeMissionSource({ projects: [project("p1")], tasks: { p1: [task("t1", "BLOCKED" as never)] } }));
+  const brokenTask = await readMission(fakeMissionSource({ projects: [project("p1")], tasks: { p1: [task("t1", "DONE" as never)] } }));
   assert.equal(brokenTask.tasks.kind, "error");
   const brokenProject = await readMission(fakeMissionSource({ projects: [project("p1", 5, { name: "" })] }));
   assert.equal(brokenProject.projects.kind, "error");

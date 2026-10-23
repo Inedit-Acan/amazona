@@ -232,7 +232,13 @@ def test_a_reassignment_is_reported_with_the_current_assignment(client, factory)
 
     assert relation["reassigned"] is True
     assert relation["assigned_agent_id"] == "agent-supplier-1"
-    assert relation["status"] == "MISMATCH", "la ejecución anterior fue de otro agente: no se reescribe"
+    # M49: la ejecución anterior fue legítima para la asignación de SU momento (agent-product-1). Una
+    # reasignación posterior no la convierte en una desviación: la tarea queda asignada al agente nuevo a la
+    # espera de un intento suyo. La ejecución antigua no se reescribe (sigue con su foto) y una desviación de
+    # verdad sigue siendo MISMATCH (test anterior).
+    assert relation["status"] == "ASSIGNED"
+    assert [e["agent_id"] for e in relation["executions"]] == ["agent-product-1"]
+    assert relation["executions"][0]["assigned_agent_id"] == "agent-product-1"
 
 
 def test_the_executions_endpoint_adds_the_link_to_the_task_without_removing_anything(client, factory):

@@ -28,11 +28,13 @@ from app.memory.service import MemoryService
 from app.permissions.engine import PermissionEngine
 from app.permissions.policies import ActionType, PermissionResult
 from app.tasks.assignment import ORCHESTRATOR_CAPABILITIES, TaskAssignmentService
+from app.tasks.lifecycle import ensure_transition
+from app.tasks.policy import DEFAULT_MAX_TASK_RETRIES
+from app.tasks.recovery import TaskRecoveryService
 from app.tasks.schemas import TaskStatus
 from app.tasks.service import TaskService
 
 SPECIALIST_TASK_NAMES = ["product_validation", "supplier_sourcing", "finance_validation", "legal_validation"]
-DEFAULT_MAX_TASK_RETRIES = 2
 
 _PROJECT_STATUS_BY_DECISION = {
     DecisionStatus.GO: "APPROVED",
@@ -79,7 +81,10 @@ class CEOOrchestrator:
         self._memory = MemoryService(db)
         # La asignación y la ejecución de cada tarea las registra el servicio de asignación: UNA sola implementación
         # (M48, Commit 7).
-        self._assignments = TaskAssignmentService(db, agent_manager.agent_ids())
+        self._assignments = TaskAssignmentService(db, agent_manager.agent_ids(), agent_manager.capabilities_by_agent())
+        # La recuperación (bloqueo por dependencias, hechos de cada intento) es del mismo servicio que usa el reintento
+        # explícito: una sola implementación (M49, Commit 8).
+        self._recovery = TaskRecoveryService(db, agent_manager)
 
     def run_objective(self, objective_id: str) -> DecisionModel:
         correlation_id = new_correlation_id()
@@ -96,7 +101,12 @@ class CEOOrchestrator:
         outputs = {
             name: task_service.get_task(name_to_domain_id[name]).output or {} for name in SPECIALIST_TASK_NAMES
         }
-        decision = self._synthesize_decision(project, context, outputs, correlation_id)
+        missing = {
+            name: task_service.get_task(name_to_domain_id[name]).status.value
+            for name in SPECIALIST_TASK_NAMES
+            if task_service.get_task(name_to_domain_id[name]).status != TaskStatus.COMPLETED
+        }
+        decision = self._synthesize_decision(project, context, outputs, correlation_id, missing)
         self._maybe_create_approval(decision, context, correlation_id)
 
         project.status = _PROJECT_STATUS_BY_DECISION[DecisionStatus(decision.status)]
@@ -227,6 +237,7 @@ class CEOOrchestrator:
         name_to_db_id: dict[str, str],
         correlation_id: str,
     ) -> None:
+        domain_by_db_id = {name_to_db_id[name]: name_to_domain_id[name] for name in name_to_db_id}
         while True:
             runnable = task_service.get_runnable_tasks(project.id)
             if not runnable:
@@ -235,16 +246,32 @@ class CEOOrchestrator:
             for domain_task in runnable:
                 db_task = self._db.get(TaskModel, name_to_db_id[domain_task.name])
                 assert db_task is not None, f"task row for {domain_task.name!r} was not created"
-                task_service.mark_running(domain_task.id)
-                db_task.status = TaskStatus.RUNNING.value
 
                 if domain_task.capability == "decision_synthesis":
+                    task_service.mark_running(domain_task.id)
+                    db_task.status = ensure_transition(db_task.status, TaskStatus.RUNNING).value
                     task_service.mark_completed(domain_task.id, output={"synthesized": True})
-                    db_task.status = TaskStatus.COMPLETED.value
+                    db_task.status = ensure_transition(db_task.status, TaskStatus.COMPLETED).value
                     db_task.output = {"synthesized": True}
                     continue
 
+                # Un agente asignado que el registro ya no conoce NO se sustituye por otro de la
+                # misma capacidad: la tarea se bloquea hasta que alguien con autoridad la reasigne
+                # (un agente conocido pero no disponible sí lo resuelve el propio orquestador, de
+                # forma explícita y auditada: `_agent_for_attempt`).
+                assigned = db_task.assigned_agent_id
+                if assigned is not None and assigned not in self._agent_manager.agent_ids():
+                    self._recovery.block_task(
+                        db_task, reason="unknown_agent", correlation_id=correlation_id, agent_id=assigned
+                    )
+                    task_service.mark_blocked(domain_task.id)
+                    self._block_dependents(task_service, db_task, domain_by_db_id, correlation_id)
+                    continue
+
                 agent_id = self._agent_for_attempt(db_task, domain_task, correlation_id)
+                attempt = domain_task.retry_count + 1
+                task_service.mark_running(domain_task.id)
+                self._recovery.start_attempt(db_task, agent_id, attempt, correlation_id=correlation_id)
                 logged_before = len(self._agent_manager.execution_log)
                 try:
                     result = self._agent_manager.execute(agent_id, domain_task)
@@ -253,22 +280,31 @@ class CEOOrchestrator:
                     retried_task = task_service.mark_failed(
                         domain_task.id, error=str(exc), max_retries=self._max_task_retries
                     )
-                    db_task.status = retried_task.status.value
+                    db_task.status = ensure_transition(db_task.status, TaskStatus.FAILED).value
                     db_task.error = retried_task.error
+                    db_task.completed_at = datetime.datetime.now(datetime.UTC)
+                    self._recovery.record_failure(db_task, agent_id, attempt, str(exc), correlation_id)
+                    will_retry = retried_task.status == TaskStatus.PENDING
+                    if will_retry:
+                        db_task.status = ensure_transition(db_task.status, TaskStatus.PENDING).value
                     self._audit(
                         actor=agent_id,
-                        action="task.retried" if retried_task.status == TaskStatus.PENDING else "task.failed",
+                        action="task.retried" if will_retry else "task.failed",
                         resource=f"task:{db_task.id}",
                         before=None,
                         after={"error": str(exc), "retry_count": retried_task.retry_count},
                         correlation_id=correlation_id,
                     )
+                    if not will_retry:
+                        self._block_dependents(task_service, db_task, domain_by_db_id, correlation_id)
                     continue
 
                 self._record_execution(db_task, domain_task, logged_before, correlation_id)
                 task_service.mark_completed(domain_task.id, output=result.model_dump())
-                db_task.status = TaskStatus.COMPLETED.value
+                db_task.status = ensure_transition(db_task.status, TaskStatus.COMPLETED).value
                 db_task.output = result.model_dump()
+                db_task.error = None  # un error de un intento anterior no se queda en una tarea que acabó bien
+                db_task.completed_at = datetime.datetime.now(datetime.UTC)
 
                 self._audit(
                     actor=agent_id,
@@ -293,8 +329,27 @@ class CEOOrchestrator:
                     )
                 )
 
+    def _block_dependents(
+        self,
+        task_service: TaskService,
+        db_task: TaskModel,
+        domain_by_db_id: dict[str, str],
+        correlation_id: str,
+    ) -> None:
+        """Lo que depende de una tarea que no va a completarse queda BLOQUEADO (en la base y en el grafo en memoria): ni
+        arranca ni se completa por arrastre."""
+        for child in self._recovery.block_dependents(db_task, correlation_id):
+            domain_id = domain_by_db_id.get(child.id)
+            if domain_id is not None:
+                task_service.mark_blocked(domain_id)
+
     def _synthesize_decision(
-        self, project: ProjectModel, context: dict, outputs: dict[str, dict], correlation_id: str
+        self,
+        project: ProjectModel,
+        context: dict,
+        outputs: dict[str, dict],
+        correlation_id: str,
+        missing: dict[str, str] | None = None,
     ) -> DecisionModel:
         # `.get(...)` throughout: a task that permanently failed after
         # exhausting its retries never produced output, so its entry in
@@ -309,6 +364,9 @@ class CEOOrchestrator:
         confidence = min(o.get("confidence", 0.0) for o in outputs.values())
         legal_status = legal_output.get("data", {}).get("legal_status", "CLEAR")
         finance_veto = bool(finance_output.get("data", {}).get("finance_veto", False))
+
+        if missing:
+            return self._incomplete_decision(project, outputs, correlation_id, missing)
 
         requests_spend = bool(context.get("requests_simulated_spend", False))
         human_stop = bool(context.get("human_stop", False))
@@ -360,6 +418,56 @@ class CEOOrchestrator:
             resource=f"decision:{decision.id}",
             before=None,
             after={"status": decision.status},
+            correlation_id=correlation_id,
+        )
+        self._event_bus.publish(
+            Event(
+                type="decision.made",
+                correlation_id=correlation_id,
+                payload={"decision_id": decision.id, "status": decision.status},
+            )
+        )
+        return decision
+
+    def _incomplete_decision(
+        self, project: ProjectModel, outputs: dict[str, dict], correlation_id: str, missing: dict[str, str]
+    ) -> DecisionModel:
+        """Una tarea necesaria no se completó (FALLÓ o está BLOQUEADA): no hay base para decidir GO ni NO_GO, y NO se
+        inventa una evaluación con datos que faltan (nada de «sin veto legal» porque el análisis legal no existe). La
+        decisión es REVIEW y dice, en su motivo, qué tareas faltan y en qué estado están. Sin pruebas para lo que no
+        se hizo."""
+        detail = ", ".join(f"{name}({status})" for name, status in sorted(missing.items()))
+        decision = DecisionModel(
+            project_id=project.id,
+            status=DecisionStatus.REVIEW.value,
+            opportunity_score=0.0,
+            confidence=0.0,
+            rationale=f"incomplete_mission: required tasks not completed: {detail}",
+            correlation_id=correlation_id,
+        )
+        self._db.add(decision)
+        self._db.flush()
+        for name, output in outputs.items():
+            if name in missing:
+                continue
+            self._db.add(
+                DecisionEvidenceModel(
+                    decision_id=decision.id,
+                    source=name,
+                    summary="; ".join(output.get("evidence", [])) or output.get("recommendation", ""),
+                    data={
+                        **output.get("data", {}),
+                        "recommendation": output.get("recommendation"),
+                        "risks": output.get("risks", []),
+                    },
+                )
+            )
+        self._audit(
+            actor="ceo",
+            action="decision.made",
+            resource=f"decision:{decision.id}",
+            before=None,
+            after={"status": decision.status, "incomplete": sorted(missing)},
             correlation_id=correlation_id,
         )
         self._event_bus.publish(

@@ -57,6 +57,12 @@ class TaskService:
         task.output = output
         return task
 
+    def mark_blocked(self, task_id: str) -> Task:
+        """Una tarea que no puede arrancar (una dependencia falló o su agente ya no existe). No sale como ejecutable."""
+        task = self.get_task(task_id)
+        task.status = TaskStatus.BLOCKED
+        return task
+
     def mark_failed(self, task_id: str, error: str, max_retries: int = 0) -> Task:
         task = self.get_task(task_id)
         task.error = error

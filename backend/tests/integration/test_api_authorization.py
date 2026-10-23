@@ -38,6 +38,9 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     ("POST", "/api/objectives/obj-1/run", {}, ApiAction.OBJECTIVE_WRITE),
     ("POST", "/api/approvals/ap-1/approve", {"actor": "x"}, ApiAction.APPROVAL_RESOLVE),
     ("POST", "/api/approvals/ap-1/reject", {"actor": "x"}, ApiAction.APPROVAL_RESOLVE),
+    # Reintentar o reasignar una tarea (M49, Commit 8): decisión del orquestador o de una persona con autoridad.
+    ("POST", "/api/tasks/task-1/retry", {"after_attempt": 1}, ApiAction.TASK_RECOVER),
+    ("POST", "/api/tasks/task-1/reassign", {"agent_id": "agent-product-1", "reason": "abc"}, ApiAction.TASK_RECOVER),
     ("POST", "/api/research/runs", {"category": "c", "keywords": [], "max_results": 1}, ApiAction.AGENT_RUN),
     # Comparar ejecuta los dos proveedores: es correr agentes (Milestone 35).
     ("POST", "/api/research/comparisons", {"category": "c"}, ApiAction.AGENT_RUN),
@@ -301,6 +304,8 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/objectives/{objective_id}/run"),
         ("POST", "/api/approvals/{approval_id}/approve"),
         ("POST", "/api/approvals/{approval_id}/reject"),
+        ("POST", "/api/tasks/{task_id}/retry"),
+        ("POST", "/api/tasks/{task_id}/reassign"),
         ("POST", "/api/research/runs"),
         ("POST", "/api/research/comparisons"),
         ("POST", "/api/sourcing/runs"),
@@ -393,6 +398,24 @@ def test_operator_cannot_resolve_approvals(client, key_pair):
     approval = next(r for r in MUTATING_ROUTES if r[3] is ApiAction.APPROVAL_RESOLVE)
 
     assert call(client, approval, token=token_for(private_key, RoleName.OPERATOR)).status_code == 403
+
+
+@pytest.mark.parametrize("role", [RoleName.OPERATOR, RoleName.ANALYST, RoleName.REVIEWER, RoleName.SYSTEM])
+def test_only_owner_and_admin_can_retry_or_reassign_a_task(client, key_pair, role):
+    """M49: reintentar o reasignar es una decisión con autoridad: ni operador, ni analista, ni revisor, ni sistema."""
+    private_key, _ = key_pair
+    for route in (r for r in MUTATING_ROUTES if r[3] is ApiAction.TASK_RECOVER):
+        assert call(client, route, token=token_for(private_key, role)).status_code == 403, (role, route[1])
+
+
+@pytest.mark.parametrize("role", [RoleName.OWNER, RoleName.ADMIN])
+def test_owner_and_admin_pass_the_gate_for_task_recovery(client, key_pair, role):
+    private_key, _ = key_pair
+    for route in (r for r in MUTATING_ROUTES if r[3] is ApiAction.TASK_RECOVER):
+        # pasan la puerta: no es un 401/403. En producción la ruta además exige `Idempotency-Key` (428), como las demás.
+        status = call(client, route, token=token_for(private_key, role)).status_code
+        assert status not in (401, 403), (role, route[1], status)
+        assert status in (404, 428), (role, route[1], status)
 
 
 def test_reviewer_cannot_start_a_pipeline(client, key_pair):

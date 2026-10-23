@@ -1,4 +1,4 @@
-import type { Agent, AgentRelation, AssignmentStatus, ExecutionTrace, Task } from "./api.ts";
+import type { Agent, AgentRelation, AssignmentStatus, ExecutionTrace, RecoveryKind, Task, TaskRecovery } from "./api.ts";
 import { taskStatusText } from "./nexus-mission.ts";
 
 // La relación TAREA ↔ AGENTE en pantalla (M48, Commit 7). La relación la CALCULA el backend (`Task.agent_relation`: asignación, ejecuciones y qué
@@ -57,6 +57,8 @@ export interface TaskAgentRow {
   /** Alguna ejecución sale solo de la auditoría (anterior al vínculo con el log). */
   historical: boolean;
   note: string | null;
+  /** Qué clase de situación es (M49): `null` si el backend no lo envió. Informa; no ejecuta nada. */
+  recoveryKind: RecoveryKind | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -90,6 +92,30 @@ function nameOf(id: string, known: boolean | null, agents: Agent[] | null): stri
   return agents?.find((item) => item.id === id)?.name ?? id;
 }
 
+export const RECOVERY_KINDS: readonly RecoveryKind[] = [
+  "none",
+  "recoverable",
+  "reassign_required",
+  "definitive",
+  "unknown_agent",
+  "mismatch",
+  "blocked",
+];
+
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0;
+
+/** El «qué se puede hacer» del backend, comprobado. `null` si falta o no cumple el contrato: se enseña lo que ya había, sin adivinar. */
+export function recoveryOf(task: Task): TaskRecovery | null {
+  const value: unknown = task.recovery;
+  if (!isRecord(value)) return null;
+  if (typeof value.kind !== "string" || !(RECOVERY_KINDS as readonly string[]).includes(value.kind)) return null;
+  if (typeof value.can_retry !== "boolean") return null;
+  for (const key of ["attempts_current_assignment", "max_attempts_per_assignment", "attempts_total", "max_attempts_per_task", "next_attempt"]) {
+    if (!isCount(value[key])) return null;
+  }
+  return value as unknown as TaskRecovery;
+}
+
 const TONE: Record<AssignmentStatus | "UNAVAILABLE", TaskAgentTone> = {
   ORCHESTRATOR: "neutral",
   UNASSIGNED: "warn",
@@ -102,7 +128,7 @@ const TONE: Record<AssignmentStatus | "UNAVAILABLE", TaskAgentTone> = {
   UNAVAILABLE: "neutral",
 };
 
-function stateOf(status: AssignmentStatus | "UNAVAILABLE", taskStatus: string): string {
+function stateOf(status: AssignmentStatus | "UNAVAILABLE", taskStatus: string, recovery: TaskRecovery | null, failedAttempts: number): string {
   switch (status) {
     case "MISMATCH":
       return "Desviación";
@@ -117,8 +143,20 @@ function stateOf(status: AssignmentStatus | "UNAVAILABLE", taskStatus: string): 
     case "UNAVAILABLE":
       return TASK_AGENT_UNAVAILABLE_LABEL;
     default:
-      return taskStatusText(taskStatus);
+      return progressText(taskStatus, recovery, failedAttempts);
   }
+}
+
+/** Lo que dice el estado de la tarea cuando la relación con su agente no añade nada: el fallo, el reintento y el bloqueo se ven. */
+function progressText(taskStatus: string, recovery: TaskRecovery | null, failedAttempts: number): string {
+  if (taskStatus === "FAILED") {
+    if (recovery?.kind === "recoverable") return "Fallida · reintento posible";
+    if (recovery?.kind === "reassign_required") return "Fallida · requiere reasignación";
+    if (recovery?.kind === "definitive") return "Fallida · definitiva";
+    return taskStatusText(taskStatus);
+  }
+  if (taskStatus === "PENDING" && failedAttempts > 0) return "Reintentando";
+  return taskStatusText(taskStatus);
 }
 
 function noteOf(relation: AgentRelation, agents: Agent[] | null): string | null {
@@ -131,6 +169,14 @@ function noteOf(relation: AgentRelation, agents: Agent[] | null): string | null 
   }
   if (relation.reassigned) parts.push("Reasignada");
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** El tono de la fila: lo que dice la relación, salvo que la tarea haya fallado (rojo) o esté bloqueada (ámbar). */
+function toneOf(status: AssignmentStatus, taskStatus: string): TaskAgentTone {
+  if (TONE[status] === "bad") return "bad";
+  if (taskStatus === "FAILED") return "bad";
+  if (taskStatus === "BLOCKED") return "warn";
+  return TONE[status];
 }
 
 function rowOf(task: Task, agents: Agent[] | null): TaskAgentRow {
@@ -150,6 +196,7 @@ function rowOf(task: Task, agents: Agent[] | null): TaskAgentRow {
       failedAttempts: 0,
       historical: false,
       note: null,
+      recoveryKind: null,
     };
   }
   const assigned: AgentRef =
@@ -159,19 +206,22 @@ function rowOf(task: Task, agents: Agent[] | null): TaskAgentRow {
         ? { label: UNASSIGNED_LABEL, id: null, known: null }
         : { label: nameOf(relation.assigned_agent_id, relation.assigned_agent_known, agents), id: relation.assigned_agent_id, known: relation.assigned_agent_known };
   const latest = relation.executions.length > 0 ? relation.executions[relation.executions.length - 1] : null;
+  const recovery = recoveryOf(task);
+  const failedAttempts = relation.executions.filter((run) => run.success === false).length;
   return {
     ...base,
     status: relation.status,
     assigned,
     executedBy: latest === null ? null : { label: nameOf(latest.agent_id, latest.agent_known ? null : false, agents), id: latest.agent_id },
-    state: stateOf(relation.status, task.status),
-    tone: TONE[relation.status],
+    state: stateOf(relation.status, task.status, recovery, failedAttempts),
+    tone: toneOf(relation.status, task.status),
     deviation: relation.status === "MISMATCH",
     reassigned: relation.reassigned,
     attempts: relation.executions.length,
-    failedAttempts: relation.executions.filter((run) => run.success === false).length,
+    failedAttempts,
     historical: relation.executions.some((run) => run.source === "audit"),
     note: noteOf(relation, agents),
+    recoveryKind: recovery?.kind ?? null,
   };
 }
 

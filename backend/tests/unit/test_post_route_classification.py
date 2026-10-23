@@ -49,6 +49,9 @@ CLASSIFICATION: dict[str, str] = {
     "/api/regulatory-requirements/{requirement_id}/verify": GENERIC,
     "/api/research/comparisons": GENERIC,
     "/api/research/runs": GENERIC,
+    # Reintentar o reasignar una tarea (M49): repetir la petición no vuelve a ejecutar ni a reasignar.
+    "/api/tasks/{task_id}/reassign": GENERIC,
+    "/api/tasks/{task_id}/retry": GENERIC,
     # Su recurso ya tiene clave.
     "/api/pipeline/runs": OWN_KEY,
     "/api/jobs": OWN_KEY,

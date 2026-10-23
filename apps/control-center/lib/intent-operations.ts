@@ -24,6 +24,8 @@ export const OPERATIONS = {
   transpositionVerify: "transposition.verify",
   exchangeRatesRefresh: "exchange-rates.refresh",
   exchangeRatesBackfill: "exchange-rates.backfill",
+  taskRetry: "task.retry",
+  taskReassign: "task.reassign",
 } as const;
 
 export type OperationName = (typeof OPERATIONS)[keyof typeof OPERATIONS];
@@ -68,4 +70,6 @@ export const KEYED_OPERATIONS: readonly KeyedOperation[] = [
   },
   { operation: OPERATIONS.exchangeRatesRefresh, path: "/api/exchange-rates/refresh", kind: "generic", inInterface: false },
   { operation: OPERATIONS.exchangeRatesBackfill, path: "/api/exchange-rates/backfill", kind: "generic", inInterface: false },
+  { operation: OPERATIONS.taskRetry, path: "/api/tasks/{task_id}/retry", kind: "generic", inInterface: false },
+  { operation: OPERATIONS.taskReassign, path: "/api/tasks/{task_id}/reassign", kind: "generic", inInterface: false },
 ];

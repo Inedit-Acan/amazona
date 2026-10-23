@@ -168,6 +168,8 @@ export interface Task {
   assigned_agent_id?: string | null;
   /** La relación tarea ↔ agente que calcula el backend: asignación, ejecuciones y qué decir de ellas. Ausente en un backend anterior. */
   agent_relation?: AgentRelation;
+  /** Qué clase de situación es y qué se puede hacer con la tarea (M49, Commit 8). Opcional: un backend anterior no lo envía. */
+  recovery?: TaskRecovery;
 }
 
 /** ORCHESTRATOR (la resuelve el orquestador) · UNASSIGNED · ASSIGNED · MATCH (la ejecutó el asignado) · MISMATCH (otro agente: desviación) ·
@@ -197,6 +199,18 @@ export interface ExecutionTrace {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+}
+
+export type RecoveryKind = "none" | "recoverable" | "reassign_required" | "definitive" | "unknown_agent" | "mismatch" | "blocked";
+
+export interface TaskRecovery {
+  kind: RecoveryKind;
+  can_retry: boolean;
+  attempts_current_assignment: number;
+  max_attempts_per_assignment: number;
+  attempts_total: number;
+  max_attempts_per_task: number;
+  next_attempt: number;
 }
 
 export interface AgentRelation {

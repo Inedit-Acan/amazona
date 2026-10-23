@@ -26,7 +26,7 @@ fabrica.
 """
 
 import datetime
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
@@ -34,7 +34,7 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.errors import ValidationError
+from app.core.errors import AuthorityError, ValidationError
 from app.db.models.agent_execution_log import AgentExecutionLog
 from app.db.models.audit import AuditLog
 from app.db.models.task import Task as TaskModel
@@ -132,12 +132,27 @@ def describe_relation(
         return result(
             AssignmentStatus.INCONSISTENT if assigned_agent_id is not None or ordered else AssignmentStatus.ORCHESTRATOR
         )
-    if assigned_known is False or (latest is not None and latest.agent_id not in known_agent_ids):
+    if assigned_known is False:
         return result(AssignmentStatus.UNKNOWN_AGENT)
     if latest is None:
         if task_status == "COMPLETED":
             return result(AssignmentStatus.INCONSISTENT)  # completada y sin rastro de quién la ejecutó
         return result(AssignmentStatus.UNASSIGNED if assigned_agent_id is None else AssignmentStatus.ASSIGNED)
+    # Una ejecución del log lleva la FOTO de la asignación de su momento (M48): lo que se compara es quién
+    # ejecutó con quién debía ejecutar ENTONCES. Así una reasignación posterior (tras un fallo) no convierte el
+    # intento anterior en una desviación, y una desviación de verdad no desaparece porque luego se reasigne a
+    # quien la cometió.
+    snapshot = latest.assigned_agent_id if latest.source == "execution_log" else None
+    if snapshot is not None:
+        if latest.agent_id != snapshot:
+            unknown = latest.agent_id not in known_agent_ids
+            return result(AssignmentStatus.UNKNOWN_AGENT if unknown else AssignmentStatus.MISMATCH)
+        if snapshot != assigned_agent_id:
+            # reasignada desde esa ejecución: espera un intento del agente nuevo
+            return result(AssignmentStatus.ASSIGNED)
+        return result(AssignmentStatus.MATCH)
+    if latest.agent_id not in known_agent_ids:
+        return result(AssignmentStatus.UNKNOWN_AGENT)
     if assigned_agent_id is None:
         return result(AssignmentStatus.EXECUTED_UNASSIGNED)
     return result(AssignmentStatus.MATCH if latest.agent_id == assigned_agent_id else AssignmentStatus.MISMATCH)
@@ -160,9 +175,18 @@ class TaskAssignmentService:
     """Asigna, reasigna y registra ejecuciones de tareas. Todo cambio de asignación deja su evento de auditoría en la
     MISMA transacción, y ninguno borra lo anterior. No hace `commit`: lo hace quien llama (el orquestador)."""
 
-    def __init__(self, db: Session, known_agent_ids: Collection[str]) -> None:
+    def __init__(
+        self,
+        db: Session,
+        known_agent_ids: Collection[str],
+        capabilities_by_agent: Mapping[str, Collection[str]] | None = None,
+    ) -> None:
         self._db = db
         self._known = frozenset(known_agent_ids)
+        #: Si se da, una asignación solo es válida para un agente que declara la capacidad de la tarea (M49, Commit 8).
+        self._capabilities = (
+            None if capabilities_by_agent is None else {k: frozenset(v) for k, v in capabilities_by_agent.items()}
+        )
 
     # --- asignar ------------------------------------------------------------------------------------------------------
 
@@ -170,6 +194,7 @@ class TaskAssignmentService:
         """Asigna `agent_id` a una tarea sin asignar. Devuelve `False` (y no escribe nada) si ya tenía ESE agente.
         Con otro agente asignado hay que reasignar. Un agente que el registro no conoce, y una tarea del orquestador,
         se rechazan."""
+        self.require_authority(actor)
         self._check_assignable(task, agent_id)
         if task.assigned_agent_id == agent_id:
             return False
@@ -191,6 +216,7 @@ class TaskAssignmentService:
 
     def reassign(self, task: TaskModel, agent_id: str, *, actor: str, reason: str, correlation_id: str) -> None:
         """Cambia el agente de una tarea YA asignada. La asignación anterior queda en el evento (`before`)."""
+        self.require_authority(actor)
         self._check_assignable(task, agent_id)
         if task.assigned_agent_id is None:
             raise ValidationError(f"task {task.id} is not assigned: assign it first, there is nothing to reassign")
@@ -275,6 +301,16 @@ class TaskAssignmentService:
 
     # --- interno ------------------------------------------------------------------------------------------------------
 
+    def require_authority(self, actor: str) -> None:
+        """Asignar y reasignar es del orquestador o de una persona con permiso, nunca de un agente: un agente informa
+        de su fallo, pide un reintento o sugiere a otro, pero no decide su propia asignación (ni la de un compañero)."""
+        if not actor or not actor.strip():
+            raise AuthorityError("an assignment needs an actor: who decided it")
+        if actor in self._known:
+            raise AuthorityError(
+                f"agent {actor!r} cannot assign or reassign tasks: that decision belongs to the orchestrator"
+            )
+
     def _check_assignable(self, task: TaskModel, agent_id: str) -> None:
         if task.capability in ORCHESTRATOR_CAPABILITIES:
             raise ValidationError(
@@ -283,6 +319,10 @@ class TaskAssignmentService:
         if agent_id not in self._known:
             raise ValidationError(
                 f"agent {agent_id!r} is not in the agent registry: a task cannot be assigned to an unknown agent"
+            )
+        if self._capabilities is not None and task.capability not in self._capabilities.get(agent_id, frozenset()):
+            raise ValidationError(
+                f"agent {agent_id!r} does not have the capability {task.capability!r}: it cannot be assigned this task"
             )
 
     def _audit(

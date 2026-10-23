@@ -46,6 +46,10 @@ class AgentManager:
         """Los agentes que el registro conoce (existan o no puedan ejecutar ahora)."""
         return frozenset(agent.id for agent in self._registry.list_all())
 
+    def capabilities_by_agent(self) -> dict[str, frozenset[str]]:
+        """Qué capacidades declara cada agente del registro. Sirve para comprobar que una reasignación es COMPATIBLE."""
+        return {agent.id: frozenset(agent.capabilities) for agent in self._registry.list_all()}
+
     def is_routable(self, agent_id: str, capability: str) -> bool:
         """¿Puede `agent_id` ejecutar `capability` ahora? La misma regla que `select_agent`: está en el registro, tiene
         la capacidad y está disponible. Sirve para comprobar que el agente ASIGNADO a una tarea sigue pudiendo

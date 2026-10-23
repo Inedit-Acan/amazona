@@ -17,7 +17,7 @@ import { readList, type ReadState } from "./read-state.ts";
 // Por tanto la última misión es el proyecto más reciente por `created_at` (con desempate por id, y sin fiarse del orden de la API).
 
 /** Los estados que el backend envía para una tarea (`TaskStatus` de `tasks/schemas.py`). `BLOCKED` NO existe en el backend. */
-export const TASK_STATUSES = ["PENDING", "QUEUED", "RUNNING", "WAITING", "WAITING_APPROVAL", "COMPLETED", "FAILED", "CANCELLED"] as const;
+export const TASK_STATUSES = ["PENDING", "QUEUED", "RUNNING", "WAITING", "WAITING_APPROVAL", "COMPLETED", "FAILED", "CANCELLED", "BLOCKED"] as const;
 const DECISION_STATUSES = ["GO", "REVIEW", "NO_GO", "HUMAN_APPROVAL"] as const;
 
 /** Cómo se llama cada estado de tarea (los del backend). */
@@ -30,6 +30,7 @@ export const TASK_STATUS_TEXT = {
   COMPLETED: "Completada",
   FAILED: "Fallida",
   CANCELLED: "Cancelada",
+  BLOCKED: "Bloqueada",
 } as const;
 
 export const taskStatusText = (status: string): string => TASK_STATUS_TEXT[status as keyof typeof TASK_STATUS_TEXT] ?? status;

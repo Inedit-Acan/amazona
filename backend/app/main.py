@@ -45,6 +45,7 @@ from app.auth.dependencies import authorize
 from app.core.config import Settings, get_settings
 from app.core.db_health import log_db_health_failure
 from app.core.errors import (
+    AuthorityError,
     ConflictError,
     IdempotencyConflictError,
     IdempotencyInProgressError,
@@ -133,6 +134,11 @@ async def comparison_not_allowed_handler(
 @app.exception_handler(PipelineRunStateError)
 async def pipeline_run_state_handler(request: Request, exc: PipelineRunStateError) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(AuthorityError)
+async def authority_handler(request: Request, exc: AuthorityError) -> JSONResponse:
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 @app.exception_handler(ConflictError)

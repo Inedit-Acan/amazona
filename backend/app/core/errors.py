@@ -97,6 +97,12 @@ class PipelineOutcomeUnknownError(AmazonaError):
     reconciled; it does not burn job attempts."""
 
 
+class AuthorityError(AmazonaError):
+    """Quien lo pide no tiene autoridad para hacerlo. Un agente informa de su fallo, pide un reintento o sugiere a otro
+    agente, pero NO decide su propia reasignación ni su reintento: eso es del orquestador (CEO) o de una persona con
+    permiso. Es un 403: nada cambió."""
+
+
 class ConflictError(AmazonaError):
     """The request is valid but the thing it acts on is not in a state that allows it (someone else moved it first,
     or it is already done). It is a 409: nothing was changed."""
