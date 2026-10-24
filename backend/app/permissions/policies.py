@@ -99,6 +99,9 @@ class ApiAction(StrEnum):
     #: orquestador reintenta y reasigna por su cuenta DENTRO de una misión, de forma acotada y auditada, sin
     #: pasar por HTTP).
     TASK_RECOVER = "task.recover"
+    #: Armar un fallo de ENSAYO en una tarea (M51A). Solo OWNER/ADMIN, y la ruta solo existe con la funcionalidad
+    #: activada en un desarrollo simulado (`Settings.fault_injection_allowed`).
+    FAULT_INJECT = "fault.inject"
     #: Crear un pedido (Milestone 44, ADR 0028). Lo crea una persona con permiso, o el CLI en una simulación;
     #: cuando exista la web pública lo creará una identidad de sistema. Distinto de cobrar, devolver o enviar.
     ORDER_WRITE = "order.write"

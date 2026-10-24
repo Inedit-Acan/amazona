@@ -29,6 +29,8 @@ from app.db.models.task import Task as TaskModel
 from app.db.models.task import TaskDependency as TaskDependencyModel
 from app.events.bus import EventBus, InProcessEventBus
 from app.events.schemas import Event
+from app.fault_injection import ACTOR as FAULT_ACTOR
+from app.fault_injection import InjectedFault, drain_expired_audit
 from app.memory.service import MemoryService
 from app.permissions.engine import PermissionEngine
 from app.permissions.policies import ActionType, PermissionResult
@@ -123,6 +125,8 @@ class CEOOrchestrator:
 
     def run_objective(self, objective_id: str) -> DecisionModel:
         correlation_id = new_correlation_id()
+        # Un fallo de ensayo que caducó sin dispararse (M51A); sin nada armado no hace nada.
+        drain_expired_audit(self._db)
         objective = self._db.get(ObjectiveModel, objective_id)
         if objective is None:
             raise NotFoundError(f"objective {objective_id} not found")
@@ -190,6 +194,7 @@ class CEOOrchestrator:
         todo y deja solo `mission.resume_failed` (clase del error, nunca su mensaje)."""
         self._assignments.require_authority(actor)
         project = self._lock_project(project_id)
+        drain_expired_audit(self._db)
         objective = self._db.get(ObjectiveModel, project.objective_id)
         if objective is None:
             raise NotFoundError(f"objective {project.objective_id} not found")
@@ -238,7 +243,7 @@ class CEOOrchestrator:
                 after={**base, "pending_tasks": pending, "unblocked": [task.name for task in released]},
                 correlation_id=correlation_id,
             )
-            task_service, name_to_id = self._load_task_service(project.id)
+            task_service, name_to_id = self._load_task_service(project.id, objective.id)
             self._execute_tasks(
                 task_service, project, name_to_id, name_to_id, correlation_id, executed=executed, resuming=True
             )
@@ -312,7 +317,7 @@ class CEOOrchestrator:
         )
         self._db.commit()
 
-    def _load_task_service(self, project_id: str) -> tuple[TaskService, dict[str, str]]:
+    def _load_task_service(self, project_id: str, objective_id: str) -> tuple[TaskService, dict[str, str]]:
         """El grafo en memoria de una misión YA persistida: mismos ids que las filas, mismo estado, mismas dependencias.
         El número de intento sigue el del log, para que el próximo intento de una tarea nunca repita un número."""
         rows = sorted(
@@ -351,6 +356,7 @@ class CEOOrchestrator:
                     error=row.error,
                     assigned_agent_id=row.assigned_agent_id,
                     retry_count=attempts.get(row.id) or 0,
+                    objective_id=objective_id,
                 )
             )
         return service, {row.name: row.id for row in rows}
@@ -391,6 +397,7 @@ class CEOOrchestrator:
                 input=context.get(spec.name, {}),
                 depends_on=depends_on_domain_ids,
             )
+            domain_task.objective_id = project.objective_id
             name_to_domain_id[spec.name] = domain_task.id
 
             db_task = TaskModel(
@@ -530,9 +537,20 @@ class CEOOrchestrator:
                     result = self._agent_manager.execute(agent_id, domain_task)
                 except Exception as exc:  # noqa: BLE001 - any agent failure is retried/audited, never silent
                     self._record_execution(db_task, domain_task, logged_before, correlation_id)
-                    retried_task = task_service.mark_failed(
-                        domain_task.id, error=str(exc), max_retries=self._max_task_retries
-                    )
+                    # Un fallo de ENSAYO inyectado (M51A) NO se reintenta en línea: la tarea queda
+                    # FAILED tras UN intento y el
+                    # reintento explícito sigue disponible. Cualquier otra excepción sigue con la política de siempre.
+                    max_retries = 0 if isinstance(exc, InjectedFault) else self._max_task_retries
+                    if isinstance(exc, InjectedFault):
+                        self._audit(
+                            actor=FAULT_ACTOR,
+                            action="fault.fired",
+                            resource=f"task:{db_task.id}",
+                            before=None,
+                            after=exc.audit_after(),
+                            correlation_id=correlation_id,
+                        )
+                    retried_task = task_service.mark_failed(domain_task.id, error=str(exc), max_retries=max_retries)
                     db_task.status = ensure_transition(db_task.status, TaskStatus.FAILED).value
                     db_task.error = retried_task.error
                     db_task.completed_at = datetime.datetime.now(datetime.UTC)

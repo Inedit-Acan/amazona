@@ -40,6 +40,8 @@ from app.db.models.audit import AuditLog
 from app.db.models.project import Project
 from app.db.models.task import Task as TaskModel
 from app.db.models.task import TaskDependency
+from app.fault_injection import ACTOR as FAULT_ACTOR
+from app.fault_injection import InjectedFault, drain_expired_audit
 from app.memory.service import MemoryService
 from app.tasks.assignment import ORCHESTRATOR_CAPABILITIES, AssignmentStatus, ExecutionTrace, TaskAssignmentService
 from app.tasks.lifecycle import ensure_transition
@@ -151,6 +153,8 @@ class TaskRecoveryService:
         ejecuta a los dependientes."""
         self._assignments.require_authority(actor)
         task = self._lock(task_id)
+        # Un fallo de ensayo que caducó sin dispararse (M51A); sin nada armado no hace nada.
+        drain_expired_audit(self._db)
         if task.capability in ORCHESTRATOR_CAPABILITIES:
             raise ValidationError(
                 f"task {task.name!r} belongs to the orchestrator: it is never retried through an agent"
@@ -217,6 +221,7 @@ class TaskRecoveryService:
         return task
 
     def _run_attempt(self, task: TaskModel, agent_id: str, attempt: int, correlation_id: str) -> None:
+        project = self._db.get(Project, task.project_id)
         domain = DomainTask(
             id=task.id,
             project_id=task.project_id,
@@ -224,6 +229,7 @@ class TaskRecoveryService:
             capability=task.capability,
             input=task.input or {},
             retry_count=attempt - 1,
+            objective_id=project.objective_id if project is not None else None,
         )
         logged_before = len(self._manager.execution_log)
         error: Exception | None = None
@@ -233,6 +239,12 @@ class TaskRecoveryService:
         except Exception as exc:  # noqa: BLE001 - un fallo del agente es un intento fallido, nunca un error del servicio
             error = exc
         self._record_execution(task, logged_before, attempt, correlation_id)
+        if isinstance(error, InjectedFault):
+            # Un fallo de ENSAYO (M51A) que se dispara en un reintento explícito: queda en la misma
+            # transacción que el intento.
+            self._audit(
+                FAULT_ACTOR, "fault.fired", task, before=None, after=error.audit_after(), correlation_id=correlation_id
+            )
         if error is None and result is not None:
             self._set_status(task, TaskStatus.COMPLETED)
             task.output = result.model_dump()
@@ -246,7 +258,6 @@ class TaskRecoveryService:
                 after={"recommendation": result.recommendation, "confidence": result.confidence},
                 correlation_id=correlation_id,
             )
-            project = self._db.get(Project, task.project_id)
             if project is not None:
                 MemoryService(self._db).remember(
                     scope="objective",

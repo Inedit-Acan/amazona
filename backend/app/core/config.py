@@ -206,6 +206,23 @@ class Settings(BaseSettings):
     # production auth is enforced regardless of this flag — see enforces_auth.
     require_auth: bool = False
 
+    #: Fault injection de ENSAYO (M51A): provocar UN fallo en UNA tarea concreta de una misión para probar la
+    #: recuperación. **Apagado por defecto** y, encendido, solo donde ya es seguro hacer pruebas (ver
+    #: `fault_injection_allowed`): en cualquier otro entorno el arranque FALLA. No es una capacidad de producción.
+    fault_injection_enabled: bool = False
+
+    @property
+    def fault_injection_environment_ok(self) -> bool:
+        """El único sitio donde el fault injection puede existir: `development` y una simulación completa (todos los
+        proveedores `MOCK`), es decir, nada de lo que se ejecute puede mover dinero ni tocar algo fuera del sistema."""
+        return self.environment is Environment.DEVELOPMENT and self.operating_in_simulation
+
+    @property
+    def fault_injection_allowed(self) -> bool:
+        """¿Puede actuar ahora? Solo si está activado Y el entorno lo permite. Es lo que mira cada punto de la
+        funcionalidad: la ruta de armado (404 si no) y el punto de inyección."""
+        return self.fault_injection_enabled and self.fault_injection_environment_ok
+
     @property
     def is_supabase_configured(self) -> bool:
         return bool(self.supabase_url and self.supabase_anon_key)
@@ -317,6 +334,14 @@ class Settings(BaseSettings):
         """Refuses to start a misconfigured enforcing environment. Failing loudly
         here is the whole point: a production deployment that silently accepts
         anonymous mutations is worse than one that does not boot."""
+        if self.fault_injection_enabled and not self.fault_injection_environment_ok:
+            # Sin aviso y sin degradar en silencio: un proceso con el fault injection encendido fuera de un desarrollo
+            # simulado no arranca (M51A).
+            raise RuntimeError(
+                "fault injection is only allowed in development with every provider simulated "
+                f"(environment={self.environment}, operating_in_simulation={self.operating_in_simulation}): "
+                "unset FAULT_INJECTION_ENABLED"
+            )
         if self.environment not in _ENFORCING:
             return
 

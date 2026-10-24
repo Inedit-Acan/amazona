@@ -18,6 +18,7 @@ from app.api import (
     decisions,
     ecommerce,
     economics,
+    fault_injection,
     fulfillments,
     incidents,
     jobs,
@@ -302,3 +303,6 @@ app.include_router(revenue.router, dependencies=BUSINESS)
 app.include_router(fulfillments.router, dependencies=BUSINESS)
 # El webhook de un proveedor de pagos no lleva el token de nadie: se autentica por la firma de su cuerpo (ADR 0028).
 app.include_router(payments.router)
+# Fault injection de ENSAYO (M51A): solo existe con la funcionalidad activada en un desarrollo simulado; si no, 404 a
+# todo el mundo. Su propia puerta (404 y luego ApiAction.FAULT_INJECT), sin el BUSINESS de los demás.
+app.include_router(fault_injection.router)

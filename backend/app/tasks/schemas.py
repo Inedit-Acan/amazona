@@ -29,3 +29,6 @@ class Task(BaseModel):
     error: str | None = None
     assigned_agent_id: str | None = None
     retry_count: int = 0
+    #: El objetivo de la misión a la que pertenece (M51A): el fault injection de ensayo se arma por objetivo.
+    #: `None` fuera de una misión del orquestador.
+    objective_id: str | None = None

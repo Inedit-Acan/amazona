@@ -280,6 +280,7 @@ def call(client: TestClient, route, token: str | None = None):
 
 
 SIGNED_WEBHOOKS = {("POST", "/api/payments/webhooks/{provider}")}
+TEST_SUPPORT_ROUTES = {("POST", "/api/test-support/faults")}
 
 
 # --- El inventario no se queda atrás -----------------------------------------
@@ -300,6 +301,14 @@ def test_the_route_table_covers_every_mutating_route():
     # test de abajo comprueba que no admite nada sin firma.
     assert SIGNED_WEBHOOKS <= actual
     actual = actual - SIGNED_WEBHOOKS
+    # La ruta de armado del fault injection de ENSAYO (M51A) tiene su `ApiAction` (OWNER/ADMIN),
+    # pero con la funcionalidad apagada
+    # —el valor por defecto, y el único posible en staging/production— responde 404 ANTES de mirar
+    # quién pregunta, así que no
+    # puede recorrer la tabla de roles. Es una excepción nombrada; `test_api_fault_injection.py`
+    # prueba su 404, su 401 y su política.
+    assert TEST_SUPPORT_ROUTES <= actual
+    actual = actual - TEST_SUPPORT_ROUTES
     # The table uses concrete ids; compare on the templated form.
     templated = {
         ("POST", "/api/objectives"),

@@ -5,7 +5,9 @@ from pydantic import ValidationError
 
 from app.agents.base import Agent, AgentDescriptor, AgentResult, AgentStatus
 from app.agents.registry import AgentRegistry
+from app.core.config import get_settings
 from app.core.errors import AgentIOValidationError, NoAgentAvailableError, NotFoundError
+from app.fault_injection import get_fault_injector
 from app.tasks.schemas import Task
 
 
@@ -68,6 +70,15 @@ class AgentManager:
         start = time.perf_counter()
         success = False
         try:
+            # Fault injection de ENSAYO (M51A): el ÚNICO punto. Va dentro del `try` para que el intento quede
+            # registrado como fallido, y ANTES de ejecutar al agente: este no corre. Apagado (lo normal) no hay
+            # nada armado y no hace nada.
+            injector = get_fault_injector()
+            if injector.has_armed():
+                fault = injector.check(task, allowed=get_settings().fault_injection_allowed)
+                if fault is not None:
+                    raise fault
+
             if executor.input_schema is not None:
                 try:
                     executor.input_schema.model_validate(task.input)
