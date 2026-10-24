@@ -1,6 +1,6 @@
 import { ListChecks } from "lucide-react";
 import type { TaskAgentRow, TaskAgentTone } from "@/lib/task-agent";
-import type { TaskAgentPanel } from "@/lib/task-agent-reads";
+import type { MissionPanel, TaskAgentPanel } from "@/lib/task-agent-reads";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/empty-state";
 import { ReadErrorNotice } from "@/components/read-error-notice";
@@ -49,6 +49,31 @@ export function TaskAgentTable({ rows }: { rows: TaskAgentRow[] }) {
   );
 }
 
+/** El estado de la misión (M50): solo lo dice, no hay botón de reanudar. Sin dato NO se enseña como «completa». */
+export function MissionStateLine({ mission }: { mission: MissionPanel }) {
+  if (mission.kind === "unread") {
+    return (
+      <p className="text-xs text-muted-foreground" data-section="estado-de-la-mision" data-mission-state="unread">
+        Estado de la misión: no disponible.
+      </p>
+    );
+  }
+  if (mission.headline === null && mission.label === null) return null;
+  return (
+    <div className="text-xs" data-section="estado-de-la-mision" data-mission-tone={mission.tone}>
+      <p className={TONE_CLASS[mission.tone]}>{[mission.headline, mission.label].filter(Boolean).join(" · ")}</p>
+      {mission.blockers.length > 0 ? (
+        <ul className="mt-1 list-disc pl-4 text-muted-foreground">
+          {mission.blockers.map((text) => (
+            <li key={text}>{text}</li>
+          ))}
+        </ul>
+      ) : null}
+      {mission.decisions > 1 ? <p className="text-muted-foreground">{mission.decisions} decisiones: la vigente es la última; las anteriores se conservan.</p> : null}
+    </div>
+  );
+}
+
 export function TaskAgentCard({ panel }: { panel: TaskAgentPanel }) {
   return (
     <Card className="min-w-0" data-section="tareas-y-agentes" data-read-state={panel.kind}>
@@ -61,6 +86,7 @@ export function TaskAgentCard({ panel }: { panel: TaskAgentPanel }) {
             {panel.counts.inconsistent > 0 ? ` · ${panel.counts.inconsistent} inconsistentes` : ""}
           </p>
         ) : null}
+        {panel.kind === "loaded" ? <MissionStateLine mission={panel.mission} /> : null}
       </CardHeader>
       <CardContent>
         {panel.kind === "error" ? <ReadErrorNotice title="No se pudo leer la relación tarea ↔ agente" message={panel.message} /> : null}

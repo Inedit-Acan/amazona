@@ -34,6 +34,18 @@ class TaskService:
         self._tasks[task.id] = task
         return task
 
+    def load_task(self, task: Task) -> Task:
+        """Mete en el grafo una tarea YA persistida (con su id, su estado y sus dependencias), para reanudar una
+        misión sin recrear nada."""
+        self._tasks[task.id] = task
+        return task
+
+    def mark_pending(self, task_id: str) -> Task:
+        """Una tarea desbloqueada vuelve a poder ejecutarse (BLOQUEADA → PENDIENTE)."""
+        task = self.get_task(task_id)
+        task.status = TaskStatus.PENDING
+        return task
+
     def add_dependency(self, *, parent_id: str, child_id: str) -> None:
         child = self.get_task(child_id)
         self.get_task(parent_id)  # validate parent exists

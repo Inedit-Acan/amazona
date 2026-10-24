@@ -1,4 +1,5 @@
-import type { Agent, Project, Task } from "./api.ts";
+import type { Agent, MissionSummary, Project, Task } from "./api.ts";
+import { blockerText, missionHeadline, missionLabel, missionOf, missionTone, type MissionTone } from "./mission-state.ts";
 import { latestProject, projectsContract, tasksContract } from "./nexus-mission.ts";
 import { readList, type ReadState } from "./read-state.ts";
 import { taskAgentRows, type TaskAgentRow } from "./task-agent.ts";
@@ -12,11 +13,15 @@ import { taskAgentRows, type TaskAgentRow } from "./task-agent.ts";
 export interface MissionTasksSource {
   listProjects(): Promise<Project[]>;
   listTasks(projectId: string): Promise<Task[]>;
+  /** M50: en qué punto está la misión del proyecto. Opcional: una fuente sin ella (o una lectura que falla) deja el estado de la misión «sin dato». */
+  getMission?(projectId: string): Promise<unknown>;
 }
 
 export interface MissionTaskAgents {
   project: Project;
   tasks: Task[];
+  /** El estado de la misión, validado; `null` si no se pudo leer o el contrato no se cumple. NUNCA se rellena con «completa». */
+  mission: MissionSummary | null;
 }
 
 export async function readMissionTaskAgents(source: MissionTasksSource): Promise<ReadState<MissionTaskAgents>> {
@@ -26,7 +31,33 @@ export async function readMissionTaskAgents(source: MissionTasksSource): Promise
   if (project === null) return { kind: "empty" };
   const tasks = tasksContract(await readList(() => source.listTasks(project.id), "las tareas de la última misión"));
   if (tasks.kind !== "loaded") return tasks.kind === "empty" ? { kind: "empty" } : tasks;
-  return { kind: "loaded", data: { project, tasks: tasks.data } };
+  return { kind: "loaded", data: { project, tasks: tasks.data, mission: await readMissionSummary(source, project.id) } };
+}
+
+async function readMissionSummary(source: MissionTasksSource, projectId: string): Promise<MissionSummary | null> {
+  if (source.getMission === undefined) return null;
+  try {
+    return missionOf(await source.getMission(projectId));
+  } catch {
+    return null;
+  }
+}
+
+/** El estado de la misión tal como lo escribe la tarjeta. `unread`: no se sabe (no es «completa»). */
+export type MissionPanel =
+  | { kind: "unread" }
+  | { kind: "loaded"; headline: string | null; label: string | null; tone: MissionTone; blockers: string[]; decisions: number };
+
+export function missionPanel(mission: MissionSummary | null): MissionPanel {
+  if (mission === null) return { kind: "unread" };
+  return {
+    kind: "loaded",
+    headline: missionHeadline(mission),
+    label: missionLabel(mission),
+    tone: missionTone(mission),
+    blockers: mission.blockers.map(blockerText),
+    decisions: mission.decisions,
+  };
 }
 
 export interface TaskAgentCounts {
@@ -44,7 +75,7 @@ export type TaskAgentPanel =
   | { kind: "error"; message: string }
   | { kind: "unread"; reason: string }
   | { kind: "empty" }
-  | { kind: "loaded"; projectName: string; rows: TaskAgentRow[]; counts: TaskAgentCounts };
+  | { kind: "loaded"; projectName: string; rows: TaskAgentRow[]; counts: TaskAgentCounts; mission: MissionPanel };
 
 /** El panel a partir de la lectura y de la lista de agentes (`null` si esa no se pudo leer: se enseñan los ids, no nombres inventados). */
 export function taskAgentPanel(state: ReadState<MissionTaskAgents>, agents: Agent[] | null): TaskAgentPanel {
@@ -60,6 +91,7 @@ export function taskAgentPanel(state: ReadState<MissionTaskAgents>, agents: Agen
       return {
         kind: "loaded",
         projectName: state.data.project.name,
+        mission: missionPanel(state.data.mission),
         rows,
         counts: {
           tasks: rows.length,

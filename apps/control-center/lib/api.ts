@@ -249,6 +249,37 @@ export interface Decision {
   rationale: string | null;
   correlation_id: string;
   evidence: DecisionEvidence[];
+  /** M50: una misión reanudada tiene más de una decisión. La posición de esta entre las del proyecto (1 = la primera), si es la vigente y a
+   * cuál sustituye. Opcionales: un backend anterior no los envía y entonces solo hay una decisión. */
+  version?: number;
+  is_current?: boolean;
+  supersedes_decision_id?: string | null;
+}
+
+/** En qué punto está la misión de un proyecto (`GET /api/projects/{id}/mission`, M50). Solo lectura. */
+export type MissionStateName = "complete" | "ready_to_resume" | "recovery_pending" | "resuming" | "cancelled" | "inconsistent";
+export type MissionBlockerReason =
+  | "failed_recoverable"
+  | "failed_reassign_required"
+  | "failed_definitive"
+  | "unknown_agent"
+  | "mismatch"
+  | "no_agent_available"
+  | "running";
+export interface MissionBlocker {
+  task: string;
+  reason: MissionBlockerReason;
+}
+export interface MissionSummary {
+  project_id: string;
+  state: MissionStateName;
+  resumable: boolean;
+  resumed: boolean;
+  blockers: MissionBlocker[];
+  pending_tasks: string[];
+  completed_tasks: string[];
+  current_decision_id: string | null;
+  decisions: number;
 }
 
 export interface RunResult {
@@ -1686,6 +1717,7 @@ export const api = {
     request<Product[]>(`/api/products${status ? `?status=${encodeURIComponent(status)}` : ""}`),
   listProjects: () => request<Project[]>("/api/projects"),
   getProject: (projectId: string) => request<Project>(`/api/projects/${projectId}`),
+  getMission: (projectId: string) => request<MissionSummary>(`/api/projects/${projectId}/mission`),
   listTasks: (projectId: string) => request<Task[]>(`/api/tasks?project_id=${projectId}`),
   listAgents: () => request<Agent[]>("/api/agents"),
   getDecision: (decisionId: string) => request<Decision>(`/api/decisions/${decisionId}`),

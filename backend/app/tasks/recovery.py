@@ -369,6 +369,32 @@ class TaskRecoveryService:
                 released.append(child)
         return released
 
+    def unblock_ready(
+        self, project_id: str, correlation_id: str, *, reason: str = "dependencies_completed"
+    ) -> list[TaskModel]:
+        """Al reanudar una misión: toda tarea BLOQUEADA del proyecto cuyas dependencias ya están completadas (y cuyo
+        agente sigue siendo válido) vuelve a PENDING. Las que aún esperan a algo que va a ejecutarse siguen BLOQUEADAS:
+        se liberan cuando ese algo se complete (`unblock_dependents`). No ejecuta nada."""
+        released: list[TaskModel] = []
+        blocked = self._db.scalars(
+            select(TaskModel)
+            .where(TaskModel.project_id == project_id, TaskModel.status == TaskStatus.BLOCKED.value)
+            .order_by(TaskModel.created_at, TaskModel.id)
+        ).all()
+        for task in blocked:
+            if self._unblockable(task):
+                self._set_status(task, TaskStatus.PENDING)
+                self._audit(
+                    "ceo",
+                    "task.unblocked",
+                    task,
+                    before={"status": TaskStatus.BLOCKED.value},
+                    after={"reason": reason},
+                    correlation_id=correlation_id,
+                )
+                released.append(task)
+        return released
+
     # --- hechos de un intento (los usa también el orquestador) --------------------------------------------------------
 
     def start_attempt(self, task: TaskModel, agent_id: str, attempt: int, *, correlation_id: str) -> None:

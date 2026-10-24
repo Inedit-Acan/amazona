@@ -1,5 +1,8 @@
 import datetime
+from dataclasses import dataclass
+from typing import NoReturn
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agents.manager import AgentManager
@@ -8,12 +11,14 @@ from app.approvals.service import ApprovalService
 from app.audit.service import AuditService
 from app.budgets.service import BudgetLedgerService
 from app.ceo.decision_engine import DecisionInput, evaluate_decision
+from app.ceo.mission import PLAN_ORDER, MissionState, MissionView, load_mission, ordered_decisions
 from app.ceo.planner import plan_product_validation
 from app.ceo.schemas import DecisionStatus
 from app.ceo.schemas import Objective as ObjectiveSchema
 from app.core.config import Settings, get_settings
-from app.core.errors import NoAgentAvailableError, NotFoundError
+from app.core.errors import ConflictError, NoAgentAvailableError, NotFoundError
 from app.core.ids import new_correlation_id, new_id
+from app.db.models.agent_execution_log import AgentExecutionLog
 from app.db.models.approval import Approval as ApprovalModel
 from app.db.models.audit import AuditLog as AuditLogModel
 from app.db.models.decision import Decision as DecisionModel
@@ -31,6 +36,7 @@ from app.tasks.assignment import ORCHESTRATOR_CAPABILITIES, TaskAssignmentServic
 from app.tasks.lifecycle import ensure_transition
 from app.tasks.policy import DEFAULT_MAX_TASK_RETRIES
 from app.tasks.recovery import TaskRecoveryService
+from app.tasks.schemas import Task as DomainTask
 from app.tasks.schemas import TaskStatus
 from app.tasks.service import TaskService
 
@@ -42,6 +48,35 @@ _PROJECT_STATUS_BY_DECISION = {
     DecisionStatus.REVIEW: "VALIDATING",
     DecisionStatus.HUMAN_APPROVAL: "VALIDATING",
 }
+
+
+@dataclass(frozen=True)
+class ResumeResult:
+    """Lo que dejó una reanudación: la decisión nueva, la que sustituye en vigencia (la anterior no se toca), las tareas
+    que se ejecutaron por orden y cómo acabó (`complete`, o `incomplete` si una tarea volvió a fallar)."""
+
+    decision: DecisionModel
+    previous_decision_id: str
+    executed_tasks: tuple[str, ...]
+    outcome: str
+
+
+def _resume_refusal(view: MissionView) -> tuple[str | None, str]:
+    """Por qué una misión no se puede reanudar (código estable + mensaje), o `(None, "")` si se puede."""
+    match view.state:
+        case MissionState.READY_TO_RESUME:
+            return None, ""
+        case MissionState.COMPLETE:
+            return "mission_complete", "mission is complete: there is nothing to resume"
+        case MissionState.CANCELLED:
+            return "cancelled", "mission is cancelled: it cannot be resumed"
+        case MissionState.RESUMING:
+            return "running", "a task of this mission is running: it is already being resumed"
+        case MissionState.INCONSISTENT:
+            return "inconsistent_plan", "the plan of this mission lacks a required task: it cannot be resumed"
+        case _:
+            detail = "; ".join(f"{blocker.task_name} ({blocker.reason.value})" for blocker in view.blockers)
+            return "recovery_pending", f"recovery pending: retry or reassign first: {detail}"
 
 
 class CEOOrchestrator:
@@ -98,6 +133,21 @@ class CEOOrchestrator:
         task_service, name_to_domain_id, name_to_db_id = self._create_tasks(project, context, correlation_id)
         self._execute_tasks(task_service, project, name_to_domain_id, name_to_db_id, correlation_id)
 
+        decision, _ = self._conclude(project, context, task_service, name_to_domain_id, correlation_id)
+        self._db.commit()
+        return decision
+
+    def _conclude(
+        self,
+        project: ProjectModel,
+        context: dict,
+        task_service: TaskService,
+        name_to_domain_id: dict[str, str],
+        correlation_id: str,
+    ) -> tuple[DecisionModel, dict[str, str]]:
+        """Lo que sigue a la ejecución de las tareas, igual en una misión nueva y en una reanudada: la decisión
+        (completa, o REVIEW si faltan tareas), su aprobación si la pide y el estado del proyecto. Devuelve la decisión
+        y las tareas necesarias que NO se completaron (vacío = misión completa). No hace `commit`."""
         outputs = {
             name: task_service.get_task(name_to_domain_id[name]).output or {} for name in SPECIALIST_TASK_NAMES
         }
@@ -110,8 +160,200 @@ class CEOOrchestrator:
         self._maybe_create_approval(decision, context, correlation_id)
 
         project.status = _PROJECT_STATUS_BY_DECISION[DecisionStatus(decision.status)]
+        return decision, missing
+
+    # --- reanudar una misión (M50, Commit 9) -------------------------------------------------------------------------
+
+    def resume_project(
+        self, project_id: str, *, actor: str, after_decision_id: str, reason: str | None = None
+    ) -> DecisionModel:
+        """Reanuda la misión de un proyecto y devuelve la decisión NUEVA. Ver `resume_mission`."""
+        return self.resume_mission(
+            project_id, actor=actor, after_decision_id=after_decision_id, reason=reason
+        ).decision
+
+    def resume_mission(
+        self, project_id: str, *, actor: str, after_decision_id: str, reason: str | None = None
+    ) -> ResumeResult:
+        """REANUDAR ≠ CREAR UNA MISIÓN NUEVA: continúa el mismo objetivo y el mismo proyecto, con la misma correlación.
+        Libera lo que ya puede continuar, ejecuta SOLO lo pendiente (nunca repite una tarea COMPLETED), ejecuta la
+        síntesis cuando las cuatro especialistas están completas y escribe una decisión NUEVA: la anterior queda tal
+        cual. Si una tarea vuelve a fallar, lo completado se conserva, sus dependientes quedan bloqueados y la decisión
+        nueva es un REVIEW incompleto; una reanudación posterior continúa desde ahí.
+
+        Reanudar no reintenta ni reasigna (eso es `TaskRecoveryService`): con una tarea FAILED, un agente desconocido o
+        una desviación sin resolver se rechaza con un conflicto que nombra la tarea.
+
+        Concurrencia: bloquea la fila del PROYECTO (`SELECT … FOR UPDATE`) durante toda la operación y exige la decisión
+        que el cliente vio (`after_decision_id`). Quien llega segundo espera, ve la decisión nueva y se rechaza. Hace
+        `commit` al terminar; un rechazo confirma solo su evento `mission.resume_blocked`, y un error inesperado deshace
+        todo y deja solo `mission.resume_failed` (clase del error, nunca su mensaje)."""
+        self._assignments.require_authority(actor)
+        project = self._lock_project(project_id)
+        objective = self._db.get(ObjectiveModel, project.objective_id)
+        if objective is None:
+            raise NotFoundError(f"objective {project.objective_id} not found")
+        decisions = ordered_decisions(self._db, project.id)
+        view = load_mission(self._db, self._agent_manager, project.id)
+        correlation_id = decisions[0].correlation_id if decisions else new_correlation_id()
+        base = {"objective_id": objective.id, "project_id": project.id, "after_decision_id": after_decision_id}
+
+        previous = decisions[-1] if decisions else None
+        if previous is None:
+            self._refuse_resume(project, actor, correlation_id, base, "no_decision", "the project has no decision yet")
+        assert previous is not None
+        if previous.id != after_decision_id:
+            self._refuse_resume(
+                project,
+                actor,
+                correlation_id,
+                base,
+                "stale_decision",
+                f"stale resume: the current decision of project {project.id} is {previous.id}, "
+                f"not {after_decision_id}; read the mission again before resuming",
+            )
+        code, message = _resume_refusal(view)
+        if code is not None:
+            detail = {**base, "blockers": [blocker.as_audit() for blocker in view.blockers]}
+            self._refuse_resume(project, actor, correlation_id, detail, code, message)
+
+        resource = f"project:{project.id}"
+        pending = list(view.pending_tasks)
+        self._audit(
+            actor=actor,
+            action="mission.resume_requested",
+            resource=resource,
+            before=None,
+            after={**base, "reason": reason, "state": view.state.value, "pending_tasks": pending},
+            correlation_id=correlation_id,
+        )
+        executed: list[str] = []
+        try:
+            released = self._recovery.unblock_ready(project.id, correlation_id)
+            self._audit(
+                actor=actor,
+                action="mission.resume_started",
+                resource=resource,
+                before=None,
+                after={**base, "pending_tasks": pending, "unblocked": [task.name for task in released]},
+                correlation_id=correlation_id,
+            )
+            task_service, name_to_id = self._load_task_service(project.id)
+            self._execute_tasks(
+                task_service, project, name_to_id, name_to_id, correlation_id, executed=executed, resuming=True
+            )
+            context = objective.context or {}
+            decision, missing = self._conclude(project, context, task_service, name_to_id, correlation_id)
+            outcome = "incomplete" if missing else "complete"
+            after: dict[str, object] = {
+                "objective_id": objective.id,
+                "project_id": project.id,
+                "previous_decision_id": previous.id,
+                "previous_status": previous.status,
+                "decision_id": decision.id,
+                "decision_status": decision.status,
+                "executed_tasks": executed,
+                "outcome": outcome,
+            }
+            if missing:
+                after["failed_tasks"] = dict(missing)
+            self._audit(
+                actor=actor,
+                action="mission.resume_failed" if missing else "mission.resume_completed",
+                resource=resource,
+                before=None,
+                after=after,
+                correlation_id=correlation_id,
+            )
+            self._db.commit()
+        except Exception as exc:
+            self._db.rollback()
+            self._record_resume_error(project.id, actor, correlation_id, base, executed, exc)
+            raise
+        return ResumeResult(decision, previous.id, tuple(executed), outcome)
+
+    def _lock_project(self, project_id: str) -> ProjectModel:
+        project = self._db.execute(
+            select(ProjectModel)
+            .where(ProjectModel.id == project_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if project is None:
+            raise NotFoundError(f"project {project_id} not found")
+        return project
+
+    def _refuse_resume(
+        self, project: ProjectModel, actor: str, correlation_id: str, detail: dict, code: str, message: str
+    ) -> NoReturn:
+        """Un rechazo: confirma SOLO su evento `mission.resume_blocked` (libera el bloqueo) y responde con un
+        conflicto."""
+        self._audit(
+            actor=actor,
+            action="mission.resume_blocked",
+            resource=f"project:{project.id}",
+            before=None,
+            after={**detail, "reason": code, "message": message},
+            correlation_id=correlation_id,
+        )
         self._db.commit()
-        return decision
+        raise ConflictError(message)
+
+    def _record_resume_error(
+        self, project_id: str, actor: str, correlation_id: str, base: dict, executed: list[str], exc: Exception
+    ) -> None:
+        self._audit(
+            actor=actor,
+            action="mission.resume_failed",
+            resource=f"project:{project_id}",
+            before=None,
+            after={**base, "outcome": "error", "error_class": type(exc).__name__, "attempted_tasks": executed},
+            correlation_id=correlation_id,
+        )
+        self._db.commit()
+
+    def _load_task_service(self, project_id: str) -> tuple[TaskService, dict[str, str]]:
+        """El grafo en memoria de una misión YA persistida: mismos ids que las filas, mismo estado, mismas dependencias.
+        El número de intento sigue el del log, para que el próximo intento de una tarea nunca repita un número."""
+        rows = sorted(
+            self._db.scalars(
+                select(TaskModel).where(TaskModel.project_id == project_id).execution_options(populate_existing=True)
+            ).all(),
+            key=lambda row: PLAN_ORDER.index(row.name) if row.name in PLAN_ORDER else len(PLAN_ORDER),
+        )
+        ids = [row.id for row in rows]
+        parents: dict[str, list[str]] = {}
+        for parent_id, child_id in self._db.execute(
+            select(TaskDependencyModel.parent_task_id, TaskDependencyModel.child_task_id).where(
+                TaskDependencyModel.child_task_id.in_(ids)
+            )
+        ).all():
+            parents.setdefault(child_id, []).append(parent_id)
+        attempts = dict(
+            self._db.execute(
+                select(AgentExecutionLog.task_id, func.max(AgentExecutionLog.attempt))
+                .where(AgentExecutionLog.task_id.in_(ids))
+                .group_by(AgentExecutionLog.task_id)
+            ).all()
+        )
+        service = TaskService()
+        for row in rows:
+            service.load_task(
+                DomainTask(
+                    id=row.id,
+                    project_id=row.project_id,
+                    name=row.name,
+                    capability=row.capability,
+                    status=TaskStatus(row.status),
+                    depends_on=parents.get(row.id, []),
+                    input=row.input or {},
+                    output=row.output,
+                    error=row.error,
+                    assigned_agent_id=row.assigned_agent_id,
+                    retry_count=attempts.get(row.id) or 0,
+                )
+            )
+        return service, {row.name: row.id for row in rows}
 
     def _create_project(self, objective: ObjectiveModel, correlation_id: str) -> ProjectModel:
         project = ProjectModel(objective_id=objective.id, name=objective.title, status="VALIDATING")
@@ -236,7 +478,15 @@ class CEOOrchestrator:
         name_to_domain_id: dict[str, str],
         name_to_db_id: dict[str, str],
         correlation_id: str,
+        *,
+        executed: list[str] | None = None,
+        resuming: bool = False,
     ) -> None:
+        """Ejecuta lo que se puede ejecutar, en orden de dependencias. `executed` recoge, por orden, las tareas que se
+        ejecutaron. `resuming` (M50): al completarse una tarea, las BLOQUEADAS que esperaban solo a ella se liberan
+        para que esta misma pasada las ejecute; en una misión nueva no hay tareas bloqueadas por una dependencia que
+        se vaya a completar, así que no cambia nada."""
+        executed = executed if executed is not None else []
         domain_by_db_id = {name_to_db_id[name]: name_to_domain_id[name] for name in name_to_db_id}
         while True:
             runnable = task_service.get_runnable_tasks(project.id)
@@ -248,6 +498,7 @@ class CEOOrchestrator:
                 assert db_task is not None, f"task row for {domain_task.name!r} was not created"
 
                 if domain_task.capability == "decision_synthesis":
+                    executed.append(domain_task.name)
                     task_service.mark_running(domain_task.id)
                     db_task.status = ensure_transition(db_task.status, TaskStatus.RUNNING).value
                     task_service.mark_completed(domain_task.id, output={"synthesized": True})
@@ -270,6 +521,8 @@ class CEOOrchestrator:
 
                 agent_id = self._agent_for_attempt(db_task, domain_task, correlation_id)
                 attempt = domain_task.retry_count + 1
+                if domain_task.name not in executed:
+                    executed.append(domain_task.name)
                 task_service.mark_running(domain_task.id)
                 self._recovery.start_attempt(db_task, agent_id, attempt, correlation_id=correlation_id)
                 logged_before = len(self._agent_manager.execution_log)
@@ -328,6 +581,9 @@ class CEOOrchestrator:
                         payload={"task_id": db_task.id, "capability": domain_task.capability},
                     )
                 )
+                if resuming:
+                    for released in self._recovery.unblock_dependents(db_task, correlation_id):
+                        task_service.mark_pending(domain_by_db_id[released.id])
 
     def _block_dependents(
         self,

@@ -4,6 +4,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.orm import Session
 
+from app.agents.manager import AgentManager
+from app.api.tasks import get_agent_manager
+from app.ceo.mission import load_mission
 from app.core.errors import NotFoundError
 from app.db.models.project import Project as ProjectModel
 from app.db.session import get_db
@@ -32,6 +35,46 @@ class ProjectOut(BaseModel):
 @router.get("", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db)) -> list[ProjectModel]:
     return db.query(ProjectModel).order_by(ProjectModel.created_at.desc()).all()
+
+
+class BlockerOut(BaseModel):
+    task: str
+    reason: str
+
+
+class MissionOut(BaseModel):
+    """En qué punto está la misión de un proyecto (M50): solo lectura, no ejecuta ni cambia nada."""
+
+    project_id: str
+    #: `complete`, `ready_to_resume`, `recovery_pending`, `resuming`, `cancelled` o `inconsistent`.
+    state: str
+    resumable: bool
+    #: Se reanudó al menos una vez (el proyecto tiene más de una decisión).
+    resumed: bool
+    #: Lo que impide reanudar y alguien con autoridad tiene que resolver antes (vacío si se puede o está completa).
+    blockers: list[BlockerOut]
+    pending_tasks: list[str]
+    completed_tasks: list[str]
+    current_decision_id: str | None
+    decisions: int
+
+
+@router.get("/{project_id}/mission", response_model=MissionOut)
+def get_mission(
+    project_id: str, db: Session = Depends(get_db), manager: AgentManager = Depends(get_agent_manager)
+) -> MissionOut:
+    view = load_mission(db, manager, project_id)
+    return MissionOut(
+        project_id=project_id,
+        state=view.state.value,
+        resumable=view.resumable,
+        resumed=view.resumed,
+        blockers=[BlockerOut(**blocker.as_audit()) for blocker in view.blockers],
+        pending_tasks=list(view.pending_tasks),
+        completed_tasks=list(view.completed_tasks),
+        current_decision_id=view.current_decision_id,
+        decisions=view.decisions,
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectOut)

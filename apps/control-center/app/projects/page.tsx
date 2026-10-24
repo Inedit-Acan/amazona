@@ -1,6 +1,7 @@
 import { api } from "@/lib/api-server";
 import { type Agent, type AuditEntry, type Decision, type Project, type Task } from "@/lib/api";
 import type { ProjectSource, ReadName } from "@/lib/projects-view";
+import { currentDecision } from "@/lib/mission-state";
 import { settle } from "@/lib/revenue-view";
 import { PageHeader } from "@/components/page-header";
 import { ApiErrorAlert } from "@/components/api-error";
@@ -36,11 +37,14 @@ export default async function ProjectsPage({ searchParams }: PageProps<"/project
         settle<Task[]>(() => api.listTasks(project.id)),
         settle<Decision[]>(() => api.listDecisionsForProject(project.id)),
       ]);
-      const decision = decisionsRead.ok ? (decisionsRead.data[0] ?? null) : null;
+      // Una misión reanudada (M50) tiene más de una decisión: se enseña la vigente (`is_current`), no la primera de la lista. Con varias y
+      // ninguna marca única no se adivina: se anota como «no se pudo leer la decisión».
+      const picked = decisionsRead.ok ? currentDecision(decisionsRead.data) : null;
+      const decision = picked?.kind === "current" ? picked.decision : null;
       const auditRead = decision ? await settle<AuditEntry[]>(() => api.listAudit(decision.correlation_id)) : null;
       const unread: ReadName[] = [
         ...(tasksRead.ok ? [] : (["tasks"] as const)),
-        ...(decisionsRead.ok ? [] : (["decision"] as const)),
+        ...(decisionsRead.ok && picked?.kind !== "ambiguous" ? [] : (["decision"] as const)),
         ...(auditRead === null || auditRead.ok ? [] : (["audit"] as const)),
       ];
       return {

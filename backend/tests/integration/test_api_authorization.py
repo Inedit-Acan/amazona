@@ -41,6 +41,8 @@ MUTATING_ROUTES: list[tuple[str, str, dict, ApiAction]] = [
     # Reintentar o reasignar una tarea (M49, Commit 8): decisión del orquestador o de una persona con autoridad.
     ("POST", "/api/tasks/task-1/retry", {"after_attempt": 1}, ApiAction.TASK_RECOVER),
     ("POST", "/api/tasks/task-1/reassign", {"agent_id": "agent-product-1", "reason": "abc"}, ApiAction.TASK_RECOVER),
+    # Reanudar una misión tras recuperar sus tareas (M50, Commit 9): la misma autoridad que recuperarlas.
+    ("POST", "/api/objectives/obj-1/resume", {"after_decision_id": "d-1"}, ApiAction.TASK_RECOVER),
     ("POST", "/api/research/runs", {"category": "c", "keywords": [], "max_results": 1}, ApiAction.AGENT_RUN),
     # Comparar ejecuta los dos proveedores: es correr agentes (Milestone 35).
     ("POST", "/api/research/comparisons", {"category": "c"}, ApiAction.AGENT_RUN),
@@ -306,6 +308,7 @@ def test_the_route_table_covers_every_mutating_route():
         ("POST", "/api/approvals/{approval_id}/reject"),
         ("POST", "/api/tasks/{task_id}/retry"),
         ("POST", "/api/tasks/{task_id}/reassign"),
+        ("POST", "/api/objectives/{objective_id}/resume"),
         ("POST", "/api/research/runs"),
         ("POST", "/api/research/comparisons"),
         ("POST", "/api/sourcing/runs"),

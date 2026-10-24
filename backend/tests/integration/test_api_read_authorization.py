@@ -102,6 +102,8 @@ BUSINESS_ROUTES = [
     "/api/products/p-1/suppliers",
     "/api/projects",
     "/api/projects/proj-1",
+    # M50: en qué punto está la misión de un proyecto (solo lectura): dato de negocio, como sus tareas y decisiones.
+    "/api/projects/proj-1/mission",
     "/api/research/runs/cid-1",
     "/api/sourcing/runs/cid-1",
     # Milestone 39: la ficha de un proveedor es dato de negocio, como su
@@ -277,6 +279,7 @@ def test_the_inventory_covers_every_read_route():
         "/api/revenue/entries",
         "/api/projects",
         "/api/projects/{project_id}",
+        "/api/projects/{project_id}/mission",
         "/api/research/comparisons",
         "/api/research/comparisons/{comparison_id}",
         "/api/research/runs/{correlation_id}",

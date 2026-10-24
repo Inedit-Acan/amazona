@@ -1,6 +1,7 @@
 import type { Agent, Approval, Decision, Project, Task } from "./api.ts";
 import { approvalsContract } from "./ceo-block-contracts.ts";
 import { parseUtc } from "./dates.ts";
+import { currentDecision } from "./mission-state.ts";
 import { DOMAINS, domainOfRole, type DomainKey } from "./nexus-domains.ts";
 import { readList, type ReadState } from "./read-state.ts";
 
@@ -193,15 +194,16 @@ export async function readMission(source: MissionSource): Promise<MissionRead> {
     readList(() => source.listApprovals(), "las aprobaciones"),
   ]);
   const checked = decisionsContract(decisions);
-  const decision: ReadState<Decision> =
-    checked.kind === "loaded"
-      ? checked.data.length === 1
-        ? { kind: "loaded", data: checked.data[0] }
-        : { kind: "error", message: "La última misión tiene más de una decisión: no se sabe cuál enseñar." }
-      : checked.kind === "empty"
-        ? { kind: "empty" }
-        : checked;
+  const decision: ReadState<Decision> = checked.kind === "loaded" ? vigentDecision(checked.data) : checked.kind === "empty" ? { kind: "empty" } : checked;
   return { projects, project, decision, tasks: tasksContract(tasks), approval: approvalOfDecision(decision, approvalsContract(approvals)) };
+}
+
+/** Una misión reanudada (M50) tiene más de una decisión y el backend marca cuál es la vigente (`is_current`): esa es la que se enseña; la anterior
+ * sigue guardada. Con varias y ninguna marca única NO se adivina: es un error de contrato, no la primera de la lista. */
+function vigentDecision(decisions: Decision[]): ReadState<Decision> {
+  const current = currentDecision(decisions);
+  if (current.kind === "current") return { kind: "loaded", data: current.decision };
+  return { kind: "error", message: "La última misión tiene más de una decisión y ninguna está marcada como vigente: no se sabe cuál enseñar." };
 }
 
 /** La aprobación de la decisión: solo existe para una decisión que la pide. Un fallo de lectura es `error`, nunca «sin aprobación». */

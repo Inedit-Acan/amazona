@@ -26,6 +26,7 @@ export const OPERATIONS = {
   exchangeRatesBackfill: "exchange-rates.backfill",
   taskRetry: "task.retry",
   taskReassign: "task.reassign",
+  objectiveResume: "objective.resume",
 } as const;
 
 export type OperationName = (typeof OPERATIONS)[keyof typeof OPERATIONS];
@@ -72,4 +73,5 @@ export const KEYED_OPERATIONS: readonly KeyedOperation[] = [
   { operation: OPERATIONS.exchangeRatesBackfill, path: "/api/exchange-rates/backfill", kind: "generic", inInterface: false },
   { operation: OPERATIONS.taskRetry, path: "/api/tasks/{task_id}/retry", kind: "generic", inInterface: false },
   { operation: OPERATIONS.taskReassign, path: "/api/tasks/{task_id}/reassign", kind: "generic", inInterface: false },
+  { operation: OPERATIONS.objectiveResume, path: "/api/objectives/{objective_id}/resume", kind: "generic", inInterface: false },
 ];
