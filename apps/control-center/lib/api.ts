@@ -3,6 +3,7 @@ import { auditPath, type AuditQuery } from "@/lib/audit-query";
 import { revenuePath, type RevenueWindow } from "@/lib/revenue-query";
 import { assertRevenueEntries, assertRevenueSeries, assertRevenueSummary } from "@/lib/revenue-contract";
 import type { ReadinessReply } from "@/lib/backend-health";
+import type { CeoActionReply, CeoChatReply, CeoConversation, CeoConversationSummary } from "@/lib/ceo-chat";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -1626,6 +1627,17 @@ export interface NewOrder {
 }
 
 export const api = {
+  // --- La conversación escrita con el CEO (M52) ---
+  // Enviar un mensaje y confirmar una propuesta llevan la clave de su intención (obligatoria el confirmar). Rechazar es una transición con
+  // compare-and-set: no lleva clave. El modelo no confirma nada: confirmar es esta llamada, hecha por el propietario desde una tarjeta.
+  sendCeoChat: (payload: { message: string; conversation_id?: string | null }, idempotencyKey: string) =>
+    request<CeoChatReply>("/api/ceo/chat", keyed({ method: "POST", body: JSON.stringify(payload) }, { idempotencyKey })),
+  listCeoConversations: () => request<CeoConversationSummary[]>("/api/ceo/conversations"),
+  getCeoConversation: (conversationId: string) => request<CeoConversation>(`/api/ceo/conversations/${conversationId}`),
+  confirmCeoAction: (proposalId: string, idempotencyKey: string) =>
+    request<CeoActionReply>(`/api/ceo/actions/${proposalId}/confirm`, keyed({ method: "POST" }, { idempotencyKey })),
+  rejectCeoAction: (proposalId: string) => request<CeoActionReply>(`/api/ceo/actions/${proposalId}/reject`, { method: "POST" }),
+
   // --- Pedidos, pagos, reembolsos y fulfillments (Milestone 44) ---
   // Las operaciones con efecto reciben la clave de la intención como parámetro **obligatorio**: el tipo impide llamarlas
   // sin pensar de dónde sale (`lib/use-intent.ts`). Las transiciones de estado (entregar, cancelar, abandonar) no la

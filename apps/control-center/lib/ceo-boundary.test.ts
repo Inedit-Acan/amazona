@@ -134,15 +134,46 @@ test("el CEO IA no dice «Online», «Escuchando», ni enseña ondas, mensajes, 
   assert.match(panel, /<TabsTrigger value="voz"[^>]*>\s*<Mic aria-hidden/);
 });
 
-test("todo lo funcional del CEO IA está deshabilitado y dice «No disponible»", () => {
+test("Voz y Pantalla siguen deshabilitadas y dicen «No disponible»; el Chat es el chat real (M52)", () => {
   const panel = code("components/ceo/ceo-assistant-panel.tsx");
-  assert.match(panel, /<input[\s\S]*?\bdisabled\b/);
   const buttons = [...panel.matchAll(/<Button\b[^>]*>/g)].map((m) => m[0]);
-  assert.ok(buttons.length >= 3);
+  assert.ok(buttons.length >= 2);
   for (const button of buttons) assert.match(button, /\bdisabled\b/, `botón activo en el panel: ${button}`);
-  assert.equal([...panel.matchAll(/<Unavailable>/g)].length, 3, "Chat, Voz y Pantalla");
-  assert.match(panel, /No disponible/);
-  for (const reason of ["chat", "voice", "screen"]) assert.match(panel, new RegExp(`ASSISTANT_REASONS\\.${reason}`));
+  assert.equal([...panel.matchAll(/<Unavailable>/g)].length, 2, "Voz y Pantalla");
+  assert.match(panel, /No disponible|READ_UNAVAILABLE_VALUE/);
+  for (const reason of ["voice", "screen"]) assert.match(panel, new RegExp(`ASSISTANT_REASONS\.${reason}`));
+  assert.doesNotMatch(panel, /ASSISTANT_REASONS\.chat/, "el chat ya no es «no disponible»");
+  assert.match(panel, /<TabsContent value="chat"[^>]*>\s*<CeoChat \/>/);
+});
+
+test("el chat con el CEO no confirma nada por su cuenta: confirmar y rechazar son solo los botones de una tarjeta", () => {
+  const chat = code("components/ceo/ceo-chat.tsx");
+  // La confirmación se hace en un único sitio, y solo la dispara el clic de «Confirmar».
+  assert.equal([...chat.matchAll(/api\.confirmCeoAction\(/g)].length, 1);
+  assert.equal([...chat.matchAll(/api\.rejectCeoAction\(/g)].length, 1);
+  assert.match(chat, /onClick=\{\(\) => onConfirm\(proposal\)\}/);
+  assert.match(chat, /onClick=\{\(\) => onReject\(proposal\)\}/);
+  // El texto del modelo se enseña como TEXTO: ni HTML, ni evaluación, ni confirmar al recibir una respuesta.
+  assert.doesNotMatch(chat, /dangerouslySetInnerHTML|innerHTML|\beval\(|new Function/);
+  assert.doesNotMatch(chat, /useEffect\([^)]*confirm/);
+  // La conversación vive en el servidor: nada de guardarla en el navegador.
+  assert.doesNotMatch(chat, /localStorage|sessionStorage|indexedDB/);
+  // Mismas palabras prohibidas que el panel (no finge audio ni presencia).
+  assert.doesNotMatch(chat, FORBIDDEN_ASSISTANT_TEXT);
+});
+
+test("el chat enseña la tarjeta con motivo, efecto, riesgo, coste externo y Confirmar / Rechazar, y el estado «CEO analizando»", () => {
+  const chat = code("components/ceo/ceo-chat.tsx");
+  for (const piece of ["Confirmar", "Rechazar", "CEO analizando", "RISK_LABELS", "estimated_effects", "Coste externo", "costLabel", "sourcesLabel"]) {
+    assert.match(chat, new RegExp(piece), piece);
+  }
+  assert.match(chat, /role="log"/);
+  assert.match(chat, /data-chat-failure/, "si el modelo cae, el aviso está y el resto del panel sigue");
+});
+
+test("el chat con el CEO no tiene ningún control de voz", () => {
+  const chat = code("components/ceo/ceo-chat.tsx");
+  assert.doesNotMatch(chat, /\bMic\b|MicOff|voz|Voz|speech|audio/i);
 });
 
 test("ningún componente del Director ejecutivo toca micrófono, audio, reconocimiento de voz ni captura de pantalla", () => {

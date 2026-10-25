@@ -25,7 +25,7 @@ export function AssistantDrawer() {
       <SheetContent side="right" className="w-full gap-0 p-3 sm:max-w-md">
         <SheetTitle className="sr-only">CEO IA</SheetTitle>
         <SheetDescription className="sr-only">
-          Panel del CEO IA: chat, voz y pantalla. Hoy ninguna de las tres capacidades está disponible.
+          Panel del CEO IA: chat escrito con el CEO, que lee el estado guardado y propone acciones que confirma el propietario. Voz y pantalla no están disponibles.
         </SheetDescription>
         <CeoAssistantPanel />
       </SheetContent>

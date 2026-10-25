@@ -1,18 +1,14 @@
-import { Brain, CircleSlash, MessageSquare, Mic, MicOff, Monitor, Send } from "lucide-react";
-import { LevelChip } from "@/components/level-chip";
+import { Brain, CircleSlash, MessageSquare, Mic, MicOff, Monitor } from "lucide-react";
+import { CeoChat } from "@/components/ceo/ceo-chat";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { READ_UNAVAILABLE_VALUE } from "@/lib/read-state";
 
-/** El panel del CEO IA (M47, Commit 2): el ESQUELETO visual del mockup —cabecera, pestañas Chat / Voz / Pantalla, controles y caja
- * de mensaje— para validar proporciones, sticky y drawer. TODO lo funcional dice que no está disponible, porque hoy no existe
- * ninguna infraestructura: el backend no tiene un servicio de conversación (el CEO decide con reglas deterministas, sin modelo),
- * ni historial, ni reconocimiento ni síntesis de voz, ni captura de pantalla. Por eso aquí NO hay «Online», ni «Escuchando…»,
- * ni ondas de audio, ni mensajes, ni respuestas, ni historial, ni micrófono activo. Los Commits 7 y posteriores lo sustituirán
- * cuando exista algo real que enseñar. */
+/** El panel del CEO IA. Chat (M52): conversación escrita con el CEO, que lee el estado real y PROPONE acciones que el propietario confirma
+ * (`CeoChat`). Voz y Pantalla siguen sin existir: ni reconocimiento ni síntesis de voz, ni captura de pantalla, y por eso aquí NO hay «Online»,
+ * ni «Escuchando…», ni ondas de audio, ni micrófono activo. La voz es de un commit posterior. */
 
 export const ASSISTANT_REASONS = {
-  chat: "El backend no tiene un servicio de conversación con el CEO: no hay modelo, ni historial, ni contexto de chat. Hoy el CEO decide con reglas deterministas.",
   voice: "No existe infraestructura de voz: ni reconocimiento ni síntesis, ni micrófono conectado a un servicio.",
   screen: "No existe compartir pantalla ni contexto de pantalla.",
 } as const;
@@ -40,10 +36,6 @@ export function CeoAssistantPanel() {
           <h2 className="font-heading text-base font-semibold">CEO IA</h2>
           <p className="truncate text-xs text-muted-foreground">Asistente del Director ejecutivo</p>
         </div>
-        <LevelChip tone="neutral" className="shrink-0 gap-1">
-          <CircleSlash aria-hidden className="size-3" />
-          No disponible
-        </LevelChip>
       </header>
 
       <Tabs defaultValue="chat" className="min-h-0 flex-1">
@@ -59,8 +51,8 @@ export function CeoAssistantPanel() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="chat" className="min-h-0 flex-1 overflow-y-auto">
-          <Unavailable>{ASSISTANT_REASONS.chat}</Unavailable>
+        <TabsContent value="chat" className="min-h-0 flex-1">
+          <CeoChat />
         </TabsContent>
 
         <TabsContent value="voz" className="min-h-0 flex-1 overflow-y-auto">
@@ -85,19 +77,6 @@ export function CeoAssistantPanel() {
           <Unavailable>{ASSISTANT_REASONS.screen}</Unavailable>
         </TabsContent>
       </Tabs>
-
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          disabled
-          aria-label="Mensaje para el CEO IA (no disponible)"
-          placeholder="Chat no disponible"
-          className="h-9 min-w-0 flex-1 rounded-lg border bg-background px-3 text-sm placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
-        />
-        <Button type="button" size="icon" disabled aria-label="Enviar mensaje (no disponible)" title={ASSISTANT_REASONS.chat}>
-          <Send aria-hidden />
-        </Button>
-      </div>
     </div>
   );
 }

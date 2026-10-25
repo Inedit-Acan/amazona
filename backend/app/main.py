@@ -13,6 +13,7 @@ from app.api import (
     approvals,
     audit,
     budget,
+    ceo_chat,
     cfo,
     costs,
     decisions,
@@ -306,3 +307,6 @@ app.include_router(payments.router)
 # Fault injection de ENSAYO (M51A): solo existe con la funcionalidad activada en un desarrollo simulado; si no, 404 a
 # todo el mundo. Su propia puerta (404 y luego ApiAction.FAULT_INJECT), sin el BUSINESS de los demás.
 app.include_router(fault_injection.router)
+# La conversación escrita con el CEO (M52): solo el propietario verificado. Su propia puerta (`authorize_owner`), sin el
+# BUSINESS de los demás.
+app.include_router(ceo_chat.router)

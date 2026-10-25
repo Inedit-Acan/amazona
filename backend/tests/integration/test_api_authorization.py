@@ -281,6 +281,15 @@ def call(client: TestClient, route, token: str | None = None):
 
 SIGNED_WEBHOOKS = {("POST", "/api/payments/webhooks/{provider}")}
 TEST_SUPPORT_ROUTES = {("POST", "/api/test-support/faults")}
+#: La conversación con el CEO (M52) tiene su `ApiAction` (`CEO_CHAT`), pero su puerta no es la tabla de roles: exige una
+#: identidad VERIFICADA con rol OWNER
+#: también en desarrollo y 403 a ADMIN (que tiene todas las acciones). Es una excepción nombrada; `test_api_ceo_chat.py`
+#: prueba su 401, su 403 y su política.
+CEO_CHAT_ROUTES = {
+    ("POST", "/api/ceo/chat"),
+    ("POST", "/api/ceo/actions/{proposal_id}/confirm"),
+    ("POST", "/api/ceo/actions/{proposal_id}/reject"),
+}
 
 
 # --- El inventario no se queda atrás -----------------------------------------
@@ -309,6 +318,8 @@ def test_the_route_table_covers_every_mutating_route():
     # prueba su 404, su 401 y su política.
     assert TEST_SUPPORT_ROUTES <= actual
     actual = actual - TEST_SUPPORT_ROUTES
+    assert CEO_CHAT_ROUTES <= actual
+    actual = actual - CEO_CHAT_ROUTES
     # The table uses concrete ids; compare on the templated form.
     templated = {
         ("POST", "/api/objectives"),

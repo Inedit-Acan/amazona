@@ -54,12 +54,18 @@ CLASSIFICATION: dict[str, str] = {
     # Reanudar una misión (M50): repetir la petición no vuelve a ejecutar ni a decidir.
     "/api/objectives/{objective_id}/resume": GENERIC,
     "/api/tasks/{task_id}/retry": GENERIC,
+    # La conversación con el CEO (M52): repetir un mensaje no vuelve a llamar al modelo (ni a gastar), y confirmar una
+    # propuesta no la ejecuta dos veces.
+    "/api/ceo/chat": GENERIC,
+    "/api/ceo/actions/{proposal_id}/confirm": GENERIC,
     # Su recurso ya tiene clave.
     "/api/pipeline/runs": OWN_KEY,
     "/api/jobs": OWN_KEY,
     # Transiciones de estado con compare-and-set.
     "/api/approvals/{approval_id}/approve": STATE,
     "/api/approvals/{approval_id}/reject": STATE,
+    # Rechazar una propuesta del CEO (M52): compare-and-set `PROPOSED → REJECTED`; repetirlo es un 409.
+    "/api/ceo/actions/{proposal_id}/reject": STATE,
     "/api/incidents/{incident_id}/resolve": STATE,
     "/api/jobs/{job_id}/cancel": STATE,
     "/api/jobs/{job_id}/requeue": STATE,

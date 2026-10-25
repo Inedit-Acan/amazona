@@ -2,7 +2,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.costs.policy import SpendLimit
@@ -210,6 +210,40 @@ class Settings(BaseSettings):
     #: recuperación. **Apagado por defecto** y, encendido, solo donde ya es seguro hacer pruebas (ver
     #: `fault_injection_allowed`): en cualquier otro entorno el arranque FALLA. No es una capacidad de producción.
     fault_injection_enabled: bool = False
+
+    #: El chat escrito con el CEO (M52). **Apagado por defecto**: `none` = sin proveedor, el chat dice que no está
+    #: disponible y el resto del panel
+    #: sigue funcionando. Un proveedor real exige elegirlo (`anthropic`), un modelo EXPLÍCITO (no hay modelo por
+    #: defecto: no se gasta por descuido)
+    #: y la clave en `ANTHROPIC_API_KEY` (un secreto: nunca en el repositorio ni en los registros).
+    ceo_chat_provider: str = "none"
+    ceo_chat_model: str = ""
+    anthropic_api_key: SecretStr | None = None
+    #: Guardas de coste y de bucle (M52). Entrada máxima en caracteres (contexto + historial + mensaje), salida máxima
+    #: en tokens, tiempo máximo de una
+    #: llamada, rondas máximas de herramientas por mensaje (un modelo que pide herramientas sin parar no es un bucle
+    #: infinito) y propuestas máximas
+    #: por mensaje.
+    ceo_chat_max_input_chars: int = 16000
+    ceo_chat_max_output_tokens: int = 1024
+    ceo_chat_timeout_seconds: float = 30.0
+    ceo_chat_max_tool_rounds: int = 5
+    ceo_chat_max_proposals_per_turn: int = 3
+    ceo_chat_history_messages: int = 20
+    #: Tarifa en dólares por millón de tokens, SOLO para estimar el coste de una consulta. Sin tarifa el coste es «no
+    #: estimado» (nunca un cero inventado).
+    ceo_chat_price_input_per_mtok: float | None = None
+    ceo_chat_price_output_per_mtok: float | None = None
+
+    @property
+    def ceo_chat_available(self) -> bool:
+        """¿Hay un proveedor del chat configurado de verdad? Solo si se eligió uno, con modelo y clave."""
+        return (
+            self.ceo_chat_provider == "anthropic"
+            and bool(self.ceo_chat_model.strip())
+            and self.anthropic_api_key is not None
+            and bool(self.anthropic_api_key.get_secret_value().strip())
+        )
 
     @property
     def fault_injection_environment_ok(self) -> bool:

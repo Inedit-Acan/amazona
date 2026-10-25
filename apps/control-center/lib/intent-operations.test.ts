@@ -62,6 +62,7 @@ test("el cliente lanza hoy desde la interfaz las operaciones que el catálogo di
       "../app/research/research-workspace.tsx",
       "../components/regulatory-panel.tsx",
       "../components/national-transpositions.tsx",
+      "../components/ceo/ceo-chat.tsx",
     ].map((file) => readFile(new URL(file, import.meta.url), "utf8")),
   );
   const joined = sources.join("\n");

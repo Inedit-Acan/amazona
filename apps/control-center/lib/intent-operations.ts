@@ -27,6 +27,8 @@ export const OPERATIONS = {
   taskRetry: "task.retry",
   taskReassign: "task.reassign",
   objectiveResume: "objective.resume",
+  ceoChat: "ceo.chat",
+  ceoConfirm: "ceo.confirm",
 } as const;
 
 export type OperationName = (typeof OPERATIONS)[keyof typeof OPERATIONS];
@@ -74,4 +76,6 @@ export const KEYED_OPERATIONS: readonly KeyedOperation[] = [
   { operation: OPERATIONS.taskRetry, path: "/api/tasks/{task_id}/retry", kind: "generic", inInterface: false },
   { operation: OPERATIONS.taskReassign, path: "/api/tasks/{task_id}/reassign", kind: "generic", inInterface: false },
   { operation: OPERATIONS.objectiveResume, path: "/api/objectives/{objective_id}/resume", kind: "generic", inInterface: false },
+  { operation: OPERATIONS.ceoChat, path: "/api/ceo/chat", kind: "generic", inInterface: true },
+  { operation: OPERATIONS.ceoConfirm, path: "/api/ceo/actions/{proposal_id}/confirm", kind: "generic", inInterface: true },
 ];

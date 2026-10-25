@@ -222,6 +222,13 @@ def _api_routes(router) -> list[APIRoute]:
 # --- El inventario no se queda atrás -----------------------------------------
 
 
+#: Las lecturas de la conversación con el CEO (M52): conversaciones PRIVADAS de su propietario, con otra puerta
+#: (identidad verificada + rol OWNER, también en
+#: desarrollo; ni siquiera ADMIN ni los lectores de negocio). Excepción nombrada; `test_api_ceo_chat.py` prueba su 401,
+#: su 403 y que no se mezclan usuarios.
+CEO_CHAT_READ_ROUTES = {"/api/ceo/conversations", "/api/ceo/conversations/{conversation_id}"}
+
+
 def test_the_inventory_covers_every_read_route():
     """Un GET nuevo obliga a decidir su categoría. Es la diferencia entre una
     política y una costumbre."""
@@ -289,7 +296,8 @@ def test_the_inventory_covers_every_read_route():
         "/api/tasks",
     }
 
-    assert actual == declared
+    assert CEO_CHAT_READ_ROUTES <= actual
+    assert actual - CEO_CHAT_READ_ROUTES == declared
     assert len(BUSINESS_ROUTES) + len(AUDIT_ROUTES) + len(DIAGNOSTIC_ROUTES) + len(PUBLIC_ROUTES) == len(declared)
 
 

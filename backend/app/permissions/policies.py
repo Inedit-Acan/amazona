@@ -102,6 +102,11 @@ class ApiAction(StrEnum):
     #: Armar un fallo de ENSAYO en una tarea (M51A). Solo OWNER/ADMIN, y la ruta solo existe con la funcionalidad
     #: activada en un desarrollo simulado (`Settings.fault_injection_allowed`).
     FAULT_INJECT = "fault.inject"
+    #: Hablar con el CEO por escrito y confirmar o rechazar lo que propone (M52). Es del PROPIETARIO: el rol se
+    #: comprueba además de forma explícita
+    #: (`app.api.ceo_chat.authorize_owner`), porque `authorize` solo hace cumplir roles en staging y production y ADMIN
+    #: recibe todas las acciones.
+    CEO_CHAT = "ceo.chat"
     #: Crear un pedido (Milestone 44, ADR 0028). Lo crea una persona con permiso, o el CLI en una simulación;
     #: cuando exista la web pública lo creará una identidad de sistema. Distinto de cobrar, devolver o enviar.
     ORDER_WRITE = "order.write"

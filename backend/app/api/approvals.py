@@ -1,5 +1,6 @@
 import datetime
 from collections.abc import Iterable
+from decimal import Decimal
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends
@@ -233,3 +234,19 @@ def _resolve(
     db.commit()
     db.refresh(approval)
     return approval
+
+
+def resolve_approval(
+    approval_id: str, decision: Literal["approve", "reject"], db: Session, identity: Actor, settings: Settings
+) -> ApprovalModel:
+    """Aprobar o rechazar una aprobación PENDIENTE: la MISMA resolución que las rutas `/approve` y `/reject`
+    (compare-and-set, liquidación de la reserva,
+    auditoría). Es la entrada pública para quien ejecuta la decisión sin pasar por HTTP (la confirmación de una
+    propuesta del chat con el CEO)."""
+    return _resolve(approval_id, "APPROVED" if decision == "approve" else "REJECTED", db, identity, None, settings)
+
+
+def reserved_for_approval(db: Session, approval_id: str) -> Decimal:
+    """Lo que esta aprobación tiene reservado y sin liquidar en el libro (solo lectura): lo que aprobar compromete
+    y rechazar libera."""
+    return BudgetLedgerService(db).outstanding(f"approval:{approval_id}")
