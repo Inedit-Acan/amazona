@@ -50,6 +50,12 @@ MAX_USER_CHARS = 2000
 TRUNCATED = "[recortado]"
 #: Lo que un resultado de herramienta puede ocupar en la petición al modelo.
 MAX_TOOL_RESULT_CHARS = 8000
+#: El modelo se quedó sin `max_tokens` (el pensamiento también cuenta): lo que haya dicho NO es una respuesta completa.
+OUTPUT_LIMIT_NOTE = (
+    "Respuesta incompleta: el modelo alcanzó el límite de salida antes de terminar. "
+    "Reformula la pregunta de forma más concreta."
+)
+MODEL_REFUSAL = "No puedo responder a esta consulta: el modelo la ha rechazado. Reformúlala o acótala."
 TOOL_ROUNDS_EXCEEDED = (
     "He necesitado demasiadas consultas de herramientas para responder y me he detenido. "
     "Reformula la pregunta o acótala (por ejemplo, nombra la misión o la tarea)."
@@ -236,9 +242,21 @@ class CEOChatService:
                     tools=specs,
                     max_output_tokens=self.settings.ceo_chat_max_output_tokens,
                     timeout_seconds=self.settings.ceo_chat_timeout_seconds,
+                    effort=self.settings.ceo_chat_effort,
                 )
             )
             totals.add(response)
+            # Antes que nada, el motivo de parada: una llamada a herramienta cortada por el límite puede estar truncada
+            # y NO se ejecuta.
+            if response.stop_reason == "max_tokens":
+                totals.stopped = "max_output_tokens"
+                partial = response.text.strip()
+                final = f"{partial}\n\n{OUTPUT_LIMIT_NOTE}" if partial else OUTPUT_LIMIT_NOTE
+                break
+            if response.stop_reason == "refusal":
+                totals.stopped = "refusal"
+                final = MODEL_REFUSAL
+                break
             if not response.tool_calls:
                 final = response.text
                 break
@@ -247,7 +265,15 @@ class CEOChatService:
                 final = TOOL_ROUNDS_EXCEEDED
                 break
             totals.tool_rounds += 1
-            messages = [*messages, ModelMessage("assistant", response.text, tool_calls=response.tool_calls)]
+            messages = [
+                *messages,
+                ModelMessage(
+                    "assistant",
+                    response.text,
+                    tool_calls=response.tool_calls,
+                    content_blocks=response.content_blocks,
+                ),
+            ]
             for call in response.tool_calls:
                 content = self._run_tool(actor, conversation, call, totals, correlation_id)
                 messages.append(ModelMessage("tool_result", content, tool_call_id=call.id))

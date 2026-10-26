@@ -16,6 +16,7 @@ Ninguna excepción de este módulo lleva la clave ni el cuerpo de la respuesta d
 `ModelUnavailableError` con un texto fijo.
 """
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -56,6 +57,10 @@ class ModelMessage:
     content: str
     tool_calls: tuple[ToolCall, ...] = ()
     tool_call_id: str | None = None
+    #: Los bloques del turno del asistente EXACTAMENTE como los devolvió el modelo (`thinking`, `redacted_thinking`,
+    #: `text`, `tool_use`…), en su orden. Solo viven en memoria durante el ciclo de herramientas: al devolver un
+    #: `tool_result` el modelo necesita ver su razonamiento tal cual (con su firma). Nunca se guardan ni se enseñan.
+    content_blocks: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,8 @@ class ModelRequest:
     tools: list[ModelToolSpec]
     max_output_tokens: int
     timeout_seconds: float
+    #: `low` / `medium` / `high`, o `None` para no mandarlo.
+    effort: str | None = None
 
 
 @dataclass(frozen=True)
@@ -81,6 +88,9 @@ class ModelResponse:
     provider: str
     model: str
     stop_reason: str | None = None
+    #: Los bloques de la respuesta tal cual llegaron (ver `ModelMessage.content_blocks`). Vacío en un proveedor que no
+    #: los tiene.
+    content_blocks: tuple[dict[str, Any], ...] = ()
     #: De dónde sale el coste de esta consulta (categoría de gasto de IA, separada del gasto comercial y del cash).
     cost_category: str = "claude_credits"
     extra: dict[str, Any] = field(default_factory=dict)
@@ -107,7 +117,10 @@ def _to_wire(messages: list[ModelMessage]) -> list[dict[str, Any]]:
             pending.append({"type": "tool_result", "tool_use_id": message.tool_call_id, "content": message.content})
             continue
         flush()
-        if message.role == "assistant" and message.tool_calls:
+        if message.role == "assistant" and message.tool_calls and message.content_blocks:
+            # Los bloques del modelo, completos, inalterados y en su orden: nada se resume, se reescribe ni se reordena.
+            wire.append({"role": "assistant", "content": copy.deepcopy(list(message.content_blocks))})
+        elif message.role == "assistant" and message.tool_calls:
             blocks: list[dict[str, Any]] = []
             if message.content:
                 blocks.append({"type": "text", "text": message.content})
@@ -144,6 +157,8 @@ class AnthropicMessagesProvider:
             "system": request.system,
             "messages": _to_wire(request.messages),
         }
+        if request.effort:
+            body["output_config"] = {"effort": request.effort}
         if request.tools:
             body["tools"] = [
                 {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
@@ -172,10 +187,17 @@ class AnthropicMessagesProvider:
         try:
             data = response.json()
             blocks = data["content"]
+            if not isinstance(blocks, list):
+                raise ValueError("content is not a list")
             usage = data.get("usage") or {}
             text_parts: list[str] = []
             calls: list[ToolCall] = []
+            raw: list[dict[str, Any]] = []
             for block in blocks:
+                # Por `type`, nunca por posición: con el pensamiento activado el primer bloque suele ser un `thinking`.
+                # El texto visible sale SOLO de los bloques `text`; todo bloque se conserva tal cual para el ciclo de
+                # herramientas.
+                raw.append(copy.deepcopy(block))
                 if block.get("type") == "text":
                     text_parts.append(str(block.get("text", "")))
                 elif block.get("type") == "tool_use":
@@ -190,6 +212,7 @@ class AnthropicMessagesProvider:
                 provider=self.name,
                 model=self.model,
                 stop_reason=data.get("stop_reason"),
+                content_blocks=tuple(raw),
             )
         except (KeyError, TypeError, ValueError, AttributeError):
             raise ModelUnavailableError("the model provider returned an unreadable answer") from None

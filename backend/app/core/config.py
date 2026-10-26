@@ -1,6 +1,7 @@
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -230,6 +231,10 @@ class Settings(BaseSettings):
     ceo_chat_max_tool_rounds: int = 5
     ceo_chat_max_proposals_per_turn: int = 3
     ceo_chat_history_messages: int = 20
+    #: Esfuerzo del modelo (`output_config.effort`). Lista CERRADA: cualquier otro valor hace fallar la configuración al
+    #: arrancar. `medium` para empezar (un chat con herramientas de varios pasos): primero se mide precisión, coste y
+    #: latencia. El pensamiento del modelo es el adaptativo por defecto (no se envía `thinking`).
+    ceo_chat_effort: Literal["low", "medium", "high"] = "medium"
     #: Tarifa en dólares por millón de tokens, SOLO para estimar el coste de una consulta. Sin tarifa el coste es «no
     #: estimado» (nunca un cero inventado).
     ceo_chat_price_input_per_mtok: float | None = None
